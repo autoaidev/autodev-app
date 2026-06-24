@@ -30,7 +30,7 @@ _M1–M9 complete + Sessions tab. App runs end-to-end: start/stop loops, live ou
 - [x] M7 pixel-office: connect via `--setup-url`/`--connect`; show online state
 - [x] M8 Live output + TODO viewer; hooks-events activity stream
 - [x] M9 Export/Import agent (backup ZIP) from the UI
-- [ ] M10 Packaging: electron-builder (AppImage/deb), app icon, auto-update later
+- [x] M10 Packaging: electron-builder (AppImage/deb), app icon, auto-update later
 - [ ] M11 Polish: theming, multi-agent run, settings, logs
 
 ## Rules
