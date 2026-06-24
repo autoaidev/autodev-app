@@ -30,10 +30,38 @@ export function resolveCliJs(): string | null {
   return null
 }
 
-/** Node executable to run the CLI with (Electron bundles its own node via process.execPath + ELECTRON_RUN_AS_NODE). */
-export function nodeRunner(): { cmd: string; baseEnv: NodeJS.ProcessEnv } {
-  return {
-    cmd: process.execPath,
-    baseEnv: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' }
+import { execFileSync } from 'child_process'
+
+let _systemNode: string | null | undefined
+
+/**
+ * Locate a SYSTEM Node ≥ 22 binary. Electron's bundled node (process.execPath +
+ * ELECTRON_RUN_AS_NODE) is Node 20, which lacks `node:sqlite` (Node 22.5+) — so
+ * opencode session/export features silently fail when the CLI runs under it.
+ * Prefer a real system node so the CLI runs in its native environment; fall back
+ * to Electron's node if none is found (claude/copilot still work).
+ */
+function findSystemNode(): string | null {
+  if (_systemNode !== undefined) return _systemNode
+  const candidates = [process.env['AUTODEV_NODE'], '/usr/bin/node', '/usr/local/bin/node', 'node']
+  for (const c of candidates) {
+    if (!c) continue
+    try {
+      const v = execFileSync(c, ['-v'], { encoding: 'utf8' }).trim() // e.g. v22.22.2
+      const major = parseInt(v.replace(/^v/, '').split('.')[0], 10)
+      if (major >= 22) { _systemNode = c; return c }
+    } catch { /* not present */ }
   }
+  _systemNode = null
+  return null
+}
+
+/** Node executable + env to run the `autodev` CLI with. */
+export function nodeRunner(): { cmd: string; baseEnv: NodeJS.ProcessEnv } {
+  const sys = findSystemNode()
+  if (sys) {
+    return { cmd: sys, baseEnv: { ...process.env, NODE_NO_WARNINGS: '1' } }
+  }
+  // Fallback: Electron's bundled node (no node:sqlite — opencode portability degraded).
+  return { cmd: process.execPath, baseEnv: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' } }
 }
