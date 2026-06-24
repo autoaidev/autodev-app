@@ -34,6 +34,6 @@ export function resolveCliJs(): string | null {
 export function nodeRunner(): { cmd: string; baseEnv: NodeJS.ProcessEnv } {
   return {
     cmd: process.execPath,
-    baseEnv: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+    baseEnv: { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_NO_WARNINGS: '1' }
   }
 }

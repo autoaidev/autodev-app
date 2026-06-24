@@ -18,7 +18,7 @@ const PROVIDERS = ['claude-cli', 'claude-tui', 'copilot-cli', 'copilot-sdk', 'op
 export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [tab, setTab] = useState<'overview' | 'output' | 'todo' | 'config'>('overview')
+  const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
   const [creating, setCreating] = useState(false)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const logsRef = useRef<Map<string, string>>(new Map())
@@ -108,7 +108,7 @@ export default function App(): JSX.Element {
             </div>
 
             <div className="tabs">
-              {(['overview', 'output', 'todo', 'config'] as const).map((t) => (
+              {(['overview', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
                 <div key={t} className={'tab' + (tab === t ? ' active' : '')} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</div>
               ))}
             </div>
@@ -116,6 +116,7 @@ export default function App(): JSX.Element {
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
               {tab === 'output' && <Output key={logTick} text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
+              {tab === 'sessions' && <SessionsTab path={current.path} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
@@ -150,6 +151,39 @@ function Output({ text }: { text: string }): JSX.Element {
   const ref = useRef<HTMLPreElement>(null)
   useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [text])
   return <pre className="output" ref={ref}>{text}</pre>
+}
+
+interface SessionInfo { provider: string; id: string; name: string; updated: number }
+function SessionsTab({ path }: { path: string }): JSX.Element {
+  const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
+  const load = useCallback(() => {
+    setSessions(null)
+    window.api.runCli(['sessions', path, '--json']).then((r) => {
+      try { setSessions(JSON.parse(r.stdout || '[]')) } catch { setSessions([]) }
+    })
+  }, [path])
+  useEffect(() => { load() }, [load])
+  if (sessions === null) return <div style={{ color: 'var(--fg2)' }}>Loading sessions…</div>
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 12 }}>
+        <strong>{sessions.length} session{sessions.length === 1 ? '' : 's'}</strong>
+        <div className="spacer" />
+        <button onClick={load}>↻ Refresh</button>
+      </div>
+      {sessions.length === 0 && <div style={{ color: 'var(--fg2)' }}>No inspectable sessions for this workspace yet.</div>}
+      {sessions.map((s) => (
+        <div className="card" key={s.provider + s.id} style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span className="badge">{s.provider}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>{s.name}</div>
+            <div style={{ color: 'var(--fg2)', fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{s.id}</div>
+          </div>
+          <div style={{ color: 'var(--fg2)', fontSize: 11 }}>{s.updated ? new Date(s.updated).toLocaleString() : '—'}</div>
+        </div>
+      ))}
+    </>
+  )
 }
 
 function TodoTab({ path }: { path: string }): JSX.Element {
