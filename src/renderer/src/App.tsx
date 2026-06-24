@@ -20,6 +20,7 @@ export default function App(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
   const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
   const [creating, setCreating] = useState(false)
+  const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const logsRef = useRef<Map<string, string>>(new Map())
   const [logTick, setLogTick] = useState(0)
@@ -62,6 +63,26 @@ export default function App(): JSX.Element {
   }
   const stop = async (a: AgentState) => { await window.api.stopAgent(a.path) }
 
+  const exportAgent = async (a: AgentState) => {
+    const out = await window.api.saveFile(`${a.name.replace(/[^\w.-]+/g, '_')}.zip`)
+    if (!out) return
+    showToast('Exporting…')
+    const r = await window.api.runCli(['export', a.path, '--output', out])
+    if (r.code !== 0) showToast(r.stderr || 'Export failed', true)
+    else showToast(`Exported → ${out}`)
+  }
+
+  const importAgent = async () => {
+    const zip = await window.api.pickFile([{ name: 'Agent backup', extensions: ['zip'] }])
+    if (!zip) return
+    const dest = await window.api.pickFolder()
+    if (!dest) return
+    showToast('Importing…')
+    const r = await window.api.runCli(['import', zip, dest])
+    if (r.code !== 0) return showToast(r.stderr || 'Import failed', true)
+    await window.api.addAgent(dest); await refresh(); setSelected(dest); showToast('Imported')
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -69,6 +90,7 @@ export default function App(): JSX.Element {
           <h1><span className="logo">◆</span> AutoDev</h1>
           <div className="row">
             <button title="Add existing workspace" onClick={addExisting}>+ Add</button>
+            <button title="Import agent backup" onClick={importAgent}>⬆</button>
           </div>
         </div>
         <div className="agent-list">
@@ -104,6 +126,8 @@ export default function App(): JSX.Element {
               {current.running
                 ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
+              <button title="Connect to pixel-office" onClick={() => setConnectFor(current.path)}>⚿ Connect</button>
+              <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
               <button className="danger" title="Remove from list" onClick={async () => { await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
 
@@ -125,6 +149,7 @@ export default function App(): JSX.Element {
       </main>
 
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); refresh().then(() => setSelected(p)) }} showToast={showToast} />}
+      {connectFor && <ConnectModal path={connectFor} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.msg}</div>}
     </div>
   )
@@ -213,6 +238,41 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
         <input value={sessionName} placeholder="(folder name)" onChange={(e) => setSessionName(e.target.value)} />
       </label>
       <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+    </div>
+  )
+}
+
+function ConnectModal({ path, onClose, onDone, showToast }: { path: string; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+  const [mode, setMode] = useState<'setup' | 'url'>('setup')
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const connect = async () => {
+    if (!value.trim()) return showToast('Paste a URL first', true)
+    setBusy(true)
+    const args = mode === 'setup' ? ['connect', '--setup-url', value.trim(), path] : ['connect', '--url', value.trim(), path]
+    const r = await window.api.runCli(args)
+    setBusy(false)
+    if (r.code !== 0) return showToast(r.stderr || 'Connect failed', true)
+    showToast('Connected to pixel-office'); onDone()
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3>Connect to pixel-office</h3>
+        <label className="field"><span className="lbl">Binding</span>
+          <select value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url')}>
+            <option value="setup">Signed setup URL (from the office UI)</option>
+            <option value="url">Full ws:// URL (token + endpoint)</option>
+          </select>
+        </label>
+        <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
+          <textarea rows={3} value={value} placeholder={mode === 'setup' ? 'https://…/api/cli/setup/…?signature=…' : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        <div className="actions">
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={busy} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
+        </div>
+      </div>
     </div>
   )
 }

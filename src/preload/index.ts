@@ -9,6 +9,9 @@ const api = {
   stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+  saveFile: (defaultName: string) => ipcRenderer.invoke('dialog:saveFile', defaultName),
+  pickFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('dialog:pickFile', filters),
+  openPath: (p: string) => ipcRenderer.invoke('shell:openPath', p),
   onAgentUpdated: (cb: (s: any) => void) => sub('agent:updated', cb),
   onAgentsChanged: (cb: () => void) => sub('agents:changed', cb),
   onAgentLog: (cb: (l: { path: string; line: string }) => void) => sub('agent:log', cb)

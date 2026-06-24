@@ -56,6 +56,15 @@ ipcMain.handle('dialog:pickFolder', async () => {
   const r = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] })
   return r.canceled ? null : r.filePaths[0]
 })
+ipcMain.handle('dialog:saveFile', async (_e, defaultName: string) => {
+  const r = await dialog.showSaveDialog(mainWindow!, { defaultPath: defaultName, filters: [{ name: 'ZIP', extensions: ['zip'] }] })
+  return r.canceled ? null : r.filePath
+})
+ipcMain.handle('dialog:pickFile', async (_e, filters?: { name: string; extensions: string[] }[]) => {
+  const r = await dialog.showOpenDialog(mainWindow!, { properties: ['openFile'], filters })
+  return r.canceled ? null : r.filePaths[0]
+})
+ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
 
 app.whenReady().then(() => {
   createWindow()
