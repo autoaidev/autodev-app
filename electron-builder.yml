@@ -1,0 +1,19 @@
+appId: works.aioffice.autodev
+productName: AutoDev
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - '!**/*.map'
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: autoaidev
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+win:
+  target: nsis

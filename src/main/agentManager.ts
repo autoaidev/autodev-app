@@ -1,0 +1,224 @@
+import { spawn, execFile, ChildProcess } from 'child_process'
+import { EventEmitter } from 'events'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, watch, FSWatcher } from 'fs'
+import { join, basename, dirname } from 'path'
+import { app } from 'electron'
+import { resolveCliJs, nodeRunner } from './cli'
+
+export type Activity = 'working' | 'idle' | 'stopped'
+
+export interface AgentState {
+  path: string
+  name: string
+  provider?: string
+  sessionName?: string
+  wsUrl?: string
+  running: boolean
+  activity: Activity
+  tasks: { total: number; remaining: number; done: number }
+  currentTask?: string
+  lastOutput?: string
+  error?: string
+}
+
+const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])
+const IDLE_EVENTS = new Set(['SessionEnd', 'Stop', 'StopFailure', 'session.idle'])
+
+/**
+ * Manages a registry of agent workspaces: persists the list, reads each agent's
+ * state from its `.autodev/*` files, and starts/stops the autonomous loop by
+ * spawning the `autodev` CLI as a child process (one per running agent).
+ */
+export class AgentManager extends EventEmitter {
+  private _paths: string[] = []
+  private _procs = new Map<string, ChildProcess>()
+  private _watchers = new Map<string, FSWatcher>()
+  private readonly _registryFile = join(app.getPath('userData'), 'agents.json')
+
+  constructor() {
+    super()
+    this._load()
+  }
+
+  // --- registry ------------------------------------------------------------
+  private _load(): void {
+    try {
+      if (existsSync(this._registryFile)) {
+        const data = JSON.parse(readFileSync(this._registryFile, 'utf8'))
+        if (Array.isArray(data?.paths)) this._paths = data.paths.filter((p: unknown) => typeof p === 'string')
+      }
+    } catch { /* start empty */ }
+  }
+
+  private _save(): void {
+    try {
+      mkdirSync(dirname(this._registryFile), { recursive: true })
+      writeFileSync(this._registryFile, JSON.stringify({ paths: this._paths }, null, 2), 'utf8')
+    } catch { /* ignore */ }
+  }
+
+  list(): AgentState[] {
+    return this._paths.map((p) => this.readState(p))
+  }
+
+  add(path: string): AgentState | { error: string } {
+    if (!existsSync(join(path, '.autodev', 'settings.json')) && !existsSync(join(path, 'TODO.md'))) {
+      return { error: 'Not an AutoDev workspace (no .autodev/settings.json or TODO.md). Use "Create agent" to init one.' }
+    }
+    if (!this._paths.includes(path)) {
+      this._paths.push(path)
+      this._save()
+      this._watch(path)
+    }
+    return this.readState(path)
+  }
+
+  remove(path: string): void {
+    this.stop(path)
+    this._paths = this._paths.filter((p) => p !== path)
+    this._unwatch(path)
+    this._save()
+    this.emit('changed')
+  }
+
+  // --- state reading -------------------------------------------------------
+  readState(path: string): AgentState {
+    const settings = this._readJson(join(path, '.autodev', 'settings.json')) ?? {}
+    const todo = this._readTodoCounts(join(path, 'TODO.md'))
+    const running = this._procs.has(path)
+    let activity: Activity = running ? this._activityFromHooks(path) : 'stopped'
+    return {
+      path,
+      name: settings.sessionName || basename(path),
+      provider: settings.provider,
+      sessionName: settings.sessionName,
+      wsUrl: settings.wsUrl,
+      running,
+      activity,
+      tasks: todo,
+      lastOutput: this._latestOutput(path, settings.provider)
+    }
+  }
+
+  private _readJson(file: string): any {
+    try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
+  }
+
+  private _readTodoCounts(file: string): { total: number; remaining: number; done: number } {
+    try {
+      const t = readFileSync(file, 'utf8')
+      const pending = (t.match(/^- \[ \]/gm) || []).length
+      const inProgress = (t.match(/^- \[~\]/gm) || []).length
+      const done = (t.match(/^- \[x\]/gim) || []).length
+      return { total: pending + inProgress + done, remaining: pending + inProgress, done }
+    } catch { return { total: 0, remaining: 0, done: 0 } }
+  }
+
+  private _activityFromHooks(path: string): Activity {
+    try {
+      const file = join(path, '.autodev', 'hooks-events.jsonl')
+      if (!existsSync(file)) return 'working'
+      const lines = readFileSync(file, 'utf8').trim().split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const ev = JSON.parse(lines[i])
+          const name = ev.hook_event_name || ev.hook || ev.payload?.type || ev.type
+          if (IDLE_EVENTS.has(name)) return 'idle'
+          if (WORKING_EVENTS.has(name)) return 'working'
+        } catch { /* skip */ }
+      }
+      return 'working'
+    } catch { return 'working' }
+  }
+
+  private _latestOutput(path: string, provider?: string): string | undefined {
+    if (!provider) return undefined
+    try {
+      const base = provider.replace('-sdk', '').replace('-tui', '')
+      const ptr = join(path, '.autodev', 'output', `${provider}.latest`)
+      let outFile: string | undefined
+      if (existsSync(ptr)) {
+        const id = readFileSync(ptr, 'utf8').trim()
+        const cand = join(path, '.autodev', 'output', provider, `${id}.txt`)
+        if (existsSync(cand)) outFile = cand
+      }
+      if (!outFile) return undefined
+      const raw = readFileSync(outFile, 'utf8')
+      const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      return clean.length > 4000 ? '…' + clean.slice(-4000) : clean
+    } catch { return undefined }
+  }
+
+  // --- loop control --------------------------------------------------------
+  start(path: string, provider?: string): { ok: true } | { error: string } {
+    if (this._procs.has(path)) return { ok: true }
+    const cliJs = resolveCliJs()
+    if (!cliJs) return { error: 'autodev CLI not found. Set AUTODEV_CLI_JS or place autodev-cli beside the app.' }
+    const { cmd, baseEnv } = nodeRunner()
+    const args = [cliJs, 'start', path]
+    if (provider) args.push('-p', provider)
+    const child = spawn(cmd, args, { cwd: path, env: baseEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    this._procs.set(path, child)
+    const onData = (buf: Buffer) => this.emit('log', { path, line: buf.toString('utf8') })
+    child.stdout?.on('data', onData)
+    child.stderr?.on('data', onData)
+    child.on('exit', (code) => {
+      this._procs.delete(path)
+      this.emit('log', { path, line: `\n[loop exited code=${code ?? '?'}]\n` })
+      this.emit('changed')
+    })
+    this._watch(path)
+    this.emit('changed')
+    return { ok: true }
+  }
+
+  stop(path: string): void {
+    const child = this._procs.get(path)
+    if (child) {
+      try { child.kill('SIGINT') } catch { /* ignore */ }
+      // hard-kill fallback
+      setTimeout(() => { try { child.kill('SIGKILL') } catch { /* ignore */ } }, 4000).unref()
+    }
+  }
+
+  isRunning(path: string): boolean { return this._procs.has(path) }
+
+  // --- CLI passthrough (init/config/connect/export/import/status) ----------
+  runCli(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string; code: number }> {
+    return new Promise((resolve) => {
+      const cliJs = resolveCliJs()
+      if (!cliJs) return resolve({ stdout: '', stderr: 'autodev CLI not found', code: 1 })
+      const { cmd, baseEnv } = nodeRunner()
+      execFile(cmd, [cliJs, ...args], { cwd, env: baseEnv, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        resolve({ stdout: stdout || '', stderr: stderr || (err ? String(err.message) : ''), code: err ? (err as any).code ?? 1 : 0 })
+      })
+    })
+  }
+
+  // --- live updates --------------------------------------------------------
+  private _watch(path: string): void {
+    if (this._watchers.has(path)) return
+    try {
+      const dir = join(path, '.autodev')
+      if (!existsSync(dir)) return
+      let timer: NodeJS.Timeout | null = null
+      const w = watch(dir, { persistent: false }, () => {
+        if (timer) return
+        timer = setTimeout(() => { timer = null; this.emit('agentUpdated', this.readState(path)) }, 300)
+      })
+      this._watchers.set(path, w)
+    } catch { /* ignore */ }
+  }
+
+  private _unwatch(path: string): void {
+    const w = this._watchers.get(path)
+    if (w) { try { w.close() } catch { /* ignore */ } this._watchers.delete(path) }
+  }
+
+  disposeAll(): void {
+    for (const child of this._procs.values()) { try { child.kill('SIGKILL') } catch { /* ignore */ } }
+    for (const w of this._watchers.values()) { try { w.close() } catch { /* ignore */ } }
+    this._procs.clear()
+    this._watchers.clear()
+  }
+}
