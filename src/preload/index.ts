@@ -8,6 +8,7 @@ const api = {
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),
   stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
+  cliCheck: () => ipcRenderer.invoke('cli:check'),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   saveFile: (defaultName: string) => ipcRenderer.invoke('dialog:saveFile', defaultName),
   pickFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('dialog:pickFile', filters),

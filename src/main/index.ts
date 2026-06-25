@@ -1,6 +1,7 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { AgentManager } from './agentManager'
+import { resolveCliJs } from './cli'
 
 let mainWindow: BrowserWindow | null = null
 const manager = new AgentManager()
@@ -52,6 +53,7 @@ ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
 ipcMain.handle('agent:stop', (_e, path: string) => { manager.stop(path); return true })
 ipcMain.handle('cli:run', (_e, args: string[], cwd?: string) => manager.runCli(args, cwd))
+ipcMain.handle('cli:check', () => { const p = resolveCliJs(); return { found: !!p, path: p } })
 ipcMain.handle('dialog:pickFolder', async () => {
   const r = await dialog.showOpenDialog(mainWindow!, { properties: ['openDirectory', 'createDirectory'] })
   return r.canceled ? null : r.filePaths[0]

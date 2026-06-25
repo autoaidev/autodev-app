@@ -22,6 +22,7 @@ export default function App(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
+  const [cliMissing, setCliMissing] = useState(false)
   const logsRef = useRef<Map<string, string>>(new Map())
   const [logTick, setLogTick] = useState(0)
 
@@ -32,6 +33,7 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+  useEffect(() => { window.api.cliCheck().then((c: { found: boolean }) => setCliMissing(!c.found)) }, [])
 
   // Safety-net poll: file-watch pushes most updates, but a periodic refresh keeps
   // task counts / running state correct even if a watch event is missed.
@@ -92,7 +94,13 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <div className="app">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {cliMissing && (
+        <div style={{ background: '#3d1c1c', borderBottom: '1px solid var(--red)', color: '#ffb4b0', padding: '8px 16px', fontSize: 12, flex: '0 0 auto' }}>
+          ⚠ The <code>autodev</code> CLI was not found. Place <code>autodev-cli</code> beside the app or set the <code>AUTODEV_CLI_JS</code> environment variable to <code>autodev-cli/bin/autodev.js</code>.
+        </div>
+      )}
+      <div className="app" style={{ flex: 1, minHeight: 0 }}>
       <aside className="sidebar">
         <div className="sidebar-head">
           <h1><span className="logo">◆</span> AutoDev{runningCount > 0 && <span className="badge" style={{ marginLeft: 8 }}>{runningCount} running</span>}</h1>
@@ -137,7 +145,7 @@ export default function App(): JSX.Element {
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
               <button title="Connect to pixel-office" onClick={() => setConnectFor(current.path)}>⚿ Connect</button>
               <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
-              <button className="danger" title="Remove from list" onClick={async () => { await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
+              <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
 
             <div className="tabs">
@@ -160,6 +168,7 @@ export default function App(): JSX.Element {
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); refresh().then(() => setSelected(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.msg}</div>}
+      </div>
     </div>
   )
 }
