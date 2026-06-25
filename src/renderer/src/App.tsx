@@ -157,7 +157,7 @@ export default function App(): JSX.Element {
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
               {tab === 'output' && <Output key={logTick} text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
-              {tab === 'sessions' && <SessionsTab path={current.path} />}
+              {tab === 'sessions' && <SessionsTab path={current.path} showToast={showToast} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
@@ -197,7 +197,7 @@ function Output({ text }: { text: string }): JSX.Element {
 }
 
 interface SessionInfo { provider: string; id: string; name: string; updated: number }
-function SessionsTab({ path }: { path: string }): JSX.Element {
+function SessionsTab({ path, showToast }: { path: string; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const load = useCallback(() => {
     setSessions(null)
@@ -223,6 +223,10 @@ function SessionsTab({ path }: { path: string }): JSX.Element {
             <div style={{ color: 'var(--fg2)', fontSize: 11, fontFamily: 'ui-monospace, monospace' }}>{s.id}</div>
           </div>
           <div style={{ color: 'var(--fg2)', fontSize: 11 }}>{s.updated ? new Date(s.updated).toLocaleString() : '—'}</div>
+          <button title="Resume this session on next start" onClick={async () => {
+            const r = await window.api.runCli(['resume', s.id, path, '-p', `${s.provider}-cli`])
+            showToast(r.code === 0 ? `Will resume "${s.name}" on next start` : (r.stderr || 'Resume failed'), r.code !== 0)
+          }}>▶ Resume</button>
         </div>
       ))}
     </>
