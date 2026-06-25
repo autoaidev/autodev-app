@@ -33,6 +33,13 @@ export default function App(): JSX.Element {
 
   useEffect(() => { refresh() }, [refresh])
 
+  // Safety-net poll: file-watch pushes most updates, but a periodic refresh keeps
+  // task counts / running state correct even if a watch event is missed.
+  useEffect(() => {
+    const id = setInterval(() => { window.api.listAgents().then(setAgents) }, 5000)
+    return () => clearInterval(id)
+  }, [])
+
   useEffect(() => {
     const offUpd = window.api.onAgentUpdated((s: AgentState) =>
       setAgents((prev) => prev.map((a) => (a.path === s.path ? s : a))))
@@ -47,6 +54,7 @@ export default function App(): JSX.Element {
 
   const showToast = (msg: string, err = false) => { setToast({ msg, err }); setTimeout(() => setToast(null), 4000) }
   const current = useMemo(() => agents.find((a) => a.path === selected) ?? null, [agents, selected])
+  const runningCount = useMemo(() => agents.filter((a) => a.running).length, [agents])
 
   const addExisting = async () => {
     const path = await window.api.pickFolder()
@@ -87,7 +95,7 @@ export default function App(): JSX.Element {
     <div className="app">
       <aside className="sidebar">
         <div className="sidebar-head">
-          <h1><span className="logo">◆</span> AutoDev</h1>
+          <h1><span className="logo">◆</span> AutoDev{runningCount > 0 && <span className="badge" style={{ marginLeft: 8 }}>{runningCount} running</span>}</h1>
           <div className="row">
             <button title="Add existing workspace" onClick={addExisting}>+ Add</button>
             <button title="Import agent backup" onClick={importAgent}>⬆</button>
@@ -126,6 +134,7 @@ export default function App(): JSX.Element {
               {current.running
                 ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
+              <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
               <button title="Connect to pixel-office" onClick={() => setConnectFor(current.path)}>⚿ Connect</button>
               <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
               <button className="danger" title="Remove from list" onClick={async () => { await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
