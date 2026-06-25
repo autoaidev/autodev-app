@@ -228,20 +228,32 @@ function TodoTab({ path }: { path: string }): JSX.Element {
   return <pre className="todo">{text}</pre>
 }
 
+const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel' }
+function modelKeyFor(provider: string): string { return MODEL_KEY[provider.split('-')[0]] ?? 'claudeModel' }
+
 function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [provider, setProvider] = useState(a.provider ?? 'claude-cli')
   const [sessionName, setSessionName] = useState(a.sessionName ?? '')
+  const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
+  // load the current model for the active provider
+  useEffect(() => {
+    window.api.runCli(['config', 'get', modelKeyFor(provider), a.path]).then((r) => setModel((r.stdout || '').trim()))
+  }, [a.path, provider])
   const save = async () => {
     setBusy(true)
     await window.api.runCli(['config', 'set', 'provider', provider, a.path])
     if (sessionName !== (a.sessionName ?? '')) await window.api.runCli(['config', 'set', 'sessionName', sessionName, a.path])
+    await window.api.runCli(['config', 'set', modelKeyFor(provider), model, a.path])
     setBusy(false); showToast('Saved'); onSaved()
   }
   return (
     <div style={{ maxWidth: 460 }}>
       <label className="field"><span className="lbl">Provider</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
+      </label>
+      <label className="field"><span className="lbl">Model ({modelKeyFor(provider)})</span>
+        <input value={model} placeholder={provider.startsWith('opencode') ? 'ollama-cloud/kimi-k2.7-code' : '(provider default)'} onChange={(e) => setModel(e.target.value)} />
       </label>
       <label className="field"><span className="lbl">Session display name</span>
         <input value={sessionName} placeholder="(folder name)" onChange={(e) => setSessionName(e.target.value)} />
