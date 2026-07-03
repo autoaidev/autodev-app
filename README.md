@@ -39,8 +39,22 @@ Set `AUTODEV_CLI_JS` to `…/autodev-cli/bin/autodev.js` if the CLI isn't a sibl
 ```bash
 npm run build        # compile main/preload/renderer → out/
 npm run typecheck    # tsc strict, both tsconfigs
-npm run dist         # electron-builder → dist/ (AppImage + deb)
+npm run dist         # electron-builder → dist/ (AppImage + deb, current platform)
 ```
+
+### Windows installer
+`electron-builder.yml` targets `win: nsis`. On a native Windows or CI runner just run
+`npm run dist`. To cross-build the Windows installer **from Linux/macOS**:
+
+```bash
+npm run dist:win     # → dist/AutoDev Setup <version>.exe  (NSIS installer)
+```
+
+This runs `scripts/build-win.sh`, which packages inside the official
+`electronuserland/builder:wine` Docker image (reusing the host's electron caches). It's
+needed because the host can't run the 32-bit `rcedit` step without `wine32` (i386
+multiarch is often unresolvable). Requirement: Docker. Output is a real PE32 NSIS
+installer plus `dist/win-unpacked/AutoDev.exe`.
 
 ## Roadmap
 See `PLAN.md`. M1–M10 complete; M11 polish ongoing.
