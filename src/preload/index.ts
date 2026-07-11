@@ -21,7 +21,14 @@ const api = {
   sessionBacklog: (file: string) => ipcRenderer.invoke('sessions:backlog', file),
   sessionOpen: (file: string) => ipcRenderer.invoke('sessions:open', file),
   sessionClose: (file: string) => ipcRenderer.invoke('sessions:close', file),
-  onSessionData: (cb: (d: { file: string; msgs: any[] }) => void) => sub('session:data', cb)
+  onSessionData: (cb: (d: { file: string; msgs: any[] }) => void) => sub('session:data', cb),
+  // Interactive PTY panes — spawn `claude` (or a shell) in a folder
+  ptySpawn: (id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number }) => ipcRenderer.invoke('pty:spawn', id, opts),
+  ptyWrite: (id: string, data: string) => ipcRenderer.invoke('pty:write', id, data),
+  ptyResize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('pty:resize', id, cols, rows),
+  ptyKill: (id: string) => ipcRenderer.invoke('pty:kill', id),
+  onPtyData: (cb: (d: { id: string; data: string }) => void) => sub('pty:data', cb),
+  onPtyExit: (cb: (d: { id: string; exitCode: number }) => void) => sub('pty:exit', cb)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {

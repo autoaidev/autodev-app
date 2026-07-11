@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import TerminalPane from './TerminalPane'
 
 interface SessionMeta {
   id: string; file: string; project: string; cwd: string
@@ -20,6 +21,7 @@ export default function SessionsBrowser(): JSX.Element {
   const [sel, setSel] = useState<SessionMeta | null>(null)
   const [msgs, setMsgs] = useState<SessionMsg[]>([])
   const [loading, setLoading] = useState(true)
+  const [term, setTerm] = useState<{ id: string; cwd: string } | null>(null)
   const selFile = useRef<string | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
@@ -43,12 +45,21 @@ export default function SessionsBrowser(): JSX.Element {
   }, [msgs])
 
   const openSession = useCallback(async (s: SessionMeta) => {
+    setTerm(null)
     if (selFile.current) await window.api.sessionClose(selFile.current)
     selFile.current = s.file
     setSel(s)
     const bl = (await window.api.sessionBacklog(s.file)) as SessionMsg[]
     setMsgs(bl)
     await window.api.sessionOpen(s.file)
+  }, [])
+
+  const spawnClaude = useCallback(async () => {
+    const cwd = (await window.api.pickFolder()) as string | null
+    if (!cwd) return
+    if (selFile.current) { await window.api.sessionClose(selFile.current); selFile.current = null }
+    setSel(null); setMsgs([])
+    setTerm({ id: `pty-${Date.now()}`, cwd })
   }, [])
 
   useEffect(() => () => { if (selFile.current) window.api.sessionClose(selFile.current) }, [])
@@ -61,6 +72,7 @@ export default function SessionsBrowser(): JSX.Element {
           <strong style={{ fontSize: 13 }}>🗂 Claude sessions</strong>
           <span className="badge">{list.length}</span>
           <div style={{ flex: 1 }} />
+          <button className="primary" onClick={spawnClaude} title="Spawn a new interactive Claude session in a folder">＋ Spawn Claude</button>
           <button onClick={refresh} title="Rescan">↻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
@@ -83,10 +95,23 @@ export default function SessionsBrowser(): JSX.Element {
         </div>
       </div>
 
-      {/* transcript reader */}
+      {/* right pane: spawned terminal, or transcript reader */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {!sel && <div className="empty" style={{ margin: 'auto' }}>Select a session to capture &amp; stream it live</div>}
-        {sel && (
+        {term && (
+          <>
+            <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● claude</span>
+              <div style={{ fontSize: 12, color: 'var(--muted,#8b949e)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{term.cwd}</div>
+              <div style={{ flex: 1 }} />
+              <button className="danger" onClick={() => setTerm(null)} title="End session &amp; close pane">■ Close</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
+              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" onExit={() => refresh()} />
+            </div>
+          </>
+        )}
+        {!term && !sel && <div className="empty" style={{ margin: 'auto' }}>Select a session to capture &amp; stream it live<br />— or <b>＋ Spawn Claude</b> to start a new one</div>}
+        {!term && sel && (
           <>
             <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
               <div style={{ minWidth: 0 }}>

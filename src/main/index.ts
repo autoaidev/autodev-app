@@ -2,11 +2,13 @@ import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
+import { PtyManager } from './ptyManager'
 import { resolveCliJs } from './cli'
 
 let mainWindow: BrowserWindow | null = null
 const manager = new AgentManager()
 const sessions = new SessionManager()
+const ptys = new PtyManager()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -47,6 +49,8 @@ manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))
 manager.on('log', (l) => broadcast('agent:log', l))
 sessions.on('data', (d) => broadcast('session:data', d))
+ptys.on('data', (d) => broadcast('pty:data', d))
+ptys.on('exit', (d) => broadcast('pty:exit', d))
 
 // --- IPC -------------------------------------------------------------------
 ipcMain.handle('agents:list', () => manager.list())
@@ -75,6 +79,11 @@ ipcMain.handle('sessions:discover', () => sessions.discover())
 ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
 ipcMain.handle('sessions:open', (_e, file: string) => { sessions.open(file); return true })
 ipcMain.handle('sessions:close', (_e, file: string) => { sessions.close(file); return true })
+// --- Interactive PTY panes (spawn: run `claude` in a chosen folder) --------
+ipcMain.handle('pty:spawn', (_e, id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number }) => ptys.spawn(id, opts))
+ipcMain.handle('pty:write', (_e, id: string, data: string) => { ptys.write(id, data); return true })
+ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) => { ptys.resize(id, cols, rows); return true })
+ipcMain.handle('pty:kill', (_e, id: string) => { ptys.kill(id); return true })
 
 app.whenReady().then(() => {
   createWindow()
@@ -82,4 +91,4 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', () => { manager.disposeAll(); sessions.closeAll() })
+app.on('before-quit', () => { manager.disposeAll(); sessions.closeAll(); ptys.killAll() })
