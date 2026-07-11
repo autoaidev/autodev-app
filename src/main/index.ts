@@ -1,10 +1,12 @@
 import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
 import { join } from 'path'
 import { AgentManager } from './agentManager'
+import { SessionManager } from './sessionManager'
 import { resolveCliJs } from './cli'
 
 let mainWindow: BrowserWindow | null = null
 const manager = new AgentManager()
+const sessions = new SessionManager()
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -44,6 +46,7 @@ function broadcast(channel: string, payload: unknown): void {
 manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))
 manager.on('log', (l) => broadcast('agent:log', l))
+sessions.on('data', (d) => broadcast('session:data', d))
 
 // --- IPC -------------------------------------------------------------------
 ipcMain.handle('agents:list', () => manager.list())
@@ -67,6 +70,11 @@ ipcMain.handle('dialog:pickFile', async (_e, filters?: { name: string; extension
   return r.canceled ? null : r.filePaths[0]
 })
 ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
+// --- Claude sessions (capture: discover + live attach) ---------------------
+ipcMain.handle('sessions:discover', () => sessions.discover())
+ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
+ipcMain.handle('sessions:open', (_e, file: string) => { sessions.open(file); return true })
+ipcMain.handle('sessions:close', (_e, file: string) => { sessions.close(file); return true })
 
 app.whenReady().then(() => {
   createWindow()
@@ -74,4 +82,4 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('before-quit', () => manager.disposeAll())
+app.on('before-quit', () => { manager.disposeAll(); sessions.closeAll() })

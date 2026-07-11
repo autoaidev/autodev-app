@@ -15,7 +15,13 @@ const api = {
   openPath: (p: string) => ipcRenderer.invoke('shell:openPath', p),
   onAgentUpdated: (cb: (s: any) => void) => sub('agent:updated', cb),
   onAgentsChanged: (cb: () => void) => sub('agents:changed', cb),
-  onAgentLog: (cb: (l: { path: string; line: string }) => void) => sub('agent:log', cb)
+  onAgentLog: (cb: (l: { path: string; line: string }) => void) => sub('agent:log', cb),
+  // Claude sessions — capture existing sessions (discover + live attach)
+  sessionsDiscover: () => ipcRenderer.invoke('sessions:discover'),
+  sessionBacklog: (file: string) => ipcRenderer.invoke('sessions:backlog', file),
+  sessionOpen: (file: string) => ipcRenderer.invoke('sessions:open', file),
+  sessionClose: (file: string) => ipcRenderer.invoke('sessions:close', file),
+  onSessionData: (cb: (d: { file: string; msgs: any[] }) => void) => sub('session:data', cb)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {
