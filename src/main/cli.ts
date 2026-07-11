@@ -14,6 +14,11 @@ export function resolveCliJs(): string | null {
   if (env && existsSync(env)) return env
 
   const candidates: string[] = []
+  // Packaged: bundled at <resourcesPath>/autodev-cli (electron-builder extraResources).
+  if (process.resourcesPath) {
+    const bundled = join(process.resourcesPath, 'autodev-cli', 'bin', 'autodev.js')
+    if (existsSync(bundled)) return bundled
+  }
   // app root in dev is the project dir; in prod it's resources/app
   const roots = [app.getAppPath(), process.cwd(), dirname(app.getAppPath())]
   for (const root of roots) {

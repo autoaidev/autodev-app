@@ -9,6 +9,11 @@ files:
 # node-pty ships a native .node addon — keep it outside the asar so it can load.
 asarUnpack:
   - '**/node_modules/node-pty/**'
+# Bundle a self-contained autodev-cli into resources/autodev-cli so the app finds
+# it out of the box (resolveCliJs checks resources/autodev-cli/bin/autodev.js).
+extraResources:
+  - from: vendor/autodev-cli
+    to: autodev-cli
 linux:
   target:
     - AppImage
