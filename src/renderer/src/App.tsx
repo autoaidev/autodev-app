@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import SessionsBrowser from './SessionsBrowser'
+import PixelOfficeView from './PixelOfficeView'
 
 type Activity = 'working' | 'idle' | 'stopped'
 interface AgentState {
@@ -20,6 +21,7 @@ export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
   const [selected, setSelected] = useState<string | null>(null)
   const [showSessions, setShowSessions] = useState(false)
+  const [showOffice, setShowOffice] = useState(false)
   const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
   const [creating, setCreating] = useState(false)
   const [connectFor, setConnectFor] = useState<string | null>(null)
@@ -124,16 +126,19 @@ export default function App(): JSX.Element {
           ))}
         </div>
         <div style={{ padding: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <button style={{ width: '100%', background: showOffice ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showOffice ? 'var(--accent,#388bfd)' : undefined }}
+            onClick={() => { setShowOffice((s) => !s); setShowSessions(false) }} title="Connect & operate your remote pixel-office agents">☁ Pixel Office</button>
           <button style={{ width: '100%', background: showSessions ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showSessions ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => setShowSessions((s) => !s)} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
+            onClick={() => { setShowSessions((s) => !s); setShowOffice(false) }} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
           <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)}>＋ Create agent</button>
         </div>
       </aside>
 
       <main className="main">
+        {showOffice && <PixelOfficeView />}
         {showSessions && <SessionsBrowser />}
-        {!showSessions && !current && <div className="empty">Select an agent</div>}
-        {!showSessions && current && (
+        {!showOffice && !showSessions && !current && <div className="empty">Select an agent</div>}
+        {!showOffice && !showSessions && current && (
           <>
             <div className="detail-head">
               <span className={'dot ' + current.activity} />

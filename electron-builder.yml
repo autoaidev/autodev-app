@@ -6,6 +6,9 @@ directories:
 files:
   - out/**
   - '!**/*.map'
+# node-pty ships a native .node addon — keep it outside the asar so it can load.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
 linux:
   target:
     - AppImage

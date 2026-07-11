@@ -1,0 +1,145 @@
+import { app } from 'electron'
+import { join } from 'path'
+import { homedir } from 'os'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+
+/**
+ * Connects to a remote pixel-office (Laravel, session auth) so the app can list
+ * the user's office agents and OPERATE any of them: it fetches the agent's
+ * office-MCP credentials and drops a `.mcp.json` into a scratch workspace, so a
+ * spawned `claude` session drives that character live (via the mcp-operate
+ * bridge).
+ *
+ * Auth: the login flow yields durable cookies — pixel-office logs in with
+ * `Auth::attempt(…, remember: true)`, so the response carries a long-lived
+ * `remember_web` token cookie. We persist the cookie jar (the "remote token")
+ * rather than the password, and re-verify it on launch via /api/auth/me. When
+ * it's expired the user just logs in again.
+ */
+
+export interface OfficeAgent {
+  office: string; officeSlug: string; id: string; name: string; slug: string; status?: string; online: boolean
+}
+interface Persisted { baseUrl: string; email: string; cookies: [string, string][] }
+
+/** Minimal cookie jar over fetch (no external deps). */
+class Jar {
+  private c = new Map<string, string>()
+  store(res: Response): void {
+    const h = res.headers as unknown as { getSetCookie?: () => string[] }
+    for (const line of h.getSetCookie ? h.getSetCookie() : []) {
+      const pair = line.split(';', 1)[0]
+      const i = pair.indexOf('=')
+      if (i > 0) this.c.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim())
+    }
+  }
+  header(): string { return [...this.c].map(([k, v]) => `${k}=${v}`).join('; ') }
+  xsrf(): string { const v = this.c.get('XSRF-TOKEN'); return v ? decodeURIComponent(v) : '' }
+  dump(): [string, string][] { return [...this.c] }
+  load(entries: [string, string][]): void { this.c = new Map(entries) }
+}
+
+export class PixelOfficeClient {
+  private jar = new Jar()
+  private base = ''
+  private _authed = false
+  private _email = ''
+  private readonly _cfg = join(app.getPath('userData'), 'pixel-office.json')
+
+  private loadConfig(): Persisted | null {
+    try { if (existsSync(this._cfg)) return JSON.parse(readFileSync(this._cfg, 'utf8')) } catch { /* */ }
+    return null
+  }
+  private saveToken(): void {
+    try { writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: this.jar.dump() }, null, 2)) } catch { /* */ }
+  }
+
+  async login(baseUrl: string, email: string, password: string): Promise<{ ok: true; user: unknown } | { error: string }> {
+    this.base = baseUrl.replace(/\/+$/, '')
+    this.jar = new Jar()
+    this._authed = false
+    this._email = email
+    try {
+      const r1 = await fetch(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json' } })
+      this.jar.store(r1)
+      const r2 = await fetch(`${this.base}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: this.jar.header() },
+        body: JSON.stringify({ email, password })
+      })
+      this.jar.store(r2)
+      const j = (await r2.json().catch(() => ({}))) as { success?: boolean; error?: string; data?: { user?: unknown } }
+      if (!r2.ok || !j.success) return { error: j.error || `Login failed (${r2.status})` }
+      this._authed = true
+      this.saveToken() // persist the durable cookie/token, not the password
+      return { ok: true, user: j.data?.user }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /** Reuse the stored token cookies from a previous login (called on launch). */
+  async autoConnect(): Promise<boolean> {
+    const c = this.loadConfig()
+    if (!c?.baseUrl || !c.cookies?.length) return false
+    this.base = c.baseUrl
+    this._email = c.email
+    this.jar = new Jar()
+    this.jar.load(c.cookies)
+    try {
+      const r = await fetch(`${this.base}/api/auth/me`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
+      this.jar.store(r)
+      const j = (await r.json().catch(() => ({}))) as { success?: boolean }
+      this._authed = !!(r.ok && j.success)
+      if (this._authed) this.saveToken() // refresh rotated cookies
+      return this._authed
+    } catch { return false }
+  }
+
+  logout(): void {
+    this._authed = false
+    this.jar = new Jar()
+    try { if (existsSync(this._cfg)) writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: [] })) } catch { /* */ }
+  }
+
+  private async getJson(path: string): Promise<any> {
+    const r = await fetch(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
+    if (r.status === 401) { this._authed = false; throw new Error('Session expired — reconnect.') }
+    if (!r.ok) throw new Error(`${path} → ${r.status}`)
+    return r.json()
+  }
+
+  async listAgents(): Promise<OfficeAgent[]> {
+    if (!this._authed) throw new Error('Not connected to a pixel-office.')
+    const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
+    const out: OfficeAgent[] = []
+    for (const o of offices) {
+      let ags: any
+      try { ags = await this.getJson(`/api/offices/${o.slug}/agents`) } catch { continue }
+      for (const a of (ags?.data ?? ags ?? [])) {
+        out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online) })
+      }
+    }
+    return out
+  }
+
+  /** Prepare a scratch workspace with this agent's office-MCP wired, so a PTY
+   *  running `claude` there operates the character. Returns the cwd to spawn in. */
+  async operate(officeSlug: string, agentId: string, agentSlug: string): Promise<{ ok: true; cwd: string } | { error: string }> {
+    try {
+      const creds = (await this.getJson(`/api/offices/${officeSlug}/agents/${agentId}/credentials`))?.data ?? {}
+      const key = creds.apiKey as string | undefined
+      const url = (creds.mcpUrl as string) || `${this.base}/api/office-mcp`
+      if (!key) return { error: 'No API key returned for this agent.' }
+      const dir = join(homedir(), '.autodev-app', 'offices', officeSlug, agentSlug || agentId)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, '.mcp.json'), JSON.stringify({
+        mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } }
+      }, null, 2))
+      return { ok: true, cwd: dir }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  status(): { connected: boolean; base: string; email?: string } {
+    const c = this.loadConfig()
+    return { connected: this._authed, base: this.base || c?.baseUrl || 'https://autodev.code.aioffice.works', email: this._email || c?.email }
+  }
+}

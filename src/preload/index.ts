@@ -28,7 +28,14 @@ const api = {
   ptyResize: (id: string, cols: number, rows: number) => ipcRenderer.invoke('pty:resize', id, cols, rows),
   ptyKill: (id: string) => ipcRenderer.invoke('pty:kill', id),
   onPtyData: (cb: (d: { id: string; data: string }) => void) => sub('pty:data', cb),
-  onPtyExit: (cb: (d: { id: string; exitCode: number }) => void) => sub('pty:exit', cb)
+  onPtyExit: (cb: (d: { id: string; exitCode: number }) => void) => sub('pty:exit', cb),
+  // Remote pixel-office — connect + list + operate agents
+  officeLogin: (baseUrl: string, email: string, password: string) => ipcRenderer.invoke('office:login', baseUrl, email, password),
+  officeAutoConnect: () => ipcRenderer.invoke('office:autoConnect'),
+  officeStatus: () => ipcRenderer.invoke('office:status'),
+  officeLogout: () => ipcRenderer.invoke('office:logout'),
+  officeAgents: () => ipcRenderer.invoke('office:agents'),
+  officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {
