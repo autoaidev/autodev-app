@@ -20,11 +20,31 @@ export default function TerminalPane({
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(hostRef.current!)
-    try { fit.fit() } catch { /* not laid out yet */ }
+
+    // Fit + resync the PTY size, then force a full repaint. On software-rendered
+    // displays (e.g. Xvnc) xterm's initial canvas can stay blank until something
+    // triggers a redraw — an explicit refresh avoids the "stuck on the welcome
+    // banner until you resize the window" quirk.
+    const refit = (): void => {
+      try {
+        fit.fit()
+        window.api.ptyResize(id, term.cols, term.rows)
+        term.refresh(0, term.rows - 1)
+      } catch { /* not laid out yet */ }
+    }
+    // Defer the first fit past this paint so the container has real dimensions,
+    // with a couple of follow-ups to catch slow (VNC) layout.
+    requestAnimationFrame(refit)
+    const t1 = setTimeout(refit, 120)
+    const t2 = setTimeout(refit, 400)
 
     const dispInput = term.onData((d) => window.api.ptyWrite(id, d))
+    let firstData = true
     const offData = window.api.onPtyData(({ id: pid, data }: { id: string; data: string }) => {
-      if (pid === id) term.write(data)
+      if (pid !== id) return
+      term.write(data)
+      // The banner arrives before the canvas has painted under VNC — nudge once.
+      if (firstData) { firstData = false; requestAnimationFrame(refit) }
     })
     const offExit = window.api.onPtyExit(({ id: pid }: { id: string; exitCode: number }) => {
       if (pid === id) { term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n'); onExit?.() }
@@ -39,6 +59,7 @@ export default function TerminalPane({
     term.focus()
 
     return () => {
+      clearTimeout(t1); clearTimeout(t2)
       dispInput.dispose(); offData(); offExit(); ro.disconnect()
       void window.api.ptyKill(id)
       term.dispose()
