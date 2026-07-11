@@ -60,14 +60,23 @@ function decodeProject(folder: string): string {
   return '/' + folder.replace(/^-+/, '').replace(/-/g, '/')
 }
 
-/** Read the real cwd + title hint from the first lines of a transcript. */
-function peekTranscript(file: string): { cwd?: string; firstUser?: string; count: number } {
+/** Read the real cwd + title hint from a transcript. Reads only a bounded head
+ *  for large files so discovery never loads 100s of MB (msg count is then a
+ *  floor). Small files are read whole for an exact count. */
+function peekTranscript(file: string, size: number): { cwd?: string; firstUser?: string; count: number } {
   let cwd: string | undefined
   let firstUser: string | undefined
   let count = 0
+  const MAX = 256_000
   try {
-    const lines = readFileSync(file, 'utf8').split('\n')
-    for (const line of lines) {
+    let text: string
+    if (size > MAX) {
+      const fd = openSync(file, 'r')
+      try { const buf = Buffer.alloc(MAX); readSync(fd, buf, 0, MAX, 0); text = buf.toString('utf8') } finally { closeSync(fd) }
+    } else {
+      text = readFileSync(file, 'utf8')
+    }
+    for (const line of text.split('\n')) {
       if (!line.trim()) continue
       count++
       try {
@@ -122,14 +131,16 @@ function parseLine(line: string): SessionMsg | null {
   } catch { return null }
 }
 
-/** True if a process currently holds the transcript open (best-effort via lsof). */
-function isLive(file: string): boolean {
+/** True if a process currently holds the transcript open (best-effort via lsof).
+ *  Sessions untouched for >5 min can't be live, so we skip the lsof spawn for
+ *  them — keeping discovery cheap even with hundreds of old sessions. */
+function isLive(file: string, mtimeMs: number): boolean {
+  if (Date.now() - mtimeMs > 5 * 60_000) return false
   try {
     const out = execFileSync('lsof', ['-t', file], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 1500 }).toString().trim()
     if (out) return true
   } catch { /* lsof missing / not held */ }
-  // Fallback heuristic: written to within the last 45s.
-  try { return Date.now() - statSync(file).mtimeMs < 45_000 } catch { return false }
+  return Date.now() - mtimeMs < 45_000
 }
 
 export class SessionManager extends EventEmitter {
@@ -156,7 +167,7 @@ export class SessionManager extends EventEmitter {
         const id = f.replace(/\.jsonl$/, '')
         let st: ReturnType<typeof statSync>
         try { st = statSync(file) } catch { continue }
-        const peek = peekTranscript(file)
+        const peek = peekTranscript(file, st.size)
         out.push({
           id,
           file,
@@ -166,7 +177,7 @@ export class SessionManager extends EventEmitter {
           mtime: st.mtimeMs,
           sizeKb: Math.round(st.size / 1024),
           msgs: peek.count,
-          live: isLive(file),
+          live: isLive(file, st.mtimeMs),
         })
       }
     }

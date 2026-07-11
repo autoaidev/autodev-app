@@ -45,13 +45,17 @@ export default function SessionsBrowser(): JSX.Element {
   }, [msgs])
 
   const openSession = useCallback(async (s: SessionMeta) => {
-    setTerm(null)
-    if (selFile.current) await window.api.sessionClose(selFile.current)
+    // Update the UI immediately (before any await) so the click always feels live.
+    const prev = selFile.current
     selFile.current = s.file
+    setTerm(null)
     setSel(s)
-    const bl = (await window.api.sessionBacklog(s.file)) as SessionMsg[]
-    setMsgs(bl)
-    await window.api.sessionOpen(s.file)
+    setMsgs([])
+    try {
+      if (prev && prev !== s.file) await window.api.sessionClose(prev)
+      setMsgs((await window.api.sessionBacklog(s.file)) as SessionMsg[])
+      await window.api.sessionOpen(s.file)
+    } catch (e) { console.error('[openSession]', e) }
   }, [])
 
   const spawnClaude = useCallback(async () => {

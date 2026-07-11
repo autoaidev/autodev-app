@@ -30,6 +30,7 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  if (process.env['OPEN_DEVTOOLS']) mainWindow.webContents.openDevTools({ mode: 'bottom' })
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
