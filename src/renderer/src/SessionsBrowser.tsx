@@ -21,7 +21,12 @@ export default function SessionsBrowser(): JSX.Element {
   const [sel, setSel] = useState<SessionMeta | null>(null)
   const [msgs, setMsgs] = useState<SessionMsg[]>([])
   const [loading, setLoading] = useState(true)
-  const [term, setTerm] = useState<{ id: string; cwd: string } | null>(null)
+  const [term, setTerm] = useState<{ id: string; cwd: string; command?: string; name?: string } | null>(null)
+  const [connectOpen, setConnectOpen] = useState(false)
+  const [offices, setOffices] = useState<{ slug: string; id: number; name: string }[]>([])
+  const [officeSel, setOfficeSel] = useState('')
+  const [connectErr, setConnectErr] = useState('')
+  const [connectBusy, setConnectBusy] = useState(false)
   const selFile = useRef<string | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
 
@@ -66,6 +71,25 @@ export default function SessionsBrowser(): JSX.Element {
     setTerm({ id: `pty-${Date.now()}`, cwd })
   }, [])
 
+  const openConnect = useCallback(async () => {
+    const st = await window.api.officeStatus()
+    if (!st.connected) { setConnectErr('Connect a pixel-office first (☁ Pixel Office tab).'); setConnectOpen(true); return }
+    const offs = await window.api.officeOffices() as { slug: string; id: number; name: string }[]
+    setOffices(offs); setOfficeSel(offs[0]?.slug ?? ''); setConnectErr(''); setConnectOpen(true)
+  }, [])
+
+  const confirmConnect = useCallback(async () => {
+    const off = offices.find((o) => o.slug === officeSel); if (!off || !sel) return
+    setConnectBusy(true); setConnectErr('')
+    const r = await window.api.officeConnectSession(off.slug, off.id, sel.cwd, sel.id, sel.title) as any
+    setConnectBusy(false)
+    if (r?.error) { setConnectErr(r.error); return }
+    setConnectOpen(false)
+    if (selFile.current) { await window.api.sessionClose(selFile.current); selFile.current = null }
+    setSel(null); setMsgs([])
+    setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, command: `claude --resume ${r.sessionId}`, name: `${r.agentName} · live` })
+  }, [offices, officeSel, sel])
+
   useEffect(() => () => { if (selFile.current) window.api.sessionClose(selFile.current) }, [])
 
   return (
@@ -104,13 +128,13 @@ export default function SessionsBrowser(): JSX.Element {
         {term && (
           <>
             <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● claude</span>
+              <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● {term.name ?? 'claude'}</span>
               <div style={{ fontSize: 12, color: 'var(--muted,#8b949e)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{term.cwd}</div>
               <div style={{ flex: 1 }} />
               <button className="danger" onClick={() => setTerm(null)} title="End session &amp; close pane">■ Close</button>
             </div>
             <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
-              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" onExit={() => refresh()} />
+              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command={term.command ?? 'claude'} onExit={() => refresh()} />
             </div>
           </>
         )}
@@ -124,8 +148,21 @@ export default function SessionsBrowser(): JSX.Element {
               </div>
               {sel.live && <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● live</span>}
               <div style={{ flex: 1 }} />
+              <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ Connect to office</button>
               <button onClick={() => window.api.openPath(sel.cwd)} title="Open workspace folder">📁 Open</button>
             </div>
+            {connectOpen && (
+              <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#0d1117' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted,#8b949e)' }}>☁ Resume live as a character in:</span>
+                <select value={officeSel} onChange={(e) => setOfficeSel(e.target.value)} style={{ fontSize: 12, padding: '3px 6px' }}>
+                  {offices.length === 0 && <option value="">(no offices)</option>}
+                  {offices.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
+                </select>
+                <button className="primary" onClick={confirmConnect} disabled={connectBusy || !officeSel}>{connectBusy ? 'Connecting…' : 'Connect & resume live'}</button>
+                <button onClick={() => setConnectOpen(false)}>Cancel</button>
+                {connectErr && <span style={{ fontSize: 12, color: '#f85149' }}>{connectErr}</span>}
+              </div>
+            )}
             <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {msgs.length === 0 && <div className="empty" style={{ fontSize: 12 }}>(empty transcript)</div>}
               {msgs.map((m, i) => (

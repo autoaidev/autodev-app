@@ -107,6 +107,25 @@ export class PixelOfficeClient {
     return r.json()
   }
 
+  private async postJson(path: string, body: unknown): Promise<any> {
+    const r = await fetch(`${this.base}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: this.jar.header() },
+      body: JSON.stringify(body)
+    })
+    this.jar.store(r)
+    if (r.status === 401) { this._authed = false; throw new Error('Session expired — reconnect.') }
+    if (!r.ok) throw new Error(`${path} → ${r.status}`)
+    return r.json()
+  }
+
+  /** The user's offices (for the connect-session picker). */
+  async offices(): Promise<Array<{ slug: string; id: number; name: string }>> {
+    if (!this._authed) throw new Error('Not connected to a pixel-office.')
+    const list = (await this.getJson('/api/offices'))?.data?.offices ?? []
+    return list.map((o: any) => ({ slug: o.slug, id: o.id, name: o.name }))
+  }
+
   async listAgents(): Promise<OfficeAgent[]> {
     if (!this._authed) throw new Error('Not connected to a pixel-office.')
     const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
@@ -135,6 +154,24 @@ export class PixelOfficeClient {
         mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } }
       }, null, 2))
       return { ok: true, cwd: dir }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /** Create a character for a Claude session and wire its folder to the office,
+   *  so resuming the session runs it live as that character. */
+  async connectSession(officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string): Promise<{ ok: true; cwd: string; sessionId: string; agentSlug: string; agentName: string } | { error: string }> {
+    void officeSlug // kept for IPC signature symmetry with operate()
+    try {
+      const nm = (name || 'session').replace(/[^\w .-]+/g, '').slice(0, 20) || 'session'
+      const created = await this.postJson('/api/agents', { name: nm, officeId, avatarIndex: 0, color: '#00d4ff', emoji: '🎬' })
+      const d = created?.data ?? created
+      const key = d?.apiKey as string | undefined
+      const slug = (d?.slug as string) || nm
+      if (!key) return { error: 'Agent created but no API key returned.' }
+      const url = `${this.base}/api/office-mcp`
+      mkdirSync(cwd, { recursive: true })
+      writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } } }, null, 2))
+      return { ok: true, cwd, sessionId, agentSlug: slug, agentName: nm }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 

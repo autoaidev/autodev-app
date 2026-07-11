@@ -35,7 +35,9 @@ const api = {
   officeStatus: () => ipcRenderer.invoke('office:status'),
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
-  officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug)
+  officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug),
+  officeOffices: () => ipcRenderer.invoke('office:offices'),
+  officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {
