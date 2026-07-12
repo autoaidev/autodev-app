@@ -81,6 +81,7 @@ ipcMain.handle('dialog:pickFile', async (_e, filters?: { name: string; extension
   return r.canceled ? null : r.filePaths[0]
 })
 ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
+ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
 // --- Claude sessions (capture: discover + live attach) ---------------------
 ipcMain.handle('sessions:discover', () => sessions.discover())
 ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
@@ -100,6 +101,8 @@ ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))
 ipcMain.handle('office:offices', () => office.offices())
 ipcMain.handle('office:connectSession', (_e, officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => office.connectSession(officeSlug, officeId, cwd, sessionId, name))
+ipcMain.handle('office:createOffice', (_e, name: string, description: string) => office.createOffice(name, description))
+ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, count: number) => office.generateTeam(officeId, prompt, count))
 
 app.whenReady().then(() => {
   createWindow()

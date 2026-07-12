@@ -41,7 +41,10 @@ const api = {
   officeAgents: () => ipcRenderer.invoke('office:agents'),
   officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug),
   officeOffices: () => ipcRenderer.invoke('office:offices'),
-  officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name)
+  officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name),
+  officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),
+  officeGenerateTeam: (officeId: number, prompt: string, count: number) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {
