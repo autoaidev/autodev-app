@@ -18,7 +18,12 @@ linux:
   target:
     - AppImage
     - deb
+  # Show up under "Development" in the desktop app menu.
   category: Development
+  # Icon SET dir (<size>x<size>.png). A single build/icon.png made
+  # electron-builder install to hicolor/0x0/ (unresolvable → blank menu icon);
+  # a proper size set installs to hicolor/<size>/apps so the menu shows the icon.
+  icon: build/icons
   maintainer: autoaidev
 mac:
   target: dmg
