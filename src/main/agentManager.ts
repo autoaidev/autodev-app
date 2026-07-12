@@ -194,6 +194,31 @@ export class AgentManager extends EventEmitter {
 
   isRunning(path: string): boolean { return this._procs.has(path) }
 
+  /**
+   * Send a message/task to the agent by appending it as a pending task to
+   * TODO.md. A running loop picks it up on its next poll; a stopped agent acts
+   * on it the next time it's started. (A task is a single `- [ ] …` line.)
+   */
+  sendMessage(path: string, text: string): { ok: true } | { error: string } {
+    const msg = String(text ?? '').replace(/\r?\n+/g, ' ').trim()
+    if (!msg) return { error: 'Message is empty.' }
+    if (!existsSync(join(path, '.autodev', 'settings.json')) && !existsSync(join(path, 'TODO.md'))) {
+      return { error: 'Not an AutoDev workspace.' }
+    }
+    const todoPath = join(path, 'TODO.md')
+    try {
+      let content = existsSync(todoPath) ? readFileSync(todoPath, 'utf8') : '# TODO\n\n## Tasks\n'
+      if (content.length && !content.endsWith('\n')) content += '\n'
+      content += `- [ ] ${msg}\n`
+      writeFileSync(todoPath, content, 'utf8')
+      // Refresh the UI's task counts.
+      try { this.emit('agent:updated', this.readState(path)) } catch { /* ignore */ }
+      return { ok: true }
+    } catch (e: any) {
+      return { error: e?.message ?? 'Failed to write TODO.md' }
+    }
+  }
+
   // --- CLI passthrough (init/config/connect/export/import/status) ----------
   runCli(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string; code: number }> {
     return new Promise((resolve) => {

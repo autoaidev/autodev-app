@@ -8,6 +8,7 @@ const api = {
   agentState: (path: string) => ipcRenderer.invoke('agent:state', path),
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),
   stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
+  sendAgentMessage: (path: string, text: string) => ipcRenderer.invoke('agent:message', path, text),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   cliCheck: () => ipcRenderer.invoke('cli:check'),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),

@@ -171,6 +171,8 @@ export default function App(): JSX.Element {
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
+
+            <MessageBar key={current.path} path={current.path} running={current.running} showToast={showToast} />
           </>
         )}
       </main>
@@ -179,6 +181,38 @@ export default function App(): JSX.Element {
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.msg}</div>}
       </div>
+    </div>
+  )
+}
+
+// Persistent composer at the bottom of the agent detail — sends a message/task
+// to the agent (appended to its TODO.md; the loop picks it up).
+function MessageBar({ path, running, showToast }: { path: string; running: boolean; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const send = async (): Promise<void> => {
+    const t = text.trim()
+    if (!t || busy) return
+    setBusy(true)
+    const r = await window.api.sendAgentMessage(path, t) as { ok?: boolean; error?: string }
+    setBusy(false)
+    if (r?.error) { showToast(r.error, true); return }
+    setText('')
+    showToast(running ? 'Sent — the agent will pick it up shortly.' : 'Queued — the agent will act on it when you Start it.')
+  }
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
+  }
+  return (
+    <div className="msgbar">
+      <textarea
+        rows={1}
+        value={text}
+        placeholder="Send a message or task to this agent…  (Enter to send · Shift+Enter for newline)"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKey}
+      />
+      <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '➤ Send'}</button>
     </div>
   )
 }
