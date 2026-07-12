@@ -167,7 +167,7 @@ export default function App(): JSX.Element {
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
               {tab === 'output' && <Output key={logTick} text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
-              {tab === 'sessions' && <SessionsTab path={current.path} showToast={showToast} />}
+              {tab === 'sessions' && <SessionsTab path={current.path} provider={current.provider} showToast={showToast} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
@@ -207,14 +207,18 @@ function Output({ text }: { text: string }): JSX.Element {
 }
 
 interface SessionInfo { provider: string; id: string; name: string; updated: number }
-function SessionsTab({ path, showToast }: { path: string; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+function SessionsTab({ path, provider, showToast }: { path: string; provider?: string; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
   const load = useCallback(() => {
     setSessions(null)
-    window.api.runCli(['sessions', path, '--json']).then((r) => {
+    // Scope to the agent's configured provider so the list matches the selection
+    // (grok agent → grok sessions, opencode → opencode, …). The listing itself
+    // lives in the CLI (`autodev sessions --provider`) so it's shared, not duped.
+    const args = provider ? ['sessions', path, '--provider', provider, '--json'] : ['sessions', path, '--json']
+    window.api.runCli(args).then((r) => {
       try { setSessions(JSON.parse(r.stdout || '[]')) } catch { setSessions([]) }
     })
-  }, [path])
+  }, [path, provider])
   useEffect(() => { load() }, [load])
   if (sessions === null) return <div style={{ color: 'var(--fg2)' }}>Loading sessions…</div>
   return (
