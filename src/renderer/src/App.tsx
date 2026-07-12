@@ -15,7 +15,7 @@ interface AgentState {
   lastOutput?: string
 }
 
-const PROVIDERS = ['claude-cli', 'claude-tui', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-tui']
+const PROVIDERS = ['claude-tui', 'claude-cli', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-tui']
 
 export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
@@ -255,7 +255,7 @@ const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'op
 function modelKeyFor(provider: string): string { return MODEL_KEY[provider.split('-')[0]] ?? 'claudeModel' }
 
 function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
-  const [provider, setProvider] = useState(a.provider ?? 'claude-cli')
+  const [provider, setProvider] = useState(a.provider ?? 'claude-tui')
   const [sessionName, setSessionName] = useState(a.sessionName ?? '')
   const [model, setModel] = useState('')
   const [busy, setBusy] = useState(false)
@@ -323,7 +323,7 @@ function ConnectModal({ path, onClose, onDone, showToast }: { path: string; onCl
 
 function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; onCreated: (p: string) => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [path, setPath] = useState('')
-  const [provider, setProvider] = useState('claude-cli')
+  const [provider, setProvider] = useState('claude-tui')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   // When the chosen folder is already an AutoDev agent, we must NOT re-init it
