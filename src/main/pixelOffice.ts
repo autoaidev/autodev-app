@@ -175,6 +175,27 @@ export class PixelOfficeClient {
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
+  /** Create a new office (the "make app" flow: describe → office). */
+  async createOffice(name: string, description: string): Promise<{ ok: true; office: { slug: string; id: number; name: string } } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    try {
+      const r = await this.postJson('/api/offices', { name, description })
+      const o = r?.data?.office ?? r?.office
+      if (!o?.slug) return { error: 'Office created but no slug returned.' }
+      return { ok: true, office: { slug: o.slug, id: o.id, name: o.name } }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /** AI-generate a complementary team of agents for an office (Kimi via ollama). */
+  async generateTeam(officeId: number, prompt: string, count: number): Promise<{ ok: true; agents: Array<{ name: string; role?: string; emoji: string; color: string }> } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    try {
+      const r = await this.postJson('/api/agents/generate', { officeId, prompt, count })
+      const agents = (r?.data?.agents ?? r?.agents ?? []) as Array<{ name: string; role?: string; emoji: string; color: string }>
+      return { ok: true, agents }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
   status(): { connected: boolean; base: string; email?: string } {
     const c = this.loadConfig()
     return { connected: this._authed, base: this.base || c?.baseUrl || 'https://autodev.code.aioffice.works', email: this._email || c?.email }
