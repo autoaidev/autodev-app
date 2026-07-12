@@ -280,7 +280,7 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
       </label>
       <label className="field"><span className="lbl">Model ({modelKeyFor(provider)})</span>
-        <input value={model} placeholder={provider.startsWith('opencode') ? 'ollama-cloud/kimi-k2.7-code' : '(provider default)'} onChange={(e) => setModel(e.target.value)} />
+        <input value={model} placeholder="(provider default)" onChange={(e) => setModel(e.target.value)} />
       </label>
       <label className="field"><span className="lbl">Session display name</span>
         <input value={sessionName} placeholder="(folder name)" onChange={(e) => setSessionName(e.target.value)} />
