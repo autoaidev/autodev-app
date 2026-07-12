@@ -293,11 +293,13 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
 function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: string; agent?: AgentState; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [mode, setMode] = useState<'setup' | 'url'>('setup')
   const [value, setValue] = useState('')
+  const [fileBrowser, setFileBrowser] = useState(false)
   const [busy, setBusy] = useState(false)
   const connect = async () => {
     if (!value.trim()) return showToast('Paste a URL first', true)
     setBusy(true)
     const args = mode === 'setup' ? ['connect', '--setup-url', value.trim(), path] : ['connect', '--url', value.trim(), path]
+    if (fileBrowser) args.push('--file-browser')
     const r = await window.api.runCli(args)
     if (r.code !== 0) { setBusy(false); return showToast(r.stderr || 'Connect failed', true) }
     // A running agent won't pick up the new office binding until its loop is
@@ -325,6 +327,10 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
         </label>
         <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
           <textarea rows={3} value={value} placeholder={mode === 'setup' ? 'https://…/api/cli/setup/…?signature=…' : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 10px', cursor: 'pointer' }}>
+          <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} />
+          <span>Enable file browser <span style={{ color: 'var(--fg2,#8b95a7)', fontSize: 12 }}>— browse & edit this agent's files from the office</span></span>
         </label>
         <div className="actions">
           <button onClick={onClose}>Cancel</button>
