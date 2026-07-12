@@ -176,7 +176,7 @@ export default function App(): JSX.Element {
       </main>
 
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); refresh().then(() => setSelected(p)) }} showToast={showToast} />}
-      {connectFor && <ConnectModal path={connectFor} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
+      {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.msg}</div>}
       </div>
     </div>
@@ -290,7 +290,7 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
   )
 }
 
-function ConnectModal({ path, onClose, onDone, showToast }: { path: string; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: string; agent?: AgentState; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [mode, setMode] = useState<'setup' | 'url'>('setup')
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -299,9 +299,19 @@ function ConnectModal({ path, onClose, onDone, showToast }: { path: string; onCl
     setBusy(true)
     const args = mode === 'setup' ? ['connect', '--setup-url', value.trim(), path] : ['connect', '--url', value.trim(), path]
     const r = await window.api.runCli(args)
+    if (r.code !== 0) { setBusy(false); return showToast(r.stderr || 'Connect failed', true) }
+    // A running agent won't pick up the new office binding until its loop is
+    // restarted — so bounce it automatically instead of making the user do it.
+    if (agent?.running) {
+      showToast('Connected — restarting agent to join the office…')
+      await window.api.stopAgent(path)
+      await new Promise((res) => setTimeout(res, 700))
+      await window.api.startAgent(path, agent.provider)
+    } else {
+      showToast('Connected to pixel-office')
+    }
     setBusy(false)
-    if (r.code !== 0) return showToast(r.stderr || 'Connect failed', true)
-    showToast('Connected to pixel-office'); onDone()
+    onDone()
   }
   return (
     <div className="modal-bg" onClick={onClose}>
