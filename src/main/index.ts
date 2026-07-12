@@ -64,6 +64,8 @@ ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
 ipcMain.handle('agent:stop', (_e, path: string) => { manager.stop(path); return true })
 ipcMain.handle('agent:message', (_e, path: string, text: string) => manager.sendMessage(path, text))
+ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
+ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
 ipcMain.handle('cli:run', (_e, args: string[], cwd?: string) => manager.runCli(args, cwd))
 ipcMain.handle('cli:check', () => { const p = resolveCliJs(); return { found: !!p, path: p } })
 ipcMain.handle('dialog:pickFolder', async () => {

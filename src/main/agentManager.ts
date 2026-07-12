@@ -219,6 +219,23 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /** Read the workspace's .mcp.json (raw) for editing. */
+  readMcp(path: string): { content: string } | { error: string } {
+    try {
+      const p = join(path, '.mcp.json')
+      return { content: existsSync(p) ? readFileSync(p, 'utf8') : '{\n  "mcpServers": {}\n}\n' }
+    } catch (e: any) { return { error: e?.message ?? 'Failed to read .mcp.json' } }
+  }
+
+  /** Write the workspace's .mcp.json (validates JSON first). Restart to apply. */
+  writeMcp(path: string, content: string): { ok: true } | { error: string } {
+    try { JSON.parse(content) } catch (e: any) { return { error: 'Invalid JSON: ' + (e?.message ?? '') } }
+    try {
+      writeFileSync(join(path, '.mcp.json'), content, 'utf8')
+      return { ok: true }
+    } catch (e: any) { return { error: e?.message ?? 'Failed to write .mcp.json' } }
+  }
+
   // --- CLI passthrough (init/config/connect/export/import/status) ----------
   runCli(args: string[], cwd?: string): Promise<{ stdout: string; stderr: string; code: number }> {
     return new Promise((resolve) => {

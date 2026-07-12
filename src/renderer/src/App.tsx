@@ -296,20 +296,41 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
   const [provider, setProvider] = useState(a.provider ?? 'claude-tui')
   const [sessionName, setSessionName] = useState(a.sessionName ?? '')
   const [model, setModel] = useState('')
+  const [fileBrowser, setFileBrowser] = useState(false)
   const [busy, setBusy] = useState(false)
+  // MCP editor (raw .mcp.json)
+  const [mcpText, setMcpText] = useState('')
+  const [showMcp, setShowMcp] = useState(false)
+  const [mcpBusy, setMcpBusy] = useState(false)
+
   // load the current model for the active provider
   useEffect(() => {
     window.api.runCli(['config', 'get', modelKeyFor(provider), a.path]).then((r) => setModel((r.stdout || '').trim()))
   }, [a.path, provider])
-  const save = async () => {
+  // load file-browser flag + .mcp.json once per agent
+  useEffect(() => {
+    window.api.runCli(['config', 'get', 'enableFileBrowser', a.path]).then((r) => setFileBrowser((r.stdout || '').trim() === 'true'))
+    window.api.readAgentMcp(a.path).then((r: { content?: string }) => { if (r?.content != null) setMcpText(r.content) })
+  }, [a.path])
+
+  const save = async (): Promise<void> => {
     setBusy(true)
     await window.api.runCli(['config', 'set', 'provider', provider, a.path])
     if (sessionName !== (a.sessionName ?? '')) await window.api.runCli(['config', 'set', 'sessionName', sessionName, a.path])
     await window.api.runCli(['config', 'set', modelKeyFor(provider), model, a.path])
+    await window.api.runCli(['config', 'set', 'enableFileBrowser', fileBrowser ? 'true' : 'false', a.path])
     setBusy(false); showToast('Saved'); onSaved()
   }
+  const saveMcp = async (): Promise<void> => {
+    setMcpBusy(true)
+    const r = await window.api.writeAgentMcp(a.path, mcpText) as { ok?: boolean; error?: string }
+    setMcpBusy(false)
+    if (r?.error) { showToast(r.error, true); return }
+    showToast(a.running ? 'MCP saved — restart the agent to apply.' : 'MCP saved.')
+  }
+
   return (
-    <div style={{ maxWidth: 460 }}>
+    <div style={{ maxWidth: 560 }}>
       <label className="field"><span className="lbl">Provider</span>
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
       </label>
@@ -319,7 +340,24 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
       <label className="field"><span className="lbl">Session display name</span>
         <input value={sessionName} placeholder="(folder name)" onChange={(e) => setSessionName(e.target.value)} />
       </label>
-      <button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      <label className="field" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} style={{ width: 'auto' }} />
+        <span className="lbl" style={{ margin: 0 }}>Enable file browser <span style={{ color: 'var(--fg2)', textTransform: 'none', letterSpacing: 0 }}>— browse & edit this agent's files from the office</span></span>
+      </label>
+      <button className="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button>
+
+      <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+        <button onClick={() => setShowMcp((s) => !s)}>{showMcp ? '▾' : '▸'} MCP servers (.mcp.json)</button>
+        {showMcp && (
+          <div style={{ marginTop: 10 }}>
+            <textarea value={mcpText} onChange={(e) => setMcpText(e.target.value)} rows={14} spellCheck={false} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
+            <div className="row" style={{ marginTop: 8 }}>
+              <button className="primary" disabled={mcpBusy} onClick={() => void saveMcp()}>{mcpBusy ? 'Saving…' : 'Save MCP'}</button>
+              <span style={{ color: 'var(--fg2)', fontSize: 12 }}>Raw config — restart the agent to apply changes.</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
