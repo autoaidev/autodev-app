@@ -326,10 +326,37 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
   const [provider, setProvider] = useState('claude-cli')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  // When the chosen folder is already an AutoDev agent, we must NOT re-init it
+  // (that overwrites its settings + office binding) — we connect it instead.
+  const [existing, setExisting] = useState<{ provider?: string; sessionName?: string } | null>(null)
+
+  // Detect an existing workspace whenever the path changes (browse or typed).
+  const probe = useCallback(async (p: string) => {
+    if (!p) { setExisting(null); return }
+    const info = await window.api.workspaceInfo(p)
+    setExisting(info?.exists ? { provider: info.provider, sessionName: info.sessionName } : null)
+  }, [])
+  useEffect(() => { probe(path) }, [path, probe])
+
   const pick = async () => { const p = await window.api.pickFolder(); if (p) setPath(p) }
-  const create = async () => {
+
+  const submit = async () => {
     if (!path) return showToast('Pick a folder first', true)
     setBusy(true)
+    // Re-probe at submit time so we never clobber based on stale UI state.
+    const info = await window.api.workspaceInfo(path)
+    if (info?.exists) {
+      // Existing agent: keep its settings, just register + connect it.
+      const added = await window.api.addAgent(path)
+      if ((added as { error?: string })?.error) { setBusy(false); return showToast((added as { error: string }).error, true) }
+      const started = await window.api.startAgent(path)   // provider omitted → uses its own settings
+      setBusy(false)
+      if ((started as { error?: string })?.error) return showToast((started as { error: string }).error, true)
+      showToast(`Connected existing agent — settings kept`)
+      onCreated(path)
+      return
+    }
+    // New folder → initialise a fresh agent.
     const args = ['init', path, '--provider', provider]
     if (name) args.push('--session-name', name)
     const r = await window.api.runCli(args)
@@ -338,22 +365,32 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
     await window.api.addAgent(path)
     onCreated(path)
   }
+
   return (
     <div className="modal-bg" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Create agent</h3>
+        <h3>{existing ? 'Connect existing agent' : 'Create agent'}</h3>
         <label className="field"><span className="lbl">Workspace folder</span>
           <div className="row"><input value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
         </label>
-        <label className="field"><span className="lbl">Provider</span>
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
-        </label>
-        <label className="field"><span className="lbl">Session name (optional)</span>
-          <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />
-        </label>
+        {existing ? (
+          <div className="field" style={{ background: '#0d2a17', border: '1px solid #16653a', borderRadius: 6, padding: '8px 10px', color: '#86efac', fontSize: 12 }}>
+            ✓ This folder already has an agent{existing.provider ? ` (${existing.provider}` : ''}{existing.provider && existing.sessionName ? ` · ${existing.sessionName})` : existing.provider ? ')' : ''}.<br />
+            Its settings will be kept — it'll just be connected.
+          </div>
+        ) : (
+          <>
+            <label className="field"><span className="lbl">Provider</span>
+              <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
+            </label>
+            <label className="field"><span className="lbl">Session name (optional)</span>
+              <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />
+            </label>
+          </>
+        )}
         <div className="actions">
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={busy} onClick={create}>{busy ? 'Creating…' : 'Create'}</button>
+          <button className="primary" disabled={busy} onClick={submit}>{busy ? (existing ? 'Connecting…' : 'Creating…') : (existing ? 'Connect' : 'Create')}</button>
         </div>
       </div>
     </div>

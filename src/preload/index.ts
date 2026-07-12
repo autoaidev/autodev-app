@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 const api = {
   listAgents: () => ipcRenderer.invoke('agents:list'),
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
+  workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
   removeAgent: (path: string) => ipcRenderer.invoke('agents:remove', path),
   agentState: (path: string) => ipcRenderer.invoke('agent:state', path),
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),

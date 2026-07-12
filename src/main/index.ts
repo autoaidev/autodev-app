@@ -58,6 +58,7 @@ ptys.on('exit', (d) => broadcast('pty:exit', d))
 // --- IPC -------------------------------------------------------------------
 ipcMain.handle('agents:list', () => manager.list())
 ipcMain.handle('agents:add', (_e, path: string) => manager.add(path))
+ipcMain.handle('workspace:info', (_e, path: string) => manager.workspaceInfo(path))
 ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); return true })
 ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))

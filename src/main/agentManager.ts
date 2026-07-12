@@ -73,6 +73,17 @@ export class AgentManager extends EventEmitter {
     return this.readState(path)
   }
 
+  /**
+   * Probe a folder before "Create agent": if it already has a
+   * `.autodev/settings.json`, it's an existing agent — the caller must NOT
+   * re-init it (that clobbers its provider/office binding), just connect it.
+   */
+  workspaceInfo(path: string): { exists: boolean; provider?: string; sessionName?: string } {
+    const s = this._readJson(join(path, '.autodev', 'settings.json'))
+    if (!s) return { exists: false }
+    return { exists: true, provider: s.provider, sessionName: s.sessionName }
+  }
+
   remove(path: string): void {
     this.stop(path)
     this._paths = this._paths.filter((p) => p !== path)
