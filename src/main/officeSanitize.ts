@@ -31,16 +31,43 @@ export function safeSeg(s: unknown): string {
 }
 
 /**
- * Validate an MCP endpoint URL supplied by the office server. Only accept an
- * http(s) URL whose origin matches the connected office base; otherwise the
- * caller should fall back to the derived default so a malicious response cannot
- * silently repoint the operated Claude session at an attacker endpoint.
+ * A loopback host — the only place plain http is tolerated (local dev office),
+ * since traffic never leaves the machine so there is nothing to intercept.
+ */
+export function isLocalhostHost(host: string): boolean {
+  const h = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+
+/**
+ * True when a URL string is safe to send credentials to / write into a spawned
+ * MCP config: it must be https, except for a loopback host where plain http is
+ * allowed (local dev). Anything non-http(s) or plain-http off-loopback is
+ * rejected so passwords, durable tokens and the office API key are never sent
+ * or persisted in cleartext.
+ */
+export function isSecureBaseUrl(url: unknown): boolean {
+  if (typeof url !== 'string' || !url) return false
+  let u: URL
+  try { u = new URL(url) } catch { return false }
+  if (u.protocol === 'https:') return true
+  if (u.protocol === 'http:' && isLocalhostHost(u.host)) return true
+  return false
+}
+
+/**
+ * Validate an MCP endpoint URL supplied by the office server. Only accept a URL
+ * whose origin matches the connected office base AND that is transport-secure
+ * (https, or http to a loopback host for local dev); otherwise the caller should
+ * fall back to the derived default so a malicious response cannot silently
+ * repoint the operated Claude session at an attacker endpoint or downgrade the
+ * office key to cleartext http.
  */
 export function safeMcpUrl(url: unknown, base: string, fallback: string): string {
   if (typeof url !== 'string' || !url) return fallback
   let u: URL
   try { u = new URL(url) } catch { return fallback }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return fallback
+  if (!isSecureBaseUrl(url)) return fallback
   try {
     const b = new URL(base)
     if (u.origin !== b.origin) return fallback

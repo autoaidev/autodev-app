@@ -1,10 +1,10 @@
 import { app, safeStorage } from 'electron'
 import { join, resolve, sep } from 'path'
 import { homedir } from 'os'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
-import { isValidSessionId, safeSeg, safeMcpUrl } from './officeSanitize'
+import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from './officeSanitize'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -98,6 +98,40 @@ function writeMcpJson(dir: string, key: string, url: string): void {
 }
 
 /**
+ * Merge the `pixel-office` server into an EXISTING `<dir>/.mcp.json` without
+ * discarding any servers the user already configured. Used for connectSession,
+ * which wires the user's REAL project cwd (not an app-owned scratch dir) — a
+ * blind overwrite there would clobber the user's own MCP config. Kept 0600 since
+ * the merged file still carries the live office API key.
+ */
+function mergeMcpJson(dir: string, key: string, url: string): void {
+  const file = join(dir, '.mcp.json')
+  let root: Record<string, any> = {}
+  try { const p = JSON.parse(readFileSync(file, 'utf8')); if (p && typeof p === 'object') root = p } catch { /* none/invalid → start fresh */ }
+  if (!root.mcpServers || typeof root.mcpServers !== 'object') root.mcpServers = {}
+  root.mcpServers['pixel-office'] = officeMcpServer(key, url)
+  writeFileSync(file, JSON.stringify(root, null, 2), { mode: 0o600 })
+  try { chmodSync(file, 0o600) } catch { /* best effort */ }
+}
+
+/**
+ * Ensure each entry is present in `<dir>/.gitignore` so app-written secrets/config
+ * (the office-key-bearing `.mcp.json`, the local trust settings) can't be
+ * accidentally git-committed from the user's real repo. Best-effort, append-only.
+ */
+function ensureGitignored(dir: string, entries: string[]): void {
+  try {
+    const gi = join(dir, '.gitignore')
+    let cur = ''
+    try { cur = readFileSync(gi, 'utf8') } catch { /* none yet */ }
+    const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()))
+    const add = entries.filter((e) => !have.has(e))
+    if (!add.length) return
+    appendFileSync(gi, (cur && !cur.endsWith('\n') ? '\n' : '') + add.join('\n') + '\n')
+  } catch { /* best effort */ }
+}
+
+/**
  * Pre-approve the project-scoped `.mcp.json` so the spawned `claude` doesn't sit
  * on the in-TUI "untrusted MCP server — approve?" prompt (project servers are
  * Pending until approved). Without this the office-MCP server never starts and
@@ -109,6 +143,63 @@ function writeMcpTrust(dir: string): void {
     const cdir = join(dir, '.claude')
     mkdirSync(cdir, { recursive: true, mode: 0o700 })
     writeFileSync(join(cdir, 'settings.local.json'), JSON.stringify({ enableAllProjectMcpServers: true }, null, 2), { mode: 0o600 })
+  } catch { /* best effort — falls back to the manual trust prompt */ }
+}
+
+/**
+ * Pre-approve ONLY the named project MCP server (default `pixel-office`) in
+ * `<dir>/.claude/settings.local.json`, merging into any existing local settings.
+ * Unlike `writeMcpTrust`'s blanket `enableAllProjectMcpServers`, this scoped
+ * allow-list does NOT auto-trust every other project-scoped `.mcp.json` server —
+ * critical when wiring a user's REAL repo (connectSession), where a hostile
+ * pre-existing MCP server would otherwise execute unprompted on `claude --resume`.
+ */
+/**
+ * Pre-accept Claude Code's per-folder trust prompt for an APP-OWNED scratch cwd
+ * by seeding `projects[cwd].hasTrustDialogAccepted=true` in `~/.claude.json`.
+ * Without it, the first `claude` launch in a freshly-created operate dir blocks on
+ * the full-screen "Do you trust the files in this folder?" dialog — so the first
+ * Operate per agent hangs while the UI already claims the character is
+ * MCP-connected. `hasTrustDialogAccepted` is Claude Code's real per-project key.
+ *
+ * Only ever call this for dirs WE created under ~/.autodev-app/offices. Fails
+ * safe: if an existing ~/.claude.json can't be parsed we ABORT rather than risk
+ * overwriting the user's real global config, and the write is atomic (tmp+rename)
+ * so a concurrent `claude` never observes a partial file.
+ */
+function markFolderTrusted(cwd: string): void {
+  try {
+    const file = join(homedir(), '.claude.json')
+    let root: Record<string, any>
+    if (existsSync(file)) {
+      try { root = JSON.parse(readFileSync(file, 'utf8')) } catch { return /* don't clobber a real-but-unparseable config */ }
+      if (!root || typeof root !== 'object') return
+    } else {
+      root = {}
+    }
+    if (!root.projects || typeof root.projects !== 'object') root.projects = {}
+    const cur = (root.projects[cwd] && typeof root.projects[cwd] === 'object') ? root.projects[cwd] : {}
+    if (cur.hasTrustDialogAccepted === true) return // already trusted — leave the global file untouched
+    cur.hasTrustDialogAccepted = true
+    root.projects[cwd] = cur
+    const tmp = `${file}.autodev-${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(root, null, 2))
+    renameSync(tmp, file)
+  } catch { /* best effort — falls back to the manual trust prompt */ }
+}
+
+function writeScopedMcpTrust(dir: string, server = 'pixel-office'): void {
+  try {
+    const cdir = join(dir, '.claude')
+    mkdirSync(cdir, { recursive: true, mode: 0o700 })
+    const file = join(cdir, 'settings.local.json')
+    let s: Record<string, any> = {}
+    try { const p = JSON.parse(readFileSync(file, 'utf8')); if (p && typeof p === 'object') s = p } catch { /* none/invalid */ }
+    const cur: string[] = Array.isArray(s.enabledMcpjsonServers) ? s.enabledMcpjsonServers : []
+    if (!cur.includes(server)) cur.push(server)
+    s.enabledMcpjsonServers = cur
+    writeFileSync(file, JSON.stringify(s, null, 2), { mode: 0o600 })
+    try { chmodSync(file, 0o600) } catch { /* best effort */ }
   } catch { /* best effort — falls back to the manual trust prompt */ }
 }
 
@@ -160,6 +251,13 @@ export class PixelOfficeClient {
 
   async login(baseUrl: string, email: string, password: string): Promise<{ ok: true; user: unknown } | { error: string }> {
     this.base = baseUrl.replace(/\/+$/, '')
+    // The Server URL is free-text. Refuse to POST the password + persist the
+    // durable remember_web token over plain http (harvestable by any passive/MITM
+    // observer on the LAN) — require https, tolerating http only for a loopback
+    // dev office. Fail BEFORE any credential leaves the machine.
+    if (!isSecureBaseUrl(this.base)) {
+      return { error: 'Server URL must use https:// (http is only allowed for localhost).' }
+    }
     this.jar = new Jar()
     this._authed = false
     this._email = email
@@ -188,6 +286,9 @@ export class PixelOfficeClient {
   async autoConnect(): Promise<boolean> {
     const c = this.loadConfig()
     if (!c?.baseUrl || !c.cookies?.length) { dbg('autoConnect: no stored token'); return false }
+    // Never replay a durable token over cleartext http (a legacy/tampered config
+    // could carry an insecure base) — that would leak the remember_web cookie.
+    if (!isSecureBaseUrl(c.baseUrl)) { dbg('autoConnect: insecure base rejected', c.baseUrl); return false }
     this.base = c.baseUrl
     this._email = c.email
     this.jar = new Jar()
@@ -295,6 +396,7 @@ export class PixelOfficeClient {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeMcpJson(dir, key, url)
       writeMcpTrust(dir) // auto-approve the office-MCP server so it actually starts
+      markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
@@ -304,6 +406,9 @@ export class PixelOfficeClient {
    *  so resuming the session runs it live as that character. */
   async connectSession(officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string): Promise<{ ok: true; cwd: string; sessionId: string; agentSlug: string; agentName: string } | { error: string }> {
     void officeSlug // kept for IPC signature symmetry with operate()
+    // Guard parity with operate()/createOffice(): never create a remote agent or
+    // touch the filesystem when we aren't actually authenticated.
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     // sessionId is a filesystem-derived transcript stem that is interpolated into
     // a `claude --resume <id>` shell command downstream — reject anything that is
     // not a plain token so a hostile filename can't inject shell metacharacters.
@@ -316,9 +421,16 @@ export class PixelOfficeClient {
       const slug = (d?.slug as string) || nm
       if (!key) return { error: 'Agent created but no API key returned.' }
       const url = `${this.base}/api/office-mcp`
+      // connectSession wires the user's REAL project cwd (the transcript's on-disk
+      // workspace), so unlike operate()'s app-owned scratch dir we must NOT clobber
+      // their files or blanket-trust the repo:
+      //  - gitignore the secret-bearing files first so they can't be committed,
+      //  - MERGE (not overwrite) the office server into any existing .mcp.json,
+      //  - scope trust to ONLY the pixel-office server (never enable-all).
       mkdirSync(cwd, { recursive: true })
-      writeMcpJson(cwd, key, url)
-      writeMcpTrust(cwd) // auto-approve the office-MCP server so it actually starts
+      ensureGitignored(cwd, ['.mcp.json', '.claude/settings.local.json'])
+      mergeMcpJson(cwd, key, url)
+      writeScopedMcpTrust(cwd) // approve ONLY the office-MCP server so it starts
       return { ok: true, cwd, sessionId, agentSlug: slug, agentName: nm }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }

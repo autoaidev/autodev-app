@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isValidSessionId, safeSeg, safeMcpUrl } from '../src/main/officeSanitize.ts'
+import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from '../src/main/officeSanitize.ts'
 
 test('isValidSessionId accepts UUID-like transcript stems', () => {
   assert.ok(isValidSessionId('9f8c2e1a-0b3d-4c5e-8f9a-1b2c3d4e5f60'))
@@ -53,6 +53,34 @@ test('safeSeg never yields a path separator', () => {
     const out = safeSeg(s)
     assert.ok(!/[/\\]/.test(out), `no separator in ${out}`)
   }
+})
+
+test('isSecureBaseUrl requires https except for loopback hosts', () => {
+  // https anywhere is fine
+  assert.ok(isSecureBaseUrl('https://office.example.com'))
+  assert.ok(isSecureBaseUrl('https://autodev.code.aioffice.works'))
+  // plain http off-loopback is rejected (cleartext password/token/key)
+  assert.ok(!isSecureBaseUrl('http://office.example.com'))
+  assert.ok(!isSecureBaseUrl('http://192.168.1.10'))
+  // http to loopback is tolerated for local dev
+  assert.ok(isSecureBaseUrl('http://localhost'))
+  assert.ok(isSecureBaseUrl('http://localhost:8000'))
+  assert.ok(isSecureBaseUrl('http://127.0.0.1:8000'))
+  assert.ok(isSecureBaseUrl('http://[::1]:8000'))
+  // non-http(s) / garbage / non-string rejected
+  assert.ok(!isSecureBaseUrl('file:///etc/passwd'))
+  assert.ok(!isSecureBaseUrl('not a url'))
+  assert.ok(!isSecureBaseUrl(''))
+  assert.ok(!isSecureBaseUrl(undefined))
+})
+
+test('safeMcpUrl rejects a same-origin http (non-loopback) downgrade', () => {
+  const base = 'http://office.example.com'
+  const fb = 'https://office.example.com/api/office-mcp'
+  // even same-origin, plain http off-loopback must not carry the office key
+  assert.equal(safeMcpUrl('http://office.example.com/api/office-mcp', base, fb), fb)
+  // but a loopback dev office over http is allowed same-origin
+  assert.equal(safeMcpUrl('http://localhost:8000/api/office-mcp', 'http://localhost:8000', 'http://localhost:8000/fb'), 'http://localhost:8000/api/office-mcp')
 })
 
 test('safeMcpUrl accepts only same-origin http(s), else falls back', () => {
