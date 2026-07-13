@@ -13,7 +13,7 @@ function isAuthError(msg: string): boolean {
   return /expired|reconnect|not connected|unauthenticated|\b401\b|\b419\b/i.test(msg)
 }
 
-export default function PixelOfficeView(): JSX.Element {
+export default function PixelOfficeView({ visible = true }: { visible?: boolean }): JSX.Element {
   const [connected, setConnected] = useState(false)
   const [base, setBase] = useState(DEFAULT_BASE)
   const [email, setEmail] = useState('')
@@ -99,14 +99,17 @@ export default function PixelOfficeView(): JSX.Element {
     finally { inFlight.current = false }
   }, [])
 
-  // While connected, poll every 8s and on window focus; cleared on disconnect.
+  // While connected AND on-screen, poll every 8s and on window focus; cleared on
+  // disconnect or when the view is hidden. The view now stays mounted across tab
+  // switches (so its live Operate PTY survives), so gating on `visible` stops a
+  // hidden tab from polling in the background.
   useEffect(() => {
-    if (!connected) return
+    if (!connected || !visible) return
     const id = setInterval(pollAgents, 8000)
     const onFocus = (): void => { void pollAgents() }
     window.addEventListener('focus', onFocus)
     return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
-  }, [connected, pollAgents])
+  }, [connected, visible, pollAgents])
 
   useEffect(() => {
     (async () => {

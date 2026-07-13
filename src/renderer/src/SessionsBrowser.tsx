@@ -16,7 +16,7 @@ function ago(ms: number): string {
 }
 const base = (p: string): string => p.replace(/\/+$/, '').split('/').filter(Boolean).pop() || p
 
-export default function SessionsBrowser(): JSX.Element {
+export default function SessionsBrowser({ visible = true }: { visible?: boolean }): JSX.Element {
   const [list, setList] = useState<SessionMeta[]>([])
   const [sel, setSel] = useState<SessionMeta | null>(null)
   const [msgs, setMsgs] = useState<SessionMsg[]>([])
@@ -35,7 +35,10 @@ export default function SessionsBrowser(): JSX.Element {
     setList(l); setLoading(false)
   }, [])
 
-  useEffect(() => { refresh(); const id = setInterval(refresh, 5000); return () => clearInterval(id) }, [refresh])
+  // Rescan on open and every 5s WHILE visible. The view stays mounted across tab
+  // switches now (so a live Resume PTY survives), so a hidden tab shouldn't keep
+  // rescanning ~/.claude in the background; it resumes the moment it's shown again.
+  useEffect(() => { if (!visible) return; refresh(); const id = setInterval(refresh, 5000); return () => clearInterval(id) }, [refresh, visible])
 
   // live tail: append incoming lines for the currently-open transcript
   useEffect(() => {

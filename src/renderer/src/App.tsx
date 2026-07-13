@@ -30,6 +30,15 @@ export default function App(): JSX.Element {
   const [showSessions, setShowSessions] = useState(false)
   const [showOffice, setShowOffice] = useState(false)
   const [showMakeApp, setShowMakeApp] = useState(false)
+  // Once a heavy view (Office / Sessions / Make-app) has been opened we keep it
+  // MOUNTED and merely toggle its visibility with CSS `display` — switching tabs or
+  // re-clicking a sidebar button must never unmount it, or its child TerminalPane's
+  // cleanup would SIGKILL the live Operate/Resume PTY that keeps the office
+  // character online (and lose the terminal scrollback). Lazy: nothing mounts until
+  // first opened.
+  const [openedSessions, setOpenedSessions] = useState(false)
+  const [openedOffice, setOpenedOffice] = useState(false)
+  const [openedMakeApp, setOpenedMakeApp] = useState(false)
   const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
   const [creating, setCreating] = useState(false)
   const [connectFor, setConnectFor] = useState<string | null>(null)
@@ -140,19 +149,21 @@ export default function App(): JSX.Element {
         </div>
         <div style={{ padding: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button style={{ width: '100%', background: showMakeApp ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showMakeApp ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowMakeApp((s) => !s); setShowOffice(false); setShowSessions(false) }} title="Describe an app and generate an office team to build it">✨ Make app</button>
+            onClick={() => { setShowMakeApp((s) => !s); setShowOffice(false); setShowSessions(false); setOpenedMakeApp(true) }} title="Describe an app and generate an office team to build it">✨ Make app</button>
           <button style={{ width: '100%', background: showOffice ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showOffice ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowOffice((s) => !s); setShowSessions(false); setShowMakeApp(false) }} title="Connect & operate your remote pixel-office agents">☁ Pixel Office</button>
+            onClick={() => { setShowOffice((s) => !s); setShowSessions(false); setShowMakeApp(false); setOpenedOffice(true) }} title="Connect & operate your remote pixel-office agents">☁ Pixel Office</button>
           <button style={{ width: '100%', background: showSessions ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showSessions ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowSessions((s) => !s); setShowOffice(false); setShowMakeApp(false) }} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
+            onClick={() => { setShowSessions((s) => !s); setShowOffice(false); setShowMakeApp(false); setOpenedSessions(true) }} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
           <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)}>＋ Create agent</button>
         </div>
       </aside>
 
       <main className="main">
-        {showMakeApp && <MakeAppView />}
-        {showOffice && <PixelOfficeView />}
-        {showSessions && <SessionsBrowser />}
+        {/* Heavy views stay mounted once opened (see openedX above) and only hide via
+            `display`, so a live Operate/Resume terminal survives tab switches. */}
+        {openedMakeApp && <div style={{ display: showMakeApp ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><MakeAppView /></div>}
+        {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} /></div>}
+        {openedSessions && <div style={{ display: showSessions ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><SessionsBrowser visible={showSessions} /></div>}
         {!showMakeApp && !showOffice && !showSessions && !current && <div className="empty">Select an agent</div>}
         {!showMakeApp && !showOffice && !showSessions && current && (
           <>
