@@ -50,7 +50,22 @@ export default function TerminalPane({
       if (pid === id) { term.write('\r\n\x1b[90m[session ended]\x1b[0m\r\n'); onExit?.() }
     })
 
-    void window.api.ptySpawn(id, { cwd, command, cols: term.cols, rows: term.rows })
+    // Surface a spawn failure IN the pane. PtyManager.spawn returns {error} (bad
+    // cwd, missing $SHELL, node-pty ABI mismatch) and emits nothing on failure —
+    // without this the pane stays a blank black box forever while the UI claims
+    // the session is running.
+    void window.api
+      .ptySpawn(id, { cwd, command, cols: term.cols, rows: term.rows })
+      .then((res: { ok?: true; error?: string } | undefined) => {
+        if (res?.error) {
+          term.write('\r\n\x1b[31mFailed to start session: ' + res.error + '\x1b[0m\r\n')
+          onExit?.()
+        }
+      })
+      .catch((e: unknown) => {
+        term.write('\r\n\x1b[31mFailed to start session: ' + String((e as Error)?.message ?? e) + '\x1b[0m\r\n')
+        onExit?.()
+      })
 
     const ro = new ResizeObserver(() => {
       try { fit.fit(); window.api.ptyResize(id, term.cols, term.rows) } catch { /* */ }
