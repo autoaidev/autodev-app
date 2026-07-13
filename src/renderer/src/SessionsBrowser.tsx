@@ -107,7 +107,9 @@ export default function SessionsBrowser(): JSX.Element {
           {loading && <div className="empty" style={{ padding: 20, fontSize: 12 }}>Scanning ~/.claude…</div>}
           {!loading && list.length === 0 && <div className="empty" style={{ padding: 20, fontSize: 12 }}>No Claude sessions found on this machine.</div>}
           {list.map((s) => (
-            <div key={s.file} onClick={() => openSession(s)}
+            <div key={s.file} role="button" tabIndex={0} aria-pressed={sel?.file === s.file}
+              onClick={() => openSession(s)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s) } }}
               className={'agent-row' + (sel?.file === s.file ? ' active' : '')}
               style={{ display: 'block', padding: '8px 12px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -118,7 +118,10 @@ export default function App(): JSX.Element {
         <div className="agent-list">
           {agents.length === 0 && <div className="empty" style={{ padding: 24, fontSize: 12 }}>No agents yet.<br />Create or add one.</div>}
           {agents.map((a) => (
-            <div key={a.path} className={'agent-row' + (a.path === selected ? ' active' : '')} onClick={() => setSelected(a.path)}>
+            <div key={a.path} role="button" tabIndex={0} aria-pressed={a.path === selected}
+              className={'agent-row' + (a.path === selected ? ' active' : '')}
+              onClick={() => setSelected(a.path)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(a.path) } }}>
               <span className={'dot ' + a.activity} title={a.activity} />
               <div className="meta">
                 <div className="name">{a.name}</div>
@@ -163,9 +166,14 @@ export default function App(): JSX.Element {
               <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
 
-            <div className="tabs">
+            <div className="tabs" role="tablist">
               {(['overview', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
-                <div key={t} className={'tab' + (tab === t ? ' active' : '')} onClick={() => setTab(t)}>{t[0].toUpperCase() + t.slice(1)}</div>
+                <div key={t} role="tab" aria-selected={tab === t} tabIndex={tab === t ? 0 : -1}
+                  className={'tab' + (tab === t ? ' active' : '')}
+                  onClick={() => setTab(t)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t) } }}>
+                  {t[0].toUpperCase() + t.slice(1)}
+                </div>
               ))}
             </div>
 
