@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { join, resolve, sep } from 'path'
 import { homedir } from 'os'
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync, rmSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
 import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from './officeSanitize'
@@ -309,6 +309,12 @@ export class PixelOfficeClient {
     this.jar = new Jar()
     // Remove the token file entirely rather than leaving a stale (readable) one.
     try { if (existsSync(this._cfg)) unlinkSync(this._cfg) } catch { /* */ }
+    // operate()/connectSession() write each agent's live office API key in
+    // plaintext into ~/.autodev-app/offices/<slug>/<agent>/.mcp.json (it must be
+    // readable by the spawned claude). Removing only the token file above would
+    // leave that whole tree of still-valid keys behind on logout / account switch,
+    // harvestable by any later local read. Purge the scratch root too.
+    try { rmSync(join(homedir(), '.autodev-app', 'offices'), { recursive: true, force: true }) } catch { /* best effort */ }
   }
 
   /**

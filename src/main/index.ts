@@ -37,7 +37,11 @@ function createWindow(): void {
     backgroundColor: '#0d1117',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
+      // The preload imports only contextBridge + ipcRenderer (both available in a
+      // sandboxed preload) and the renderer touches Node only through window.api,
+      // so the OS-level sandbox costs nothing while containing a renderer
+      // compromise away from the privileged IPC surface (pty/cli/file reads).
+      sandbox: true,
       contextIsolation: true
     }
   })

@@ -2,7 +2,7 @@ import { EventEmitter } from 'events'
 import { existsSync, readdirSync, readFileSync, statSync, createReadStream, openSync, readSync, closeSync } from 'fs'
 import { watch, FSWatcher } from 'chokidar'
 import { homedir } from 'os'
-import { join } from 'path'
+import { join, resolve, sep } from 'path'
 
 /**
  * Discovers and live-streams Claude Code sessions on this machine.
@@ -35,6 +35,19 @@ export interface SessionMsg {
 }
 
 const claudeDir = (): string => join(homedir(), '.claude')
+
+/**
+ * True only when `file` resolves inside ~/.claude/projects — the sole tree that
+ * holds session transcripts. `backlog`/`open` are reachable over IPC with an
+ * arbitrary string, so without this confinement a compromised renderer could read
+ * (or begin tailing) any absolute path on disk. discover() only ever yields files
+ * under this root, so every legitimate flow passes.
+ */
+export function underProjects(file: string): boolean {
+  const root = resolve(join(claudeDir(), 'projects'))
+  const f = resolve(file)
+  return f === root || f.startsWith(root + sep)
+}
 
 /** sessionId → newest display title, from ~/.claude/history.jsonl. */
 function titleMap(): Map<string, string> {
@@ -194,7 +207,7 @@ export class SessionManager extends EventEmitter {
    *  huge transcripts (a long-running session can be 100s of MB) only the tail
    *  is read so the main process never blocks loading the whole file. */
   backlog(file: string, limit = 300): SessionMsg[] {
-    if (!existsSync(file)) return []
+    if (!underProjects(file) || !existsSync(file)) return []
     const size = safeSize(file)
     const MAX = 2_000_000 // last ~2 MB is plenty for `limit` messages
     let text = ''
@@ -223,6 +236,7 @@ export class SessionManager extends EventEmitter {
 
   /** Start tailing a transcript; emits `data` {file, msgs} as lines are appended. */
   open(file: string): void {
+    if (!underProjects(file)) return
     if (this._watchers.has(file)) return
     if (!existsSync(file)) return
     if (!this._offsets.has(file)) this._offsets.set(file, 0)
