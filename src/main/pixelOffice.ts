@@ -168,24 +168,47 @@ function writeMcpTrust(dir: string): void {
  * so a concurrent `claude` never observes a partial file.
  */
 function markFolderTrusted(cwd: string): void {
-  try {
-    const file = join(homedir(), '.claude.json')
-    let root: Record<string, any>
-    if (existsSync(file)) {
-      try { root = JSON.parse(readFileSync(file, 'utf8')) } catch { return /* don't clobber a real-but-unparseable config */ }
-      if (!root || typeof root !== 'object') return
-    } else {
-      root = {}
-    }
-    if (!root.projects || typeof root.projects !== 'object') root.projects = {}
-    const cur = (root.projects[cwd] && typeof root.projects[cwd] === 'object') ? root.projects[cwd] : {}
-    if (cur.hasTrustDialogAccepted === true) return // already trusted — leave the global file untouched
-    cur.hasTrustDialogAccepted = true
-    root.projects[cwd] = cur
-    const tmp = `${file}.autodev-${process.pid}.tmp`
-    writeFileSync(tmp, JSON.stringify(root, null, 2))
-    renameSync(tmp, file)
-  } catch { /* best effort — falls back to the manual trust prompt */ }
+  const file = join(homedir(), '.claude.json')
+  // The atomic tmp+rename below prevents a torn READ, but not a lost UPDATE: this
+  // shared global file (Claude Code's OAuth tokens, every project's trust flag,
+  // history) is rewritten frequently by other claude processes, and a blind rename
+  // of our read-plus-one-key snapshot would silently clobber any change written
+  // between our read and the rename. Guard with a compare-and-swap: re-read the
+  // file immediately before publishing and, if it changed under us, discard our
+  // stale snapshot and retry from a fresh read (bounded). markFolderTrusted is
+  // fully synchronous, so the app's own concurrent operate() calls can't interleave
+  // here — only cross-process writers race us, and the CAS catches them.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      let raw: string | null = null
+      if (existsSync(file)) {
+        try { raw = readFileSync(file, 'utf8') } catch { return /* unreadable — don't risk clobbering */ }
+      }
+      let root: Record<string, any>
+      if (raw != null) {
+        try { root = JSON.parse(raw) } catch { return /* don't clobber a real-but-unparseable config */ }
+        if (!root || typeof root !== 'object') return
+      } else {
+        root = {}
+      }
+      if (!root.projects || typeof root.projects !== 'object') root.projects = {}
+      const cur = (root.projects[cwd] && typeof root.projects[cwd] === 'object') ? root.projects[cwd] : {}
+      if (cur.hasTrustDialogAccepted === true) return // already trusted — leave the global file untouched
+      cur.hasTrustDialogAccepted = true
+      root.projects[cwd] = cur
+      const tmp = `${file}.autodev-${process.pid}.tmp`
+      writeFileSync(tmp, JSON.stringify(root, null, 2))
+      // CAS check: if the on-disk file no longer matches what we read, another
+      // process wrote it — our snapshot is stale, so drop the temp and retry.
+      let now: string | null = null
+      if (existsSync(file)) { try { now = readFileSync(file, 'utf8') } catch { now = null } }
+      if (now !== raw) { try { unlinkSync(tmp) } catch { /* */ }; continue }
+      renameSync(tmp, file)
+      return
+    } catch { return /* best effort — falls back to the manual trust prompt */ }
+  }
+  // Persistently contended: give up rather than risk a clobber; the first `claude`
+  // launch simply shows the folder-trust prompt once.
 }
 
 function writeScopedMcpTrust(dir: string, server = 'pixel-office'): void {
@@ -209,6 +232,62 @@ export class PixelOfficeClient {
   private _authed = false
   private _email = ''
   private readonly _cfg = join(app.getPath('userData'), 'pixel-office.json')
+  // Every dir a live office API key was written into (operate scratch dirs AND the
+  // user's REAL project cwds from connectSession). Tracked so logout() can strip
+  // those keys back out — the offices scratch root rm alone never reaches a
+  // connectSession dir, which lives in an arbitrary git repo.
+  private readonly _manifest = join(app.getPath('userData'), 'provisioned.json')
+
+  private recordProvisioned(dir: string): void {
+    try {
+      let list: string[] = []
+      try { const p = JSON.parse(readFileSync(this._manifest, 'utf8')); if (Array.isArray(p)) list = p.filter((x) => typeof x === 'string') } catch { /* none/invalid */ }
+      if (!list.includes(dir)) {
+        list.push(dir)
+        writeFileSync(this._manifest, JSON.stringify(list, null, 2), { mode: 0o600 })
+        try { chmodSync(this._manifest, 0o600) } catch { /* best effort */ }
+      }
+    } catch { /* best effort */ }
+  }
+
+  /**
+   * Strip ONLY the `pixel-office` MCP server (and its scoped trust) that we wrote
+   * into `dir` — leaving any servers/settings the user configured themselves
+   * untouched. Removes the still-valid office API key that mergeMcpJson/writeMcpJson
+   * left in `dir/.mcp.json`.
+   */
+  private deprovisionDir(dir: string): void {
+    try {
+      const mcp = join(dir, '.mcp.json')
+      if (existsSync(mcp)) {
+        let root: Record<string, any> | null = {}
+        try { const p = JSON.parse(readFileSync(mcp, 'utf8')); root = (p && typeof p === 'object') ? p : null } catch { root = null }
+        if (root && root.mcpServers && typeof root.mcpServers === 'object' && root.mcpServers['pixel-office']) {
+          delete root.mcpServers['pixel-office']
+          const onlyOurs = Object.keys(root.mcpServers).length === 0 && Object.keys(root).length === 1
+          if (onlyOurs) {
+            // The file only ever held our key-bearing server — remove it entirely.
+            try { unlinkSync(mcp) } catch { /* */ }
+          } else {
+            writeFileSync(mcp, JSON.stringify(root, null, 2), { mode: 0o600 })
+            try { chmodSync(mcp, 0o600) } catch { /* */ }
+          }
+        }
+      }
+    } catch { /* best effort */ }
+    try {
+      const sf = join(dir, '.claude', 'settings.local.json')
+      if (existsSync(sf)) {
+        let s: Record<string, any> = {}
+        try { const p = JSON.parse(readFileSync(sf, 'utf8')); if (p && typeof p === 'object') s = p; else return } catch { return }
+        let changed = false
+        if (Array.isArray(s.enabledMcpjsonServers) && s.enabledMcpjsonServers.includes('pixel-office')) {
+          s.enabledMcpjsonServers = s.enabledMcpjsonServers.filter((x: string) => x !== 'pixel-office'); changed = true
+        }
+        if (changed) { writeFileSync(sf, JSON.stringify(s, null, 2), { mode: 0o600 }); try { chmodSync(sf, 0o600) } catch { /* */ } }
+      }
+    } catch { /* best effort */ }
+  }
 
   private loadConfig(): Persisted | null {
     try {
@@ -310,10 +389,19 @@ export class PixelOfficeClient {
     // Remove the token file entirely rather than leaving a stale (readable) one.
     try { if (existsSync(this._cfg)) unlinkSync(this._cfg) } catch { /* */ }
     // operate()/connectSession() write each agent's live office API key in
-    // plaintext into ~/.autodev-app/offices/<slug>/<agent>/.mcp.json (it must be
-    // readable by the spawned claude). Removing only the token file above would
-    // leave that whole tree of still-valid keys behind on logout / account switch,
-    // harvestable by any later local read. Purge the scratch root too.
+    // plaintext into a `.mcp.json` (it must be readable by the spawned claude).
+    // operate() uses ~/.autodev-app/offices/<slug>/<agent>/, so rming that scratch
+    // root purges those. But connectSession() writes into the caller's REAL project
+    // cwd — an arbitrary git repo NOT under the scratch root — so the rm alone would
+    // leave those still-valid keys behind on logout / account switch, harvestable by
+    // any later local read. Walk the provisioned manifest and strip our office
+    // server (+ scoped trust) out of every recorded dir, then drop the manifest.
+    try {
+      let dirs: string[] = []
+      try { const p = JSON.parse(readFileSync(this._manifest, 'utf8')); if (Array.isArray(p)) dirs = p.filter((x) => typeof x === 'string') } catch { /* none */ }
+      for (const d of dirs) this.deprovisionDir(d)
+      try { if (existsSync(this._manifest)) unlinkSync(this._manifest) } catch { /* */ }
+    } catch { /* best effort */ }
     try { rmSync(join(homedir(), '.autodev-app', 'offices'), { recursive: true, force: true }) } catch { /* best effort */ }
   }
 
@@ -329,6 +417,26 @@ export class PixelOfficeClient {
   private absorbCookies(before: string, r: Response): void {
     this.jar.store(r)
     if (this._authed && this.jar.header() !== before) this.saveToken()
+  }
+
+  /**
+   * Re-verify the durable `remember_web` token via /api/auth/me. Laravel re-auths
+   * the remembered user and rotates a fresh session cookie, which we absorb. This
+   * is the same self-heal the GET path relies on (the renderer retries via
+   * officeAutoConnect on a 401); postJson calls it inline so a POST can recover
+   * from a routine session-cookie rotation instead of dead-ending. Returns whether
+   * we're authenticated again.
+   */
+  private async reauth(): Promise<boolean> {
+    try {
+      const before = this.jar.header()
+      const r = await fetchRetry(`${this.base}/api/auth/me`, { headers: { Accept: 'application/json', Cookie: before } })
+      this.jar.store(r)
+      const j = (await r.json().catch(() => ({}))) as { success?: boolean }
+      const ok = !!(r.ok && j.success)
+      if (ok) { this._authed = true; this.saveToken() }
+      return ok
+    } catch { return false }
   }
 
   private async getJson(path: string): Promise<any> {
@@ -365,6 +473,14 @@ export class PixelOfficeClient {
         this.absorbCookies(before, cr)
       } catch { /* keep the original 419 below */ }
       r = await this.doPost(path, body)
+    }
+    // A 401 (vs 419) is an unauthenticated session, but the durable remember_web
+    // token can silently restore it. Mirror the GET path's recovery: re-auth via
+    // /api/auth/me once, then retry the POST, before surfacing "Session expired" —
+    // otherwise Make-app / Connect-session / Generate-team dead-end after a routine
+    // session-cookie rotation that one /api/auth/me would have fixed.
+    if (r.status === 401) {
+      if (await this.reauth()) r = await this.doPost(path, body)
     }
     if (r.status === 401 || r.status === 419) { this._authed = false; throw new Error('Session expired — reconnect.') }
     if (!r.ok) throw new Error(`${path} → ${r.status}`)
@@ -438,6 +554,7 @@ export class PixelOfficeClient {
       writeMcpJson(dir, key, url)
       writeMcpTrust(dir) // auto-approve the office-MCP server so it actually starts
       markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir
+      this.recordProvisioned(dir) // track for key-purge on logout
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
@@ -472,6 +589,7 @@ export class PixelOfficeClient {
       ensureGitignored(cwd, ['.mcp.json', '.claude/settings.local.json'])
       mergeMcpJson(cwd, key, url)
       writeScopedMcpTrust(cwd) // approve ONLY the office-MCP server so it starts
+      this.recordProvisioned(cwd) // track this REAL repo for key-purge on logout
       return { ok: true, cwd, sessionId, agentSlug: slug, agentName: nm }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
