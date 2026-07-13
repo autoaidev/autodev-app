@@ -1,6 +1,6 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, watch, FSWatcher } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher } from 'fs'
 import { join, basename, dirname } from 'path'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
@@ -129,7 +129,21 @@ export class AgentManager extends EventEmitter {
     try {
       const file = join(path, '.autodev', 'hooks-events.jsonl')
       if (!existsSync(file)) return 'working'
-      const lines = readFileSync(file, 'utf8').trim().split('\n')
+      // hooks-events.jsonl is append-only and grows for the life of an autonomous
+      // run; readState() reads it for every agent on the 5s poll + each watch
+      // tick. Read only the last ~64KB (the newest IDLE/WORKING event is always
+      // near the end) so the cost is constant regardless of file size.
+      const TAIL = 64 * 1024
+      const size = statSync(file).size
+      let text: string
+      if (size > TAIL) {
+        const fd = openSync(file, 'r')
+        try { const buf = Buffer.alloc(TAIL); readSync(fd, buf, 0, TAIL, size - TAIL); text = buf.toString('utf8') } finally { closeSync(fd) }
+        const nl = text.indexOf('\n'); if (nl >= 0) text = text.slice(nl + 1) // drop the partial first line
+      } else {
+        text = readFileSync(file, 'utf8')
+      }
+      const lines = text.trim().split('\n')
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
           const ev = JSON.parse(lines[i])
@@ -207,10 +221,13 @@ export class AgentManager extends EventEmitter {
     }
     const todoPath = join(path, 'TODO.md')
     try {
-      let content = existsSync(todoPath) ? readFileSync(todoPath, 'utf8') : '# TODO\n\n## Tasks\n'
-      if (content.length && !content.endsWith('\n')) content += '\n'
-      content += `- [ ] ${msg}\n`
-      writeFileSync(todoPath, content, 'utf8')
+      // Atomic O_APPEND write: the running CLI loop concurrently rewrites TODO.md
+      // (checking tasks off). A read-modify-write here would interleave with that
+      // rewrite and could drop the queued line or resurrect a done task — so we
+      // only ever append, which the loop's full rewrites can't clobber and which
+      // can't clobber the loop's rewrites.
+      const line = `- [ ] ${msg}\n`
+      appendFileSync(todoPath, existsSync(todoPath) ? line : `# TODO\n\n## Tasks\n${line}`, 'utf8')
       // Refresh the UI's task counts.
       try { this.emit('agent:updated', this.readState(path)) } catch { /* ignore */ }
       return { ok: true }
