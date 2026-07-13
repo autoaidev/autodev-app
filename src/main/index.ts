@@ -12,6 +12,19 @@ const sessions = new SessionManager()
 const ptys = new PtyManager()
 const office = new PixelOfficeClient()
 
+/**
+ * Only ever hand http(s)/mailto URLs to the OS URL dispatcher. shell.openExternal
+ * forwards its string to the OS handler, so other schemes (file://, smb://,
+ * custom protocol handlers) are a known local-file / code-execution vector — and
+ * some of these URLs are built from remote pixel-office data (e.g. office.slug).
+ */
+function openExternalSafe(url: string): void {
+  try {
+    const p = new URL(url).protocol
+    if (p === 'http:' || p === 'https:' || p === 'mailto:') void shell.openExternal(url)
+  } catch { /* not a valid URL — drop */ }
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -32,8 +45,14 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   if (process.env['OPEN_DEVTOOLS']) mainWindow.webContents.openDevTools({ mode: 'bottom' })
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    openExternalSafe(details.url)
     return { action: 'deny' }
+  })
+  // The renderer is a fixed SPA — it should never navigate the top-level frame.
+  // Block any attempt (a stray link, injected content) from replacing the app.
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    const dev = process.env['ELECTRON_RENDERER_URL']
+    if (!dev || !url.startsWith(dev)) e.preventDefault()
   })
 
   const devUrl = process.env['ELECTRON_RENDERER_URL']
@@ -81,7 +100,7 @@ ipcMain.handle('dialog:pickFile', async (_e, filters?: { name: string; extension
   return r.canceled ? null : r.filePaths[0]
 })
 ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
-ipcMain.handle('shell:openExternal', (_e, url: string) => shell.openExternal(url))
+ipcMain.handle('shell:openExternal', (_e, url: string) => openExternalSafe(url))
 // --- Claude sessions (capture: discover + live attach) ---------------------
 ipcMain.handle('sessions:discover', () => sessions.discover())
 ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
