@@ -107,7 +107,7 @@ ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
 ipcMain.handle('sessions:open', (_e, file: string) => { sessions.open(file); return true })
 ipcMain.handle('sessions:close', (_e, file: string) => { sessions.close(file); return true })
 // --- Interactive PTY panes (spawn: run `claude` in a chosen folder) --------
-ipcMain.handle('pty:spawn', (_e, id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number }) => ptys.spawn(id, opts))
+ipcMain.handle('pty:spawn', (_e, id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number; keepShell?: boolean }) => ptys.spawn(id, opts))
 ipcMain.handle('pty:write', (_e, id: string, data: string) => { ptys.write(id, data); return true })
 ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) => { ptys.resize(id, cols, rows); return true })
 ipcMain.handle('pty:kill', (_e, id: string) => { ptys.kill(id); return true })

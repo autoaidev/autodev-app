@@ -5,8 +5,8 @@ import '@xterm/xterm/css/xterm.css'
 
 /** A live terminal pane backed by a main-process PTY (runs `claude` in a folder). */
 export default function TerminalPane({
-  id, cwd, command, onExit
-}: { id: string; cwd: string; command?: string; onExit?: () => void }): JSX.Element {
+  id, cwd, command, onExit, keepShell
+}: { id: string; cwd: string; command?: string; onExit?: () => void; keepShell?: boolean }): JSX.Element {
   const hostRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function TerminalPane({
     // without this the pane stays a blank black box forever while the UI claims
     // the session is running.
     void window.api
-      .ptySpawn(id, { cwd, command, cols: term.cols, rows: term.rows })
+      .ptySpawn(id, { cwd, command, cols: term.cols, rows: term.rows, keepShell })
       .then((res: { ok?: true; error?: string } | undefined) => {
         if (res?.error) {
           term.write('\r\n\x1b[31mFailed to start session: ' + res.error + '\x1b[0m\r\n')

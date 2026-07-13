@@ -26,7 +26,12 @@ export default function PixelOfficeView(): JSX.Element {
   const [loadingAgents, setLoadingAgents] = useState(false)
   const [operatingId, setOperatingId] = useState('')
   const [term, setTerm] = useState<OpenTerm | null>(null)
+  const [ended, setEnded] = useState(false) // the operate session's `claude` exited
   const inFlight = useRef(false)
+  // Mirror `term` into a ref so the background poll can tell whether a live PTY is
+  // running WITHOUT re-creating (and re-scheduling) itself on every open/close.
+  const termRef = useRef<OpenTerm | null>(null)
+  useEffect(() => { termRef.current = term }, [term])
 
   const EXPIRED = 'Your office session expired — please sign in again.'
 
@@ -48,6 +53,9 @@ export default function PixelOfficeView(): JSX.Element {
             setLoaded(true); setLoadingAgents(false); return
           }
         } catch { /* fall through to login */ }
+        // Don't tear down a live operate/resume PTY (see pollAgents): it holds its
+        // own office key. Show a soft hint instead of bouncing to the login form.
+        if (termRef.current) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); setLoadingAgents(false); return }
         setConnected(false); setLoaded(false); setErr(EXPIRED)
       } else {
         setListErr(msg)
@@ -76,11 +84,16 @@ export default function PixelOfficeView(): JSX.Element {
         let recovered = false
         try { recovered = !!(await window.api.officeAutoConnect()) } catch { /* fall through */ }
         if (recovered) {
-          try { setAgents((await window.api.officeAgents()) as OfficeAgent[]); setLoaded(true) }
-          catch { setConnected(false); setLoaded(false); setErr(EXPIRED) }
-        } else {
-          setConnected(false); setLoaded(false); setErr(EXPIRED)
+          try { setAgents((await window.api.officeAgents()) as OfficeAgent[]); setLoaded(true); return }
+          catch { /* fall through to the bounce/guard below */ }
         }
+        // A running operate/resume PTY authenticates via the office API key baked
+        // into its own .mcp.json — independent of this browser cookie. A routine
+        // list-refresh auth bounce must NEVER swap the view to the login form and
+        // unmount (SIGKILL) that live session. Surface a soft reconnect hint and
+        // leave the terminal running; the user can ↻/Reconnect deliberately.
+        if (termRef.current) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); return }
+        setConnected(false); setLoaded(false); setErr(EXPIRED)
       }
     }
     finally { inFlight.current = false }
@@ -131,9 +144,13 @@ export default function PixelOfficeView(): JSX.Element {
         else setListErr(r?.error || 'Could not prepare the operate workspace')
         return
       }
+      setEnded(false)
       setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}` })
+      // Reconcile the left-list online dot within one tick rather than waiting up
+      // to 8s for the next poll (silent — no "Loading…" flash).
+      void pollAgents()
     } finally { setOperatingId('') }
-  }, [operatingId])
+  }, [operatingId, pollAgents])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -207,7 +224,9 @@ export default function PixelOfficeView(): JSX.Element {
         {term && (
           <>
             <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>
+              {ended
+                ? <span className="badge" style={{ background: '#3b0d0d', color: '#fecaca' }}>■ session ended — reopen</span>
+                : <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>}
               <div style={{ fontSize: 12, fontWeight: 600 }}>{term.name}</div>
               <div style={{ flex: 1 }} />
               <button className="danger" onClick={() => setTerm(null)} title="End session">■ Close</button>
@@ -216,7 +235,7 @@ export default function PixelOfficeView(): JSX.Element {
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
-              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" onExit={loadAgents} />
+              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" keepShell={false} onExit={() => { setEnded(true); void pollAgents() }} />
             </div>
           </>
         )}

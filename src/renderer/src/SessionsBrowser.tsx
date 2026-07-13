@@ -147,7 +147,7 @@ export default function SessionsBrowser(): JSX.Element {
               <button className="danger" onClick={() => setTerm(null)} title="End session &amp; close pane">■ Close</button>
             </div>
             <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
-              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command={term.command ?? 'claude'} onExit={() => refresh()} />
+              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command={term.command ?? 'claude'} keepShell={term.command ? false : undefined} onExit={() => refresh()} />
             </div>
           </>
         )}
