@@ -1,8 +1,9 @@
 import { app } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, unlinkSync } from 'fs'
 import { Jar } from './cookieJar'
+import { resolveCliJs, nodeRunner } from './cli'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -31,6 +32,34 @@ interface Persisted { baseUrl: string; email: string; cookies: [string, string][
 
 export const DEFAULT_OFFICE_BASE = 'https://autodev.code.aioffice.works'
 
+/**
+ * Build the `.mcp.json` "pixel-office" stdio server entry. Prefer the CLI that
+ * ships WITH the app (resolveCliJs → bundled/pinned vendor copy) run under the
+ * same node the app uses for the agent loop, so a spawned `claude` session does
+ * NOT fetch-and-run the latest `autodev-cli` from the public npm registry at
+ * spawn time (supply-chain + offline + flaky-network hazard). Falls back to
+ * `npx` only when no bundled CLI is found (strictly no worse than before).
+ */
+function officeMcpServer(key: string, url: string): Record<string, unknown> {
+  const cli = resolveCliJs()
+  if (cli) {
+    const { cmd, baseEnv } = nodeRunner()
+    const env: Record<string, string> = { NODE_NO_WARNINGS: '1' }
+    // When the app falls back to Electron's own node, the child must be told to
+    // run as node (matches AgentManager.start()'s proven prod behaviour).
+    if (baseEnv.ELECTRON_RUN_AS_NODE) env.ELECTRON_RUN_AS_NODE = '1'
+    return { type: 'stdio', command: cmd, args: [cli, 'mcp-operate', '--key', key, '--url', url], env }
+  }
+  return { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] }
+}
+
+/** Write a `.mcp.json` owner-only (0600) — it carries a live office API key. */
+function writeMcpJson(dir: string, key: string, url: string): void {
+  const file = join(dir, '.mcp.json')
+  writeFileSync(file, JSON.stringify({ mcpServers: { 'pixel-office': officeMcpServer(key, url) } }, null, 2), { mode: 0o600 })
+  try { chmodSync(file, 0o600) } catch { /* best effort */ }
+}
+
 export class PixelOfficeClient {
   private jar = new Jar()
   private base = ''
@@ -43,7 +72,14 @@ export class PixelOfficeClient {
     return null
   }
   private saveToken(): void {
-    try { writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: this.jar.dump() }, null, 2)) } catch { /* */ }
+    // The persisted cookie jar contains the durable `remember_web` token
+    // (password-equivalent) — keep it owner-only. writeFileSync's mode only
+    // applies on create, so chmod after every write to remediate pre-existing
+    // world-readable files too.
+    try {
+      writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: this.jar.dump() }, null, 2), { mode: 0o600 })
+      try { chmodSync(this._cfg, 0o600) } catch { /* best effort */ }
+    } catch { /* */ }
   }
 
   async login(baseUrl: string, email: string, password: string): Promise<{ ok: true; user: unknown } | { error: string }> {
@@ -94,7 +130,8 @@ export class PixelOfficeClient {
   logout(): void {
     this._authed = false
     this.jar = new Jar()
-    try { if (existsSync(this._cfg)) writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: [] })) } catch { /* */ }
+    // Remove the token file entirely rather than leaving a stale (readable) one.
+    try { if (existsSync(this._cfg)) unlinkSync(this._cfg) } catch { /* */ }
   }
 
   private async getJson(path: string): Promise<any> {
@@ -170,10 +207,8 @@ export class PixelOfficeClient {
       const url = (creds.mcpUrl as string) || `${this.base}/api/office-mcp`
       if (!key) return { error: 'No API key returned for this agent — it may lack office-MCP access.' }
       const dir = join(homedir(), '.autodev-app', 'offices', officeSlug, agentSlug || agentId)
-      mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, '.mcp.json'), JSON.stringify({
-        mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } }
-      }, null, 2))
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      writeMcpJson(dir, key, url)
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
@@ -192,7 +227,7 @@ export class PixelOfficeClient {
       if (!key) return { error: 'Agent created but no API key returned.' }
       const url = `${this.base}/api/office-mcp`
       mkdirSync(cwd, { recursive: true })
-      writeFileSync(join(cwd, '.mcp.json'), JSON.stringify({ mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } } }, null, 2))
+      writeMcpJson(cwd, key, url)
       return { ok: true, cwd, sessionId, agentSlug: slug, agentName: nm }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
