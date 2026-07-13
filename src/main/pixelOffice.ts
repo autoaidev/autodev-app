@@ -97,6 +97,21 @@ function writeMcpJson(dir: string, key: string, url: string): void {
   try { chmodSync(file, 0o600) } catch { /* best effort */ }
 }
 
+/**
+ * Pre-approve the project-scoped `.mcp.json` so the spawned `claude` doesn't sit
+ * on the in-TUI "untrusted MCP server — approve?" prompt (project servers are
+ * Pending until approved). Without this the office-MCP server never starts and
+ * the character never comes online. `enableAllProjectMcpServers` is scoped to
+ * this scratch cwd's local settings, so it can't affect the user's real projects.
+ */
+function writeMcpTrust(dir: string): void {
+  try {
+    const cdir = join(dir, '.claude')
+    mkdirSync(cdir, { recursive: true, mode: 0o700 })
+    writeFileSync(join(cdir, 'settings.local.json'), JSON.stringify({ enableAllProjectMcpServers: true }, null, 2), { mode: 0o600 })
+  } catch { /* best effort — falls back to the manual trust prompt */ }
+}
+
 export class PixelOfficeClient {
   private jar = new Jar()
   private base = ''
@@ -279,6 +294,7 @@ export class PixelOfficeClient {
       }
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeMcpJson(dir, key, url)
+      writeMcpTrust(dir) // auto-approve the office-MCP server so it actually starts
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
@@ -302,6 +318,7 @@ export class PixelOfficeClient {
       const url = `${this.base}/api/office-mcp`
       mkdirSync(cwd, { recursive: true })
       writeMcpJson(cwd, key, url)
+      writeMcpTrust(cwd) // auto-approve the office-MCP server so it actually starts
       return { ok: true, cwd, sessionId, agentSlug: slug, agentName: nm }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }

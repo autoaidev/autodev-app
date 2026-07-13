@@ -28,6 +28,8 @@ export default function PixelOfficeView(): JSX.Element {
   const [term, setTerm] = useState<OpenTerm | null>(null)
   const inFlight = useRef(false)
 
+  const EXPIRED = 'Your office session expired — please sign in again.'
+
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true); setListErr('')
     try {
@@ -35,9 +37,21 @@ export default function PixelOfficeView(): JSX.Element {
       setLoaded(true)
     } catch (e: any) {
       const msg = e?.message || 'Failed to load agents'
-      setListErr(msg)
-      // Session died — drop back to the connect form (email stays prefilled).
-      if (isAuthError(msg)) { setConnected(false); setLoaded(false) }
+      if (isAuthError(msg)) {
+        // Try one silent recovery with the durable token before demanding a
+        // password; only bounce to the login form (with a shown reason) if it
+        // fails. Previously the reason went to listErr, which the login form
+        // never renders — the user landed on a blank Connect screen.
+        try {
+          if (await window.api.officeAutoConnect()) {
+            setAgents((await window.api.officeAgents()) as OfficeAgent[])
+            setLoaded(true); setLoadingAgents(false); return
+          }
+        } catch { /* fall through to login */ }
+        setConnected(false); setLoaded(false); setErr(EXPIRED)
+      } else {
+        setListErr(msg)
+      }
     }
     setLoadingAgents(false)
   }, [])
@@ -91,7 +105,14 @@ export default function PixelOfficeView(): JSX.Element {
     setListErr(''); setOperatingId(rid)
     try {
       const r = (await window.api.officeOperate(a.officeSlug, a.id, a.slug)) as { ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }
-      if (r?.error || !r?.cwd) { setListErr(r?.error || 'Could not prepare the operate workspace'); return }
+      if (r?.error || !r?.cwd) {
+        // Don't swallow a 401 as a generic list error — the session is dead, so
+        // bounce to the login form with a reason instead of staying falsely
+        // connected while every subsequent call also 401s.
+        if (r?.error && isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        else setListErr(r?.error || 'Could not prepare the operate workspace')
+        return
+      }
       setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}` })
     } finally { setOperatingId('') }
   }, [operatingId])
