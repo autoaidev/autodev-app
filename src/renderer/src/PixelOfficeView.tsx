@@ -10,7 +10,7 @@ const DEFAULT_BASE = 'https://autodev.code.aioffice.works'
 
 /** True when an error means the session is dead and the user must sign in again. */
 function isAuthError(msg: string): boolean {
-  return /expired|reconnect|not connected|unauthenticated|\b401\b/i.test(msg)
+  return /expired|reconnect|not connected|unauthenticated|\b401\b|\b419\b/i.test(msg)
 }
 
 export default function PixelOfficeView(): JSX.Element {

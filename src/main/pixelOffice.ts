@@ -311,21 +311,56 @@ export class PixelOfficeClient {
     try { if (existsSync(this._cfg)) unlinkSync(this._cfg) } catch { /* */ }
   }
 
+  /**
+   * Absorb any rotated cookies from a response into the jar and, if the durable
+   * credential actually changed while we're authenticated, persist it to disk.
+   * Laravel's `remember_web` re-auth rotates the session cookie via `Set-Cookie`
+   * on ANY authenticated request — including the read-only GETs that make up the
+   * 8s agents poll. Dropping that refreshed cookie (getJson previously never
+   * stored it) means the next poll replays a server-invalidated session → 401 →
+   * premature forced logout, long before the remember-token actually expires.
+   */
+  private absorbCookies(before: string, r: Response): void {
+    this.jar.store(r)
+    if (this._authed && this.jar.header() !== before) this.saveToken()
+  }
+
   private async getJson(path: string): Promise<any> {
-    const r = await fetchRetry(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
+    const before = this.jar.header()
+    const r = await fetchRetry(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: before } })
     if (r.status === 401) { this._authed = false; throw new Error('Session expired — reconnect.') }
     if (!r.ok) throw new Error(`${path} → ${r.status}`)
+    this.absorbCookies(before, r)
     return r.json()
   }
 
-  private async postJson(path: string, body: unknown): Promise<any> {
+  /** One POST attempt with the jar's current CSRF token + cookies. */
+  private async doPost(path: string, body: unknown): Promise<Response> {
+    const before = this.jar.header()
     const r = await fetchT(`${this.base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: this.jar.header() },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: before },
       body: JSON.stringify(body)
     })
-    this.jar.store(r)
-    if (r.status === 401) { this._authed = false; throw new Error('Session expired — reconnect.') }
+    this.absorbCookies(before, r)
+    return r
+  }
+
+  private async postJson(path: string, body: unknown): Promise<any> {
+    let r = await this.doPost(path, body)
+    // A Laravel 419 ("Page Expired") is a stale/mismatched XSRF token, NOT a dead
+    // session. Silently GET a fresh CSRF token once and retry the POST — otherwise
+    // Make-app / Connect-to-office / Generate-team dead-end on an opaque "419" with
+    // no self-heal (e.g. after a durable-token re-auth rotated the session cookie).
+    if (r.status === 419) {
+      try {
+        const before = this.jar.header()
+        const cr = await fetchRetry(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json', Cookie: before } })
+        this.absorbCookies(before, cr)
+      } catch { /* keep the original 419 below */ }
+      r = await this.doPost(path, body)
+    }
+    if (r.status === 401 || r.status === 419) { this._authed = false; throw new Error('Session expired — reconnect.') }
     if (!r.ok) throw new Error(`${path} → ${r.status}`)
     return r.json()
   }
