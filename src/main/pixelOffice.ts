@@ -2,6 +2,13 @@ import { app } from 'electron'
 import { join } from 'path'
 import { homedir } from 'os'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { Jar } from './cookieJar'
+
+/** Concise main-process tracing for the pixel-office flow. Always on (low
+ *  volume) so the "can't see my agents" path is diagnosable from app logs. */
+function dbg(...a: unknown[]): void {
+  console.log('[pixel-office]', ...a)
+}
 
 /**
  * Connects to a remote pixel-office (Laravel, session auth) so the app can list
@@ -22,22 +29,7 @@ export interface OfficeAgent {
 }
 interface Persisted { baseUrl: string; email: string; cookies: [string, string][] }
 
-/** Minimal cookie jar over fetch (no external deps). */
-class Jar {
-  private c = new Map<string, string>()
-  store(res: Response): void {
-    const h = res.headers as unknown as { getSetCookie?: () => string[] }
-    for (const line of h.getSetCookie ? h.getSetCookie() : []) {
-      const pair = line.split(';', 1)[0]
-      const i = pair.indexOf('=')
-      if (i > 0) this.c.set(pair.slice(0, i).trim(), pair.slice(i + 1).trim())
-    }
-  }
-  header(): string { return [...this.c].map(([k, v]) => `${k}=${v}`).join('; ') }
-  xsrf(): string { const v = this.c.get('XSRF-TOKEN'); return v ? decodeURIComponent(v) : '' }
-  dump(): [string, string][] { return [...this.c] }
-  load(entries: [string, string][]): void { this.c = new Map(entries) }
-}
+export const DEFAULT_OFFICE_BASE = 'https://autodev.code.aioffice.works'
 
 export class PixelOfficeClient {
   private jar = new Jar()
@@ -69,29 +61,34 @@ export class PixelOfficeClient {
       })
       this.jar.store(r2)
       const j = (await r2.json().catch(() => ({}))) as { success?: boolean; error?: string; data?: { user?: unknown } }
-      if (!r2.ok || !j.success) return { error: j.error || `Login failed (${r2.status})` }
+      if (!r2.ok || !j.success) {
+        dbg('login failed', r2.status, j.error, 'cookies:', this.jar.size())
+        return { error: j.error || `Login failed (${r2.status})` }
+      }
       this._authed = true
       this.saveToken() // persist the durable cookie/token, not the password
+      dbg('login ok', this._email, 'cookies:', this.jar.size())
       return { ok: true, user: j.data?.user }
-    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+    } catch (e) { dbg('login error', e); return { error: String((e as Error)?.message ?? e) } }
   }
 
   /** Reuse the stored token cookies from a previous login (called on launch). */
   async autoConnect(): Promise<boolean> {
     const c = this.loadConfig()
-    if (!c?.baseUrl || !c.cookies?.length) return false
+    if (!c?.baseUrl || !c.cookies?.length) { dbg('autoConnect: no stored token'); return false }
     this.base = c.baseUrl
     this._email = c.email
     this.jar = new Jar()
     this.jar.load(c.cookies)
     try {
       const r = await fetch(`${this.base}/api/auth/me`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
-      this.jar.store(r)
+      this.jar.store(r) // capture any session/remember cookie rotated by /me
       const j = (await r.json().catch(() => ({}))) as { success?: boolean }
       this._authed = !!(r.ok && j.success)
       if (this._authed) this.saveToken() // refresh rotated cookies
+      dbg('autoConnect', this._authed ? 'ok' : `failed (${r.status})`, this._email)
       return this._authed
-    } catch { return false }
+    } catch (e) { dbg('autoConnect error', e); return false }
   }
 
   logout(): void {
@@ -129,32 +126,57 @@ export class PixelOfficeClient {
   async listAgents(): Promise<OfficeAgent[]> {
     if (!this._authed) throw new Error('Not connected to a pixel-office.')
     const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
+    dbg('listAgents: offices', offices.length)
+    if (!offices.length) return []
     const out: OfficeAgent[] = []
+    const errors: string[] = []
     for (const o of offices) {
-      let ags: any
-      try { ags = await this.getJson(`/api/offices/${o.slug}/agents`) } catch { continue }
-      for (const a of (ags?.data ?? ags ?? [])) {
-        out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online) })
+      try {
+        const ags = await this.getJson(`/api/offices/${o.slug}/agents`)
+        // Accept {data:[...]}, {data:{agents:[...]}} or a bare array.
+        const arr: any[] = Array.isArray(ags?.data) ? ags.data
+          : Array.isArray(ags?.data?.agents) ? ags.data.agents
+          : Array.isArray(ags?.agents) ? ags.agents
+          : Array.isArray(ags) ? ags : []
+        for (const a of arr) {
+          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online) })
+        }
+      } catch (e) {
+        // A 401 here means the session died mid-list — surface it, don't hide it.
+        if ((e as Error)?.message?.includes('expired')) throw e
+        errors.push(`${o.name}: ${String((e as Error)?.message ?? e)}`)
       }
     }
+    dbg('listAgents: agents', out.length, errors.length ? `errors=${errors.length}` : '')
+    // Never present a silent empty list when every office actually errored —
+    // that misleading "No agents" state is the reported bug.
+    if (!out.length && errors.length) throw new Error(`Couldn't load agents — ${errors.join('; ')}`)
     return out
   }
 
   /** Prepare a scratch workspace with this agent's office-MCP wired, so a PTY
    *  running `claude` there operates the character. Returns the cwd to spawn in. */
-  async operate(officeSlug: string, agentId: string, agentSlug: string): Promise<{ ok: true; cwd: string } | { error: string }> {
+  async operate(officeSlug: string, agentId: string, agentSlug: string): Promise<{ ok: true; cwd: string; mcpUrl: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     try {
-      const creds = (await this.getJson(`/api/offices/${officeSlug}/agents/${agentId}/credentials`))?.data ?? {}
+      let creds: any
+      try {
+        creds = (await this.getJson(`/api/offices/${officeSlug}/agents/${agentId}/credentials`))?.data ?? {}
+      } catch (e) {
+        dbg('operate: credentials fetch failed', e)
+        return { error: `Couldn't fetch this agent's MCP credentials — ${String((e as Error)?.message ?? e)}` }
+      }
       const key = creds.apiKey as string | undefined
       const url = (creds.mcpUrl as string) || `${this.base}/api/office-mcp`
-      if (!key) return { error: 'No API key returned for this agent.' }
+      if (!key) return { error: 'No API key returned for this agent — it may lack office-MCP access.' }
       const dir = join(homedir(), '.autodev-app', 'offices', officeSlug, agentSlug || agentId)
       mkdirSync(dir, { recursive: true })
       writeFileSync(join(dir, '.mcp.json'), JSON.stringify({
         mcpServers: { 'pixel-office': { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] } }
       }, null, 2))
-      return { ok: true, cwd: dir }
-    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+      dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
+      return { ok: true, cwd: dir, mcpUrl: url }
+    } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
   }
 
   /** Create a character for a Claude session and wire its folder to the office,
@@ -198,6 +220,6 @@ export class PixelOfficeClient {
 
   status(): { connected: boolean; base: string; email?: string } {
     const c = this.loadConfig()
-    return { connected: this._authed, base: this.base || c?.baseUrl || 'https://autodev.code.aioffice.works', email: this._email || c?.email }
+    return { connected: this._authed, base: this.base || c?.baseUrl || DEFAULT_OFFICE_BASE, email: this._email || c?.email }
   }
 }

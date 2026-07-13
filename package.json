@@ -13,6 +13,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "node --test \"test/*.test.mts\"",
     "pack": "npm run bundle:cli && npm run build && electron-builder --dir",
     "dist": "npm run bundle:cli && npm run build && electron-builder",
     "dist:win": "npm run bundle:cli && npm run build && bash scripts/build-win.sh",
