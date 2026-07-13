@@ -1,14 +1,51 @@
-import { app } from 'electron'
-import { join } from 'path'
+import { app, safeStorage } from 'electron'
+import { join, resolve, sep } from 'path'
 import { homedir } from 'os'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync, unlinkSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
+import { isValidSessionId, safeSeg, safeMcpUrl } from './officeSanitize'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
 function dbg(...a: unknown[]): void {
   console.log('[pixel-office]', ...a)
+}
+
+/** A distinct marker so callers/renderer can tell a dead network from an HTTP
+ *  4xx/5xx or an auth failure. */
+const TIMEOUT_MSG = 'Network timeout — check your connection'
+
+/**
+ * fetch with a hard timeout (Node/undici's default body timeout is ~300s, so a
+ * connected-then-stalled request would otherwise hang ~5 min and leave the UI on
+ * a spinner that never resolves). Aborts after `ms` and maps the abort to a
+ * distinct, user-legible message.
+ */
+async function fetchT(url: string, init: RequestInit = {}, ms = 12_000): Promise<Response> {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal })
+  } catch (e) {
+    if ((e as Error)?.name === 'AbortError') throw new Error(TIMEOUT_MSG)
+    throw e
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+/** As fetchT, but retries an idempotent GET with exponential backoff on network
+ *  failure/timeout (never on an HTTP status — a 4xx/5xx is a real answer). */
+async function fetchRetry(url: string, init: RequestInit = {}, ms = 12_000, tries = 3): Promise<Response> {
+  let last: unknown
+  for (let i = 0; i < tries; i++) {
+    try { return await fetchT(url, init, ms) } catch (e) {
+      last = e
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, 300 * 2 ** i))
+    }
+  }
+  throw last
 }
 
 /**
@@ -68,16 +105,40 @@ export class PixelOfficeClient {
   private readonly _cfg = join(app.getPath('userData'), 'pixel-office.json')
 
   private loadConfig(): Persisted | null {
-    try { if (existsSync(this._cfg)) return JSON.parse(readFileSync(this._cfg, 'utf8')) } catch { /* */ }
+    try {
+      if (!existsSync(this._cfg)) return null
+      const raw = readFileSync(this._cfg, 'utf8')
+      const obj = JSON.parse(raw) as Persisted & { enc?: string }
+      // Encrypted-at-rest form: decrypt the OS-keychain-sealed payload. Falls
+      // through to the legacy plaintext shape for tokens saved before this.
+      if (typeof obj.enc === 'string') {
+        try {
+          const clear = safeStorage.decryptString(Buffer.from(obj.enc, 'base64'))
+          return JSON.parse(clear) as Persisted
+        } catch { return null }
+      }
+      return obj
+    } catch { /* */ }
     return null
   }
   private saveToken(): void {
     // The persisted cookie jar contains the durable `remember_web` token
-    // (password-equivalent) — keep it owner-only. writeFileSync's mode only
-    // applies on create, so chmod after every write to remediate pre-existing
-    // world-readable files too.
+    // (password-equivalent). Seal it with Electron safeStorage (OS keychain) when
+    // available so a copied file is useless off-machine; keep an owner-only (0600)
+    // plaintext fallback only when encryption is unavailable. writeFileSync's mode
+    // applies on create only, so chmod after every write to also tighten any
+    // pre-existing world-readable file.
     try {
-      writeFileSync(this._cfg, JSON.stringify({ baseUrl: this.base, email: this._email, cookies: this.jar.dump() }, null, 2), { mode: 0o600 })
+      const payload = JSON.stringify({ baseUrl: this.base, email: this._email, cookies: this.jar.dump() })
+      let toWrite: string
+      try {
+        if (safeStorage.isEncryptionAvailable()) {
+          toWrite = JSON.stringify({ enc: safeStorage.encryptString(payload).toString('base64') })
+        } else {
+          toWrite = payload
+        }
+      } catch { toWrite = payload }
+      writeFileSync(this._cfg, toWrite, { mode: 0o600 })
       try { chmodSync(this._cfg, 0o600) } catch { /* best effort */ }
     } catch { /* */ }
   }
@@ -88,9 +149,9 @@ export class PixelOfficeClient {
     this._authed = false
     this._email = email
     try {
-      const r1 = await fetch(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json' } })
+      const r1 = await fetchRetry(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json' } })
       this.jar.store(r1)
-      const r2 = await fetch(`${this.base}/api/auth/login`, {
+      const r2 = await fetchT(`${this.base}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: this.jar.header() },
         body: JSON.stringify({ email, password })
@@ -117,7 +178,7 @@ export class PixelOfficeClient {
     this.jar = new Jar()
     this.jar.load(c.cookies)
     try {
-      const r = await fetch(`${this.base}/api/auth/me`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
+      const r = await fetchRetry(`${this.base}/api/auth/me`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
       this.jar.store(r) // capture any session/remember cookie rotated by /me
       const j = (await r.json().catch(() => ({}))) as { success?: boolean }
       this._authed = !!(r.ok && j.success)
@@ -135,14 +196,14 @@ export class PixelOfficeClient {
   }
 
   private async getJson(path: string): Promise<any> {
-    const r = await fetch(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
+    const r = await fetchRetry(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: this.jar.header() } })
     if (r.status === 401) { this._authed = false; throw new Error('Session expired — reconnect.') }
     if (!r.ok) throw new Error(`${path} → ${r.status}`)
     return r.json()
   }
 
   private async postJson(path: string, body: unknown): Promise<any> {
-    const r = await fetch(`${this.base}${path}`, {
+    const r = await fetchT(`${this.base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: this.jar.header() },
       body: JSON.stringify(body)
@@ -204,9 +265,18 @@ export class PixelOfficeClient {
         return { error: `Couldn't fetch this agent's MCP credentials — ${String((e as Error)?.message ?? e)}` }
       }
       const key = creds.apiKey as string | undefined
-      const url = (creds.mcpUrl as string) || `${this.base}/api/office-mcp`
+      // creds.mcpUrl is server-controlled: only honour it when it's an http(s)
+      // URL on this office's own origin, else fall back to the derived endpoint.
+      const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
       if (!key) return { error: 'No API key returned for this agent — it may lack office-MCP access.' }
-      const dir = join(homedir(), '.autodev-app', 'offices', officeSlug, agentSlug || agentId)
+      // officeSlug/agentSlug/agentId are server-controlled — sanitize each path
+      // segment and confirm the result stays inside the offices sandbox root so a
+      // hostile slug (e.g. "../../.config/autostart") can't escape it.
+      const root = join(homedir(), '.autodev-app', 'offices')
+      const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug || agentId))
+      if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) {
+        return { error: 'Invalid office/agent identifier.' }
+      }
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeMcpJson(dir, key, url)
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
@@ -218,6 +288,10 @@ export class PixelOfficeClient {
    *  so resuming the session runs it live as that character. */
   async connectSession(officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string): Promise<{ ok: true; cwd: string; sessionId: string; agentSlug: string; agentName: string } | { error: string }> {
     void officeSlug // kept for IPC signature symmetry with operate()
+    // sessionId is a filesystem-derived transcript stem that is interpolated into
+    // a `claude --resume <id>` shell command downstream — reject anything that is
+    // not a plain token so a hostile filename can't inject shell metacharacters.
+    if (!isValidSessionId(sessionId)) return { error: 'Invalid session id.' }
     try {
       const nm = (name || 'session').replace(/[^\w .-]+/g, '').slice(0, 20) || 'session'
       const created = await this.postJson('/api/agents', { name: nm, officeId, avatarIndex: 0, color: '#00d4ff', emoji: '🎬' })
