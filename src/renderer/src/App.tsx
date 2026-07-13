@@ -30,7 +30,9 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
   const logsRef = useRef<Map<string, string>>(new Map())
-  const [logTick, setLogTick] = useState(0)
+  // Bump this to force a re-render when a log line lands in logsRef (a ref, so it
+  // doesn't itself trigger renders). The value is unused — only the re-render is.
+  const [, setLogTick] = useState(0)
 
   const refresh = useCallback(async () => {
     const list = await window.api.listAgents()
@@ -179,7 +181,7 @@ export default function App(): JSX.Element {
 
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
-              {tab === 'output' && <Output key={logTick} text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
+              {tab === 'output' && <Output text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
               {tab === 'sessions' && <SessionsTab path={current.path} provider={current.provider} showToast={showToast} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
@@ -249,8 +251,15 @@ function Overview({ a }: { a: AgentState }): JSX.Element {
 
 function Output({ text }: { text: string }): JSX.Element {
   const ref = useRef<HTMLPreElement>(null)
-  useEffect(() => { if (ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [text])
-  return <pre className="output" ref={ref}>{text}</pre>
+  // Stick to the bottom on new output ONLY if the user was already at the bottom,
+  // so scrolling up to read history isn't yanked back on the next streamed line.
+  const stick = useRef(true)
+  const onScroll = (): void => {
+    const el = ref.current
+    if (el) stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
+  useEffect(() => { if (stick.current && ref.current) ref.current.scrollTop = ref.current.scrollHeight }, [text])
+  return <pre className="output" ref={ref} onScroll={onScroll}>{text}</pre>
 }
 
 interface SessionInfo { provider: string; id: string; name: string; updated: number }

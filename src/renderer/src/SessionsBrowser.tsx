@@ -40,7 +40,12 @@ export default function SessionsBrowser(): JSX.Element {
   // live tail: append incoming lines for the currently-open transcript
   useEffect(() => {
     const off = window.api.onSessionData(({ file, msgs: incoming }: { file: string; msgs: SessionMsg[] }) => {
-      if (file === selFile.current) setMsgs((m) => [...m, ...incoming])
+      // Cap retained messages so a long-running "live" session can't grow the
+      // DOM / memory without bound (mirrors the 20k-char cap on agent logs).
+      if (file === selFile.current) setMsgs((m) => {
+        const next = [...m, ...incoming]
+        return next.length > 1000 ? next.slice(-1000) : next
+      })
     })
     return off
   }, [])
