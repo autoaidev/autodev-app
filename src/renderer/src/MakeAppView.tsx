@@ -84,13 +84,13 @@ export default function MakeAppView(): JSX.Element {
         <div style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>✨ Make an app</h2>
           <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Sign in to your pixel-office first, then describe what you want to build.</p>
-          <label className="fld">Server URL</label>
-          <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
-          <label className="fld">Email</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
-          <label className="fld">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
-          {err && <div style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
+          <label className="fld" htmlFor="makeapp-base">Server URL</label>
+          <input id="makeapp-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
+          <label className="fld" htmlFor="makeapp-email">Email</label>
+          <input id="makeapp-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
+          <label className="fld" htmlFor="makeapp-password">Password</label>
+          <input id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
+          {err && <div role="alert" style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
           <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
         </div>
       </div>

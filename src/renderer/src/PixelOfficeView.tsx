@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import TerminalPane from './TerminalPane'
 
 interface OfficeAgent {
@@ -24,7 +24,9 @@ export default function PixelOfficeView(): JSX.Element {
   const [agents, setAgents] = useState<OfficeAgent[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadingAgents, setLoadingAgents] = useState(false)
+  const [operatingId, setOperatingId] = useState('')
   const [term, setTerm] = useState<OpenTerm | null>(null)
+  const inFlight = useRef(false)
 
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true); setListErr('')
@@ -39,6 +41,27 @@ export default function PixelOfficeView(): JSX.Element {
     }
     setLoadingAgents(false)
   }, [])
+
+  // Silent background refresh so online dots stay fresh (esp. right after
+  // Operate) without flashing the "Loading…" state or clobbering a shown error.
+  const pollAgents = useCallback(async () => {
+    if (inFlight.current) return
+    inFlight.current = true
+    try {
+      setAgents((await window.api.officeAgents()) as OfficeAgent[])
+      setLoaded(true)
+    } catch { /* keep last-known list; manual ↻ / next action surfaces errors */ }
+    finally { inFlight.current = false }
+  }, [])
+
+  // While connected, poll every 8s and on window focus; cleared on disconnect.
+  useEffect(() => {
+    if (!connected) return
+    const id = setInterval(pollAgents, 8000)
+    const onFocus = (): void => { void pollAgents() }
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
+  }, [connected, pollAgents])
 
   useEffect(() => {
     (async () => {
@@ -63,11 +86,15 @@ export default function PixelOfficeView(): JSX.Element {
   }, [])
 
   const operate = useCallback(async (a: OfficeAgent) => {
-    setListErr('')
-    const r = (await window.api.officeOperate(a.officeSlug, a.id, a.slug)) as { ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }
-    if (r?.error || !r?.cwd) { setListErr(r?.error || 'Could not prepare the operate workspace'); return }
-    setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}` })
-  }, [])
+    const rid = a.officeSlug + a.id
+    if (operatingId) return // guard against duplicate in-flight operate calls
+    setListErr(''); setOperatingId(rid)
+    try {
+      const r = (await window.api.officeOperate(a.officeSlug, a.id, a.slug)) as { ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }
+      if (r?.error || !r?.cwd) { setListErr(r?.error || 'Could not prepare the operate workspace'); return }
+      setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}` })
+    } finally { setOperatingId('') }
+  }, [operatingId])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -76,13 +103,13 @@ export default function PixelOfficeView(): JSX.Element {
         <div style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>☁ Connect to your Pixel Office</h2>
           <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Sign in to list and operate your remote office agents.</p>
-          <label className="fld">Server URL</label>
-          <input value={base} onChange={(e) => setBase(e.target.value)} placeholder={DEFAULT_BASE} style={inp} />
-          <label className="fld">Email</label>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
-          <label className="fld">Password</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
-          {err && <div style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
+          <label className="fld" htmlFor="office-base">Server URL</label>
+          <input id="office-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder={DEFAULT_BASE} style={inp} />
+          <label className="fld" htmlFor="office-email">Email</label>
+          <input id="office-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
+          <label className="fld" htmlFor="office-password">Password</label>
+          <input id="office-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
+          {err && <div role="alert" style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
           <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password || !base} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
           <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted,#8b949e)' }}>Stores the durable login token locally (not your password).</p>
         </div>
@@ -103,7 +130,7 @@ export default function PixelOfficeView(): JSX.Element {
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {listErr && (
-            <div style={{ margin: 10, padding: '8px 10px', background: '#3b0d0d', color: '#fecaca', fontSize: 12, borderRadius: 6, border: '1px solid #7f1d1d' }}>
+            <div role="alert" style={{ margin: 10, padding: '8px 10px', background: '#3b0d0d', color: '#fecaca', fontSize: 12, borderRadius: 6, border: '1px solid #7f1d1d' }}>
               {listErr}
               <div style={{ marginTop: 6 }}>
                 <button onClick={loadAgents}>↻ Retry</button>
@@ -122,7 +149,7 @@ export default function PixelOfficeView(): JSX.Element {
                 <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{a.office}{a.status ? ' · ' + a.status : ''}</div>
               </div>
-              <button className="start" onClick={() => operate(a)} title="Wire a local Claude session to this office character via MCP">▶ Operate</button>
+              <button className="start" onClick={() => operate(a)} disabled={operatingId === a.officeSlug + a.id} title="Wire a local Claude session to this office character via MCP">{operatingId === a.officeSlug + a.id ? 'operating…' : '▶ Operate'}</button>
             </div>
           ))}
         </div>

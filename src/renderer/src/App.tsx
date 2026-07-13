@@ -18,6 +18,12 @@ interface AgentState {
 
 const PROVIDERS = ['claude-tui', 'claude-cli', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-tui']
 
+// Visually-hidden but screen-reader-available (for persistent aria-live regions).
+const srOnly: React.CSSProperties = {
+  position: 'absolute', width: 1, height: 1, padding: 0, margin: -1,
+  overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0
+}
+
 export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -194,7 +200,11 @@ export default function App(): JSX.Element {
 
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); refresh().then(() => setSelected(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
-      {toast && <div className={'toast' + (toast.err ? ' err' : '')}>{toast.msg}</div>}
+      {/* Persistent live regions (always in DOM) so screen readers announce
+          status/error changes; polite for info, assertive for errors. */}
+      <div aria-live="polite" aria-atomic="true" role="status" style={srOnly}>{toast && !toast.err ? toast.msg : ''}</div>
+      <div aria-live="assertive" aria-atomic="true" role="alert" style={srOnly}>{toast && toast.err ? toast.msg : ''}</div>
+      {toast && <div className={'toast' + (toast.err ? ' err' : '')} aria-hidden="true">{toast.msg}</div>}
       </div>
     </div>
   )
@@ -223,6 +233,7 @@ function MessageBar({ path, running, showToast }: { path: string; running: boole
       <textarea
         rows={1}
         value={text}
+        aria-label="Message or task for this agent"
         placeholder="Send a message or task to this agent…  (Enter to send · Shift+Enter for newline)"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKey}

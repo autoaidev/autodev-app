@@ -160,14 +160,14 @@ export default function SessionsBrowser(): JSX.Element {
             </div>
             {connectOpen && (
               <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#0d1117' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted,#8b949e)' }}>☁ Resume live as a character in:</span>
-                <select value={officeSel} onChange={(e) => setOfficeSel(e.target.value)} style={{ fontSize: 12, padding: '3px 6px' }}>
+                <span id="connect-office-label" style={{ fontSize: 12, color: 'var(--muted,#8b949e)' }}>☁ Resume live as a character in:</span>
+                <select aria-labelledby="connect-office-label" value={officeSel} onChange={(e) => setOfficeSel(e.target.value)} style={{ fontSize: 12, padding: '3px 6px' }}>
                   {offices.length === 0 && <option value="">(no offices)</option>}
                   {offices.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
                 </select>
                 <button className="primary" onClick={confirmConnect} disabled={connectBusy || !officeSel}>{connectBusy ? 'Connecting…' : 'Connect & resume live'}</button>
                 <button onClick={() => setConnectOpen(false)}>Cancel</button>
-                {connectErr && <span style={{ fontSize: 12, color: '#f85149' }}>{connectErr}</span>}
+                {connectErr && <span role="alert" style={{ fontSize: 12, color: '#f85149' }}>{connectErr}</span>}
               </div>
             )}
             <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
