@@ -78,7 +78,13 @@ export default function SessionsBrowser(): JSX.Element {
 
   const openConnect = useCallback(async () => {
     const st = await window.api.officeStatus()
-    if (!st.connected) { setConnectErr('Connect a pixel-office first (☁ Pixel Office tab).'); setConnectOpen(true); return }
+    // office._authed is in-memory and resets every launch; the Sessions tab may be
+    // opened before the Pixel Office tab ever runs autoConnect. Try the durable
+    // token here before wrongly claiming "not connected".
+    if (!st.connected) {
+      const ok = await window.api.officeAutoConnect()
+      if (!ok) { setConnectErr('Connect a pixel-office first (☁ Pixel Office tab).'); setConnectOpen(true); return }
+    }
     const offs = await window.api.officeOffices() as { slug: string; id: number; name: string }[]
     setOffices(offs); setOfficeSel(offs[0]?.slug ?? ''); setConnectErr(''); setConnectOpen(true)
   }, [])

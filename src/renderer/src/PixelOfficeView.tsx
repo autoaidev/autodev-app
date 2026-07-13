@@ -64,7 +64,25 @@ export default function PixelOfficeView(): JSX.Element {
     try {
       setAgents((await window.api.officeAgents()) as OfficeAgent[])
       setLoaded(true)
-    } catch { /* keep last-known list; manual ↻ / next action surfaces errors */ }
+    } catch (e: any) {
+      // A mid-session expiry (401) must NOT be swallowed — otherwise the view
+      // keeps showing frozen green "online" dots for dead agents indefinitely and
+      // never prompts a reconnect. Attempt one silent recovery with the durable
+      // token; if that fails, bounce to the login form (the same branch loadAgents
+      // uses) so stale online state stops being presented. Transient network
+      // errors still fall through and keep the last-known list for the next tick.
+      const msg = e?.message || ''
+      if (isAuthError(msg)) {
+        let recovered = false
+        try { recovered = !!(await window.api.officeAutoConnect()) } catch { /* fall through */ }
+        if (recovered) {
+          try { setAgents((await window.api.officeAgents()) as OfficeAgent[]); setLoaded(true) }
+          catch { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        } else {
+          setConnected(false); setLoaded(false); setErr(EXPIRED)
+        }
+      }
+    }
     finally { inFlight.current = false }
   }, [])
 
