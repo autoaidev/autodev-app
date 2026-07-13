@@ -228,8 +228,11 @@ export class AgentManager extends EventEmitter {
       // can't clobber the loop's rewrites.
       const line = `- [ ] ${msg}\n`
       appendFileSync(todoPath, existsSync(todoPath) ? line : `# TODO\n\n## Tasks\n${line}`, 'utf8')
-      // Refresh the UI's task counts.
-      try { this.emit('agent:updated', this.readState(path)) } catch { /* ignore */ }
+      // Refresh the UI's task counts. NOTE: index.ts bridges the 'agentUpdated'
+      // event (see _watch); a colon-form name would have no listener and the
+      // instant refresh would silently never fire (only the 5s poll would catch
+      // up). Keep this name in sync with the watcher emit below.
+      try { this.emit('agentUpdated', this.readState(path)) } catch { /* ignore */ }
       return { ok: true }
     } catch (e: any) {
       return { error: e?.message ?? 'Failed to write TODO.md' }
