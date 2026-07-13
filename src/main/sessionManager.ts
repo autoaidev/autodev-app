@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events'
-import { execFileSync } from 'child_process'
 import { existsSync, readdirSync, readFileSync, statSync, createReadStream, openSync, readSync, closeSync } from 'fs'
 import { watch, FSWatcher } from 'chokidar'
 import { homedir } from 'os'
@@ -131,21 +130,28 @@ function parseLine(line: string): SessionMsg | null {
   } catch { return null }
 }
 
-/** True if a process currently holds the transcript open (best-effort via lsof).
- *  Sessions untouched for >5 min can't be live, so we skip the lsof spawn for
- *  them — keeping discovery cheap even with hundreds of old sessions. */
-function isLive(file: string, mtimeMs: number): boolean {
-  if (Date.now() - mtimeMs > 5 * 60_000) return false
-  try {
-    const out = execFileSync('lsof', ['-t', file], { stdio: ['ignore', 'pipe', 'ignore'], timeout: 1500 }).toString().trim()
-    if (out) return true
-  } catch { /* lsof missing / not held */ }
+/** Best-effort liveness from the transcript's mtime alone. discover() is polled
+ *  every 5s on the Electron main thread, so we deliberately avoid the previous
+ *  per-session blocking `lsof` child-process spawn (which janked the UI and any
+ *  open terminal): a transcript written within the last 45s is treated as live. */
+function isLive(mtimeMs: number): boolean {
   return Date.now() - mtimeMs < 45_000
 }
 
 export class SessionManager extends EventEmitter {
   private _watchers = new Map<string, FSWatcher>()
   private _offsets = new Map<string, number>()
+  // Cache of parsed transcript heads keyed by file, invalidated by mtime, so the
+  // 5s discovery poll doesn't re-read + re-JSON.parse unchanged transcripts.
+  private _peekCache = new Map<string, { mtimeMs: number; peek: ReturnType<typeof peekTranscript> }>()
+
+  private _peekCached(file: string, size: number, mtimeMs: number): ReturnType<typeof peekTranscript> {
+    const hit = this._peekCache.get(file)
+    if (hit && hit.mtimeMs === mtimeMs) return hit.peek
+    const peek = peekTranscript(file, size)
+    this._peekCache.set(file, { mtimeMs, peek })
+    return peek
+  }
 
   /** All Claude sessions on this machine (newest first). */
   discover(): SessionMeta[] {
@@ -167,7 +173,7 @@ export class SessionManager extends EventEmitter {
         const id = f.replace(/\.jsonl$/, '')
         let st: ReturnType<typeof statSync>
         try { st = statSync(file) } catch { continue }
-        const peek = peekTranscript(file, st.size)
+        const peek = this._peekCached(file, st.size, st.mtimeMs)
         out.push({
           id,
           file,
@@ -177,7 +183,7 @@ export class SessionManager extends EventEmitter {
           mtime: st.mtimeMs,
           sizeKb: Math.round(st.size / 1024),
           msgs: peek.count,
-          live: isLive(file, st.mtimeMs),
+          live: isLive(st.mtimeMs),
         })
       }
     }
