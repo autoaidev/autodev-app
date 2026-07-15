@@ -1,6 +1,7 @@
 {
   "name": "autodev-app",
   "version": "0.1.0",
+  "autodevCliMinVersion": "1.4.31",
   "productName": "AutoDev",
   "description": "AutoDev desktop app \u2014 manage autonomous AI agents",
   "main": "./out/main/index.js",

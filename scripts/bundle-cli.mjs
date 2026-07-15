@@ -10,10 +10,51 @@ import { dirname, join } from 'node:path'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
-const version = String(pkg.devDependencies?.['autodev-cli'] ?? 'latest').replace(/^[\^~]/, '')
+const range = String(pkg.devDependencies?.['autodev-cli'] ?? 'latest')
 const dest = join(root, 'vendor', 'autodev-cli')
 
-console.log(`[bundle-cli] staging autodev-cli@${version} from npm → vendor/autodev-cli`)
+/**
+ * The lowest CLI the product will accept. Mirrors pixel-office's
+ * `config/services.php: services.autodev.cli_min_version` — the office flags any
+ * agent below it as outdated. Kept as a literal because that value lives in a
+ * different repo; if you raise it there, raise it here.
+ */
+const MIN_VERSION = String(pkg.autodevCliMinVersion ?? '1.4.31')
+
+const cmp = (a, b) => {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0) }
+  return 0
+}
+
+// RESOLVE the range against the registry — do NOT strip the caret.
+//
+// This used to do `.replace(/^[\^~]/, '')`, which turned "^1.4.29" into the EXACT
+// "1.4.29" and pinned every build to it. The result shipped for real: the app
+// bundled 1.4.29 while npm was on 1.4.40 and the product's own floor was 1.4.31 —
+// i.e. the app shipped a CLI BELOW its declared minimum, silently missing features
+// it depends on (agent CLI-version telemetry only landed in 1.4.36, so the bundled
+// agent could not even report that it was stale). And because the app resolves the
+// bundled CLI before anything on PATH, `npm i -g autodev-cli@latest` could not
+// rescue it either.
+const resolved = execSync(`npm view ${JSON.stringify(`autodev-cli@${range}`)} version --json`, { encoding: 'utf8' })
+const versions = JSON.parse(resolved)
+const version = Array.isArray(versions) ? versions[versions.length - 1] : versions
+
+if (!version) {
+  console.error(`[bundle-cli] FAILED — no published autodev-cli matches "${range}"`)
+  process.exit(1)
+}
+
+// Fail the BUILD rather than ship a CLI the product would flag as outdated.
+if (cmp(version, MIN_VERSION) < 0) {
+  console.error(`[bundle-cli] FAILED — resolved autodev-cli@${version} is below the required minimum ${MIN_VERSION}.`)
+  console.error(`[bundle-cli] Raise "autodev-cli" in devDependencies (currently "${range}"). Shipping below the floor`)
+  console.error('[bundle-cli] means the app bundles a CLI the office flags as outdated, and PATH cannot override it.')
+  process.exit(1)
+}
+
+console.log(`[bundle-cli] ${range} → resolved autodev-cli@${version} (min ${MIN_VERSION}) → vendor/autodev-cli`)
 rmSync(join(root, 'vendor'), { recursive: true, force: true })
 mkdirSync(dest, { recursive: true })
 const run = (cmd) => execSync(cmd, { cwd: dest, stdio: 'inherit', shell: '/bin/bash' })
@@ -25,4 +66,15 @@ if (!existsSync(join(dest, 'bin', 'autodev.js'))) {
   console.error('[bundle-cli] FAILED — vendor/autodev-cli/bin/autodev.js missing')
   process.exit(1)
 }
-console.log('[bundle-cli] done')
+
+// Verify what actually landed — the pack could have been served from a stale cache.
+const staged = JSON.parse(readFileSync(join(dest, 'package.json'), 'utf8')).version
+if (staged !== version) {
+  console.error(`[bundle-cli] FAILED — staged ${staged} but resolved ${version}`)
+  process.exit(1)
+}
+if (cmp(staged, MIN_VERSION) < 0) {
+  console.error(`[bundle-cli] FAILED — staged ${staged} is below the minimum ${MIN_VERSION}`)
+  process.exit(1)
+}
+console.log(`[bundle-cli] done — staged autodev-cli@${staged}`)
