@@ -40,6 +40,7 @@ const api = {
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
   officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug),
+  officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeOffices: () => ipcRenderer.invoke('office:offices'),
   officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name),
   officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),

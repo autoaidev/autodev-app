@@ -528,6 +528,25 @@ export class PixelOfficeClient {
 
   /** Prepare a scratch workspace with this agent's office-MCP wired, so a PTY
    *  running `claude` there operates the character. Returns the cwd to spawn in. */
+  /**
+   * Deliver an INSTANT message (steer) to an office character — live over its WS,
+   * mid-turn if the agent supports it. Unlike the local-agent composer (which only
+   * appends a TODO task), this hits the office's real steer endpoint so a connected
+   * character reacts right away. A steer has no server-side queue: if the character
+   * is offline it evaporates, which the caller should surface.
+   */
+  async steer(agentId: string, text: string): Promise<{ ok: true } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const msg = String(text ?? '').replace(/\r?\n+/g, ' ').trim()
+    if (!msg) return { error: 'Message is empty.' }
+    try {
+      await this.postJson(`/api/agents/${encodeURIComponent(agentId)}/steer`, { text: msg })
+      return { ok: true }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
   async operate(officeSlug: string, agentId: string, agentSlug: string): Promise<{ ok: true; cwd: string; mcpUrl: string } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     try {

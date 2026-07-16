@@ -234,22 +234,25 @@ function MessageBar({ path, running, showToast }: { path: string; running: boole
     setBusy(false)
     if (r?.error) { showToast(r.error, true); return }
     setText('')
-    showToast(running ? 'Sent — the agent will pick it up shortly.' : 'Queued — the agent will act on it when you Start it.')
+    showToast(running ? 'Queued — added to TODO; the agent runs it on its next cycle.' : 'Queued — added to TODO; the agent runs it when you Start it.')
   }
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
   }
   return (
+    // NB: this queues a TODO task (not a live chat/steer). The honest labels below
+    // set that expectation — a real-time "instant message" lives on the Pixel
+    // Office → Operate pane (office characters), via the steer endpoint.
     <div className="msgbar">
       <textarea
         rows={1}
         value={text}
-        aria-label="Message or task for this agent"
-        placeholder="Send a message or task to this agent…  (Enter to send · Shift+Enter for newline)"
+        aria-label="Add a task to this agent's queue"
+        placeholder="Add a task to this agent's TODO…  (Enter to add · Shift+Enter for newline)"
         onChange={(e) => setText(e.target.value)}
         onKeyDown={onKey}
       />
-      <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '➤ Send'}</button>
+      <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '＋ Add task'}</button>
     </div>
   )
 }

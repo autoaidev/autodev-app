@@ -4,7 +4,7 @@ import TerminalPane from './TerminalPane'
 interface OfficeAgent {
   office: string; officeSlug: string; id: string; name: string; slug: string; status?: string; online: boolean
 }
-interface OpenTerm { id: string; cwd: string; name: string; mcpUrl?: string }
+interface OpenTerm { id: string; cwd: string; name: string; mcpUrl?: string; agentId: string }
 
 const DEFAULT_BASE = 'https://autodev.code.aioffice.works'
 
@@ -27,6 +27,10 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [operatingId, setOperatingId] = useState('')
   const [term, setTerm] = useState<OpenTerm | null>(null)
   const [ended, setEnded] = useState(false) // the operate session's `claude` exited
+  // Instant-message (steer) composer for the operated office character.
+  const [steerText, setSteerText] = useState('')
+  const [steerBusy, setSteerBusy] = useState(false)
+  const [steerMsg, setSteerMsg] = useState('')
   const inFlight = useRef(false)
   // Mirror `term` into a ref so the background poll can tell whether a live PTY is
   // running WITHOUT re-creating (and re-scheduling) itself on every open/close.
@@ -148,12 +152,27 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         return
       }
       setEnded(false)
-      setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}` })
+      setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id })
       // Reconcile the left-list online dot within one tick rather than waiting up
       // to 8s for the next poll (silent — no "Loading…" flash).
       void pollAgents()
     } finally { setOperatingId('') }
   }, [operatingId, pollAgents])
+
+  // Send an INSTANT message (steer) to the operated office character — live, not a
+  // queued TODO task (that is the local-agent composer's job).
+  const sendSteer = useCallback(async () => {
+    const t = termRef.current
+    const text = steerText.trim()
+    if (!t || !text || steerBusy) return
+    setSteerBusy(true); setSteerMsg('')
+    try {
+      const r = (await window.api.officeSteer(t.agentId, text)) as { ok?: boolean; error?: string }
+      if (r?.ok) { setSteerText(''); setSteerMsg('⚡ delivered') }
+      else setSteerMsg(r?.error || 'Could not deliver — is the character online?')
+    } catch (e) { setSteerMsg(String((e as Error)?.message ?? e)) }
+    finally { setSteerBusy(false) }
+  }, [steerText, steerBusy])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -240,6 +259,25 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
             <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
               <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" keepShell={false} onExit={() => { setEnded(true); void pollAgents() }} />
             </div>
+            {/* Instant-message composer — steers this office character LIVE over its
+                WS (POST /api/agents/{id}/steer), unlike the local-agent composer
+                which only queues a TODO task. */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); void sendSteer() }}
+              style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', borderTop: '1px solid var(--border)' }}
+            >
+              <span title="Instant message — steers this character live (mid-turn if supported)" style={{ fontSize: 13 }}>⚡</span>
+              <input
+                value={steerText}
+                onChange={(e) => { setSteerText(e.target.value); if (steerMsg) setSteerMsg('') }}
+                placeholder={`Instant-message ${term.name.split(' · ')[0]} now…  (Enter to send)`}
+                aria-label="Instant message to this office character"
+                disabled={steerBusy}
+                style={{ flex: 1, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none' }}
+              />
+              {steerMsg && <span style={{ fontSize: 11, color: steerMsg.startsWith('⚡') ? 'var(--green,#3fb950)' : '#f85149', whiteSpace: 'nowrap' }}>{steerMsg}</span>}
+              <button className="start" type="submit" disabled={steerBusy || !steerText.trim()}>{steerBusy ? '…' : '⚡ Send'}</button>
+            </form>
           </>
         )}
       </div>

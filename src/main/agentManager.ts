@@ -192,6 +192,15 @@ export class AgentManager extends EventEmitter {
       this.emit('log', { path, line: `\n[loop exited code=${code ?? '?'}]\n` })
       this.emit('changed')
     })
+    // Without this, an async spawn failure (e.g. ENOENT: the cwd was deleted, or
+    // the node/cli binary is missing) emits 'error' with no 'exit' — the child
+    // stays in _procs so the agent shows a stuck "running", and the unhandled
+    // 'error' can crash the main process. Surface it and clear the entry.
+    child.on('error', (err) => {
+      this._procs.delete(path)
+      this.emit('log', { path, line: `\n[failed to start: ${err.message}]\n` })
+      this.emit('changed')
+    })
     this._watch(path)
     this.emit('changed')
     return { ok: true }

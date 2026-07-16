@@ -88,7 +88,17 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
       const ok = await window.api.officeAutoConnect()
       if (!ok) { setConnectErr('Connect a pixel-office first (☁ Pixel Office tab).'); setConnectOpen(true); return }
     }
-    const offs = await window.api.officeOffices() as { slug: string; id: number; name: string }[]
+    // officeOffices() THROWS on a dead session / network error (it doesn't return
+    // {error}). Without this guard the whole handler rejects and the Connect modal
+    // never opens — the button silently does nothing. Open it either way and show
+    // the reason.
+    let offs: { slug: string; id: number; name: string }[] = []
+    try {
+      offs = await window.api.officeOffices() as { slug: string; id: number; name: string }[]
+    } catch (e) {
+      setConnectErr(String((e as Error)?.message ?? e) || 'Could not load your offices — reconnect.')
+      setOffices([]); setConnectOpen(true); return
+    }
     setOffices(offs); setOfficeSel(offs[0]?.slug ?? ''); setConnectErr(''); setConnectOpen(true)
   }, [])
 
