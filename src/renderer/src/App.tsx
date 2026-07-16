@@ -185,7 +185,23 @@ export default function App(): JSX.Element {
               <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
 
-            <div className="tabs" role="tablist">
+            <div className="tabs" role="tablist"
+              onKeyDown={(e) => {
+                // Roving-tabindex tablist needs arrow-key nav (WAI-ARIA): move both
+                // selection AND focus, else the inactive tabIndex=-1 tabs are
+                // unreachable by keyboard.
+                const tabs = ['overview', 'output', 'sessions', 'todo', 'config'] as const
+                const i = tabs.indexOf(tab)
+                let ni = i
+                if (e.key === 'ArrowRight') ni = (i + 1) % tabs.length
+                else if (e.key === 'ArrowLeft') ni = (i - 1 + tabs.length) % tabs.length
+                else if (e.key === 'Home') ni = 0
+                else if (e.key === 'End') ni = tabs.length - 1
+                else return
+                e.preventDefault()
+                setTab(tabs[ni])
+                ;(e.currentTarget.children[ni] as HTMLElement | undefined)?.focus()
+              }}>
               {(['overview', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
                 <div key={t} role="tab" aria-selected={tab === t} tabIndex={tab === t ? 0 : -1}
                   className={'tab' + (tab === t ? ' active' : '')}
@@ -435,11 +451,11 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
     onDone()
   }
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>Connect to pixel-office</h3>
+    <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="connect-modal-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="connect-modal-title">Connect to pixel-office</h3>
         <label className="field"><span className="lbl">Binding</span>
-          <select value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url')}>
+          <select autoFocus value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url')}>
             <option value="setup">Signed setup URL (from the office UI)</option>
             <option value="url">Full ws:// URL (token + endpoint)</option>
           </select>
@@ -506,11 +522,11 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
   }
 
   return (
-    <div className="modal-bg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3>{existing ? 'Connect existing agent' : 'Create agent'}</h3>
+    <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="create-modal-title">{existing ? 'Connect existing agent' : 'Create agent'}</h3>
         <label className="field"><span className="lbl">Workspace folder</span>
-          <div className="row"><input value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
+          <div className="row"><input autoFocus value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
         </label>
         {existing ? (
           <div className="field" style={{ background: '#0d2a17', border: '1px solid #16653a', borderRadius: 6, padding: '8px 10px', color: '#86efac', fontSize: 12 }}>
