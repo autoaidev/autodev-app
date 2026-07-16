@@ -20,7 +20,8 @@
     "pack": "npm run bundle:cli && npm run build && electron-builder --dir",
     "dist": "npm run bundle:cli && npm run build && electron-builder",
     "dist:win": "npm run bundle:cli && npm run build && bash scripts/build-win.sh",
-    "bundle:cli": "node scripts/bundle-cli.mjs"
+    "bundle:cli": "node scripts/bundle-cli.mjs",
+    "publish:app": "node scripts/publish.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
