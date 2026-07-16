@@ -303,7 +303,12 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
             <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {ended
                 ? <span className="badge" style={{ background: '#3b0d0d', color: '#fecaca' }}>■ session ended — reopen</span>
-                : <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>}
+                // Drive the badge from the character's REAL online state (pollAgents
+                // keeps `agents` fresh), not merely "a PTY is open": until the office
+                // MCP actually registers the character, show "connecting…".
+                : agents.find((a) => a.id === term.agentId)?.online
+                  ? <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>
+                  : <span className="badge" style={{ background: '#3a2f0a', color: '#f2cc60' }}>◐ connecting…</span>}
               <div style={{ fontSize: 12, fontWeight: 600 }}>{term.name}</div>
               <div style={{ flex: 1 }} />
               <button className="danger" onClick={() => setTerm(null)} title="End session">■ Close</button>

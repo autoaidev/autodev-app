@@ -180,7 +180,7 @@ export default function App(): JSX.Element {
                 ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
-              <button title="Connect to pixel-office" onClick={() => setConnectFor(current.path)}>⚿ Connect</button>
+              <button title="Bind this local agent to an office character (via a signed setup URL)" onClick={() => setConnectFor(current.path)}>⚿ Bind to office</button>
               <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
               <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
