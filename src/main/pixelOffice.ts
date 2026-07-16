@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chm
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
 import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from './officeSanitize'
+import { humanizeFetchError } from './netError'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -29,7 +30,7 @@ async function fetchT(url: string, init: RequestInit = {}, ms = 12_000): Promise
     return await fetch(url, { ...init, signal: ctrl.signal })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw new Error(TIMEOUT_MSG)
-    throw e
+    throw humanizeFetchError(e, url)
   } finally {
     clearTimeout(t)
   }
