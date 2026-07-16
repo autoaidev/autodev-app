@@ -1,0 +1,35 @@
+{
+  "name": "autodev-app",
+  "version": "0.1.0",
+  "description": "AutoDev desktop app — run autonomous AI agents from a GUI. Installs and launches the AutoDev desktop app.",
+  "keywords": [
+    "autodev",
+    "ai",
+    "agents",
+    "desktop",
+    "electron",
+    "autonomous"
+  ],
+  "license": "MIT",
+  "author": "autoaidev",
+  "homepage": "https://autodev.code.aioffice.works",
+  "bin": {
+    "autodev-app": "bin/autodev-app.js"
+  },
+  "files": [
+    "bin/autodev-app.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "scripts": {
+    "test": "node test/launcher.test.mjs"
+  }
+}
