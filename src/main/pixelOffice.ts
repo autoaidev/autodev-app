@@ -529,6 +529,25 @@ export class PixelOfficeClient {
   /** Prepare a scratch workspace with this agent's office-MCP wired, so a PTY
    *  running `claude` there operates the character. Returns the cwd to spawn in. */
   /**
+   * Create a new office character (agent row) in an office — the in-app equivalent
+   * of the office UI's "+ Agent". Returns the minted id/slug so the caller can
+   * immediately Operate it. Mirrors the shape connectSession already posts.
+   */
+  async createCharacter(officeId: number, name: string): Promise<{ ok: true; id: string; slug: string; name: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const nm = String(name ?? '').replace(/[^\w .-]+/g, '').trim().slice(0, 20)
+    if (!nm) return { error: 'Give the character a name.' }
+    if (!officeId) return { error: 'Pick an office.' }
+    try {
+      const created = (await this.postJson('/api/agents', { name: nm, officeId, avatarIndex: 0, color: '#00d4ff', emoji: '🤖' }))?.data ?? {}
+      if (!created.id) return { error: 'The office did not return a new character.' }
+      return { ok: true, id: String(created.id), slug: String(created.slug ?? ''), name: nm }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
    * Deliver an INSTANT message (steer) to an office character — live over its WS,
    * mid-turn if the agent supports it. Unlike the local-agent composer (which only
    * appends a TODO task), this hits the office's real steer endpoint so a connected

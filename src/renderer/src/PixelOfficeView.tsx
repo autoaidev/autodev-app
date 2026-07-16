@@ -31,6 +31,12 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [steerText, setSteerText] = useState('')
   const [steerBusy, setSteerBusy] = useState(false)
   const [steerMsg, setSteerMsg] = useState('')
+  // "New character" (spawn an office agent from the app).
+  const [offices, setOffices] = useState<{ slug: string; id: number; name: string }[]>([])
+  const [newCharName, setNewCharName] = useState('')
+  const [newCharOffice, setNewCharOffice] = useState<number | ''>('')
+  const [creatingChar, setCreatingChar] = useState(false)
+  const [createMsg, setCreateMsg] = useState('')
   const inFlight = useRef(false)
   // Mirror `term` into a ref so the background poll can tell whether a live PTY is
   // running WITHOUT re-creating (and re-scheduling) itself on every open/close.
@@ -44,6 +50,13 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
     try {
       setAgents((await window.api.officeAgents()) as OfficeAgent[])
       setLoaded(true)
+      // Populate the office picker for "New character" (best-effort; the list
+      // still works without it).
+      try {
+        const offs = (await window.api.officeOffices()) as { slug: string; id: number; name: string }[]
+        setOffices(offs)
+        setNewCharOffice((prev) => (prev === '' && offs[0] ? offs[0].id : prev))
+      } catch { /* non-fatal */ }
     } catch (e: any) {
       const msg = e?.message || 'Failed to load agents'
       if (isAuthError(msg)) {
@@ -174,6 +187,20 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
     finally { setSteerBusy(false) }
   }, [steerText, steerBusy])
 
+  // Spawn a new office character from the app (the in-app "+ Agent"), then refresh
+  // the list so the user can Operate it right away.
+  const createChar = useCallback(async () => {
+    const name = newCharName.trim()
+    if (!name || newCharOffice === '' || creatingChar) return
+    setCreatingChar(true); setCreateMsg('')
+    try {
+      const r = (await window.api.officeCreateCharacter(Number(newCharOffice), name)) as { ok?: boolean; error?: string }
+      if (r?.ok) { setNewCharName(''); setCreateMsg(`✓ created “${name}”`); void loadAgents() }
+      else setCreateMsg(r?.error || 'Could not create the character')
+    } catch (e) { setCreateMsg(String((e as Error)?.message ?? e)) }
+    finally { setCreatingChar(false) }
+  }, [newCharName, newCharOffice, creatingChar, loadAgents])
+
   // ── not connected: login form ──
   if (!connected) {
     return (
@@ -207,6 +234,34 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <button className="danger" onClick={disconnect} title="Disconnect">⏻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
+          {/* Spawn a new office character from the app (goal: "spawn agents from
+              the app") — creates the character server-side, then Operate it. */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); void createChar() }}
+            style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}
+          >
+            <input
+              value={newCharName}
+              onChange={(e) => { setNewCharName(e.target.value); if (createMsg) setCreateMsg('') }}
+              placeholder="New character name…"
+              aria-label="New character name"
+              maxLength={20}
+              disabled={creatingChar}
+              style={{ flex: 1, minWidth: 110, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '6px 9px', fontSize: 12, outline: 'none' }}
+            />
+            <select
+              value={newCharOffice}
+              onChange={(e) => setNewCharOffice(e.target.value ? Number(e.target.value) : '')}
+              aria-label="Office for the new character"
+              disabled={creatingChar || offices.length === 0}
+              style={{ background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '6px 8px', fontSize: 12 }}
+            >
+              {offices.length === 0 && <option value="">(no office)</option>}
+              {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+            <button className="start" type="submit" disabled={creatingChar || !newCharName.trim() || newCharOffice === ''}>{creatingChar ? '…' : '＋ New character'}</button>
+            {createMsg && <span style={{ flexBasis: '100%', fontSize: 11, color: createMsg.startsWith('✓') ? 'var(--green,#3fb950)' : '#f85149' }}>{createMsg}</span>}
+          </form>
           {listErr && (
             <div role="alert" style={{ margin: 10, padding: '8px 10px', background: '#3b0d0d', color: '#fecaca', fontSize: 12, borderRadius: 6, border: '1px solid #7f1d1d' }}>
               {listErr}
