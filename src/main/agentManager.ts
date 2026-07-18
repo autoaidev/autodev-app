@@ -1,6 +1,6 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync } from 'fs'
 import { join, basename, dirname } from 'path'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
@@ -131,11 +131,39 @@ export class AgentManager extends EventEmitter {
     this.emit('changed')
   }
 
+  // A loop can be running for a workspace WITHOUT this app having spawned it —
+  // e.g. it survived an app restart, or was started from a terminal. Detect it by
+  // matching /proc/<pid>/cwd to the workspace (same predicate the deployer uses),
+  // so the app reflects reality instead of showing a live agent as "Stopped".
+  // Linux-only (no /proc elsewhere) and cached briefly so readState stays cheap.
+  private _extPidCache = new Map<string, { pid: number | null; at: number }>()
+  private _externalPid(path: string): number | null {
+    if (process.platform !== 'linux') return null
+    const now = Date.now()
+    const cached = this._extPidCache.get(path)
+    if (cached && now - cached.at < 3000) return cached.pid
+    let found: number | null = null
+    try {
+      for (const ent of readdirSync('/proc')) {
+        if (!/^\d+$/.test(ent)) continue
+        let cwd: string
+        try { cwd = readlinkSync(`/proc/${ent}/cwd`) } catch { continue }
+        if (cwd !== path) continue
+        let cmd: string
+        try { cmd = readFileSync(`/proc/${ent}/cmdline`, 'utf8').replace(/\0/g, ' ') } catch { continue }
+        if (/autodev/.test(cmd) && /\bstart\b/.test(cmd)) { found = parseInt(ent, 10); break }
+      }
+    } catch { /* /proc unreadable — treat as not running externally */ }
+    this._extPidCache.set(path, { pid: found, at: now })
+    return found
+  }
+
   // --- state reading -------------------------------------------------------
   readState(path: string): AgentState {
     const settings = this._readJson(join(path, '.autodev', 'settings.json')) ?? {}
     const todo = this._readTodoCounts(join(path, 'TODO.md'))
-    const running = this._procs.has(path)
+    const ownProc = this._procs.has(path)
+    const running = ownProc || this._externalPid(path) !== null
     let activity: Activity
     let error: string | undefined
     let exitCode: number | null | undefined
@@ -252,7 +280,10 @@ export class AgentManager extends EventEmitter {
 
   // --- loop control --------------------------------------------------------
   start(path: string, provider?: string): { ok: true } | { error: string } {
-    if (this._procs.has(path)) return { ok: true }
+    // Already running — our own child OR an external loop for this workspace.
+    // The external check makes "Start all" a no-op for live agents instead of
+    // spawning a duplicate loop that fights the first for the same office slug.
+    if (this._procs.has(path) || this._externalPid(path) !== null) return { ok: true }
     const cliJs = resolveCliJs()
     if (!cliJs) return { error: 'autodev CLI not found. Set AUTODEV_CLI_JS or place autodev-cli beside the app.' }
     const { cmd, baseEnv } = nodeRunner()
@@ -309,10 +340,19 @@ export class AgentManager extends EventEmitter {
       try { child.kill('SIGINT') } catch { /* ignore */ }
       // hard-kill fallback
       setTimeout(() => { try { child.kill('SIGKILL') } catch { /* ignore */ } }, 4000).unref()
+      return
+    }
+    // No child of ours — stop an externally-started loop for this workspace by
+    // its pid (SIGINT for a graceful provider shutdown, SIGKILL as a fallback).
+    const pid = this._externalPid(path)
+    if (pid) {
+      this._extPidCache.delete(path)
+      try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
+      setTimeout(() => { try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ } }, 4000).unref()
     }
   }
 
-  isRunning(path: string): boolean { return this._procs.has(path) }
+  isRunning(path: string): boolean { return this._procs.has(path) || this._externalPid(path) !== null }
 
   /**
    * Send a message/task to the agent by appending it as a pending task to
