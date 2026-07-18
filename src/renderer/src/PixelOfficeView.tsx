@@ -230,8 +230,9 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <strong style={{ fontSize: 13 }}>☁ Office agents</strong>
           <span className="badge">{agents.length}</span>
           <div style={{ flex: 1 }} />
-          <button onClick={loadAgents} disabled={loadingAgents} title="Refresh">↻</button>
-          <button className="danger" onClick={disconnect} title="Disconnect">⏻</button>
+          <button onClick={loadAgents} disabled={loadingAgents} title="Refresh office agents" aria-label="Refresh office agents">↻</button>
+          <button className="danger" title="Disconnect from office" aria-label="Disconnect from office"
+            onClick={() => { if (term && !window.confirm(`Disconnect will end your running Operate session for "${term.name}" and take the character offline. Continue?`)) return; disconnect() }}>⏻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {/* Spawn a new office character from the app (goal: "spawn agents from
@@ -247,7 +248,8 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
               aria-label="New character name"
               maxLength={20}
               disabled={creatingChar}
-              style={{ flex: 1, minWidth: 110, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '6px 9px', fontSize: 12, outline: 'none' }}
+              className="fld-input"
+              style={{ flex: 1, minWidth: 110, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '6px 9px', fontSize: 12 }}
             />
             <select
               value={newCharOffice}
@@ -311,7 +313,8 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
                   : <span className="badge" style={{ background: '#3a2f0a', color: '#f2cc60' }}>◐ connecting…</span>}
               <div style={{ fontSize: 12, fontWeight: 600 }}>{term.name}</div>
               <div style={{ flex: 1 }} />
-              <button className="danger" onClick={() => setTerm(null)} title="End session">■ Close</button>
+              <button className="danger" title="End session"
+                onClick={() => { if (!window.confirm(`End the Operate session for "${term.name}"? The character goes offline.`)) return; setTerm(null) }}>■ Close</button>
               <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted,#8b949e)', fontFamily: 'monospace' }}>
                 {term.cwd}{term.mcpUrl ? '  →  ' + term.mcpUrl : ''}
               </div>
@@ -333,7 +336,8 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
                 placeholder={`Instant-message ${term.name.split(' · ')[0]} now…  (Enter to send)`}
                 aria-label="Instant message to this office character"
                 disabled={steerBusy}
-                style={{ flex: 1, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none' }}
+                className="fld-input"
+                style={{ flex: 1, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '7px 10px', fontSize: 13 }}
               />
               {steerMsg && <span style={{ fontSize: 11, color: steerMsg.startsWith('⚡') ? 'var(--green,#3fb950)' : '#f85149', whiteSpace: 'nowrap' }}>{steerMsg}</span>}
               <button className="start" type="submit" disabled={steerBusy || !steerText.trim()}>{steerBusy ? '…' : '⚡ Send'}</button>

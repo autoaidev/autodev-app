@@ -50,6 +50,8 @@ export default function App(): JSX.Element {
   const [openedOffice, setOpenedOffice] = useState(false)
   const [openedMakeApp, setOpenedMakeApp] = useState(false)
   const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
+  const [filter, setFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
   const [creating, setCreating] = useState(false)
   const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
@@ -90,6 +92,29 @@ export default function App(): JSX.Element {
   const showToast = (msg: string, err = false) => { setToast({ msg, err }); setTimeout(() => setToast(null), 4000) }
   const current = useMemo(() => agents.find((a) => a.path === selected) ?? null, [agents, selected])
   const runningCount = useMemo(() => agents.filter((a) => a.running).length, [agents])
+  const attentionCount = useMemo(() => agents.filter((a) => ATTENTION_STATES.has(a.activity)).length, [agents])
+
+  // Selecting an agent must also close whichever heavy view (Office/Sessions/
+  // Make-app) is up — otherwise the click highlights the row but the main area
+  // keeps showing the other view: a visible selection change with no result.
+  const selectAgent = useCallback((path: string) => {
+    setSelected(path); setShowOffice(false); setShowSessions(false); setShowMakeApp(false)
+  }, [])
+
+  // The list, filtered by search + status, with the agents that need attention
+  // floated to the top (then running, then alphabetical) so trouble is never
+  // buried at the bottom of a long fleet.
+  const visibleAgents = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    const rank = (a: AgentState) => (ATTENTION_STATES.has(a.activity) ? 0 : a.running ? 1 : 2)
+    return agents
+      .filter((a) =>
+        (!q || a.name.toLowerCase().includes(q) || (a.provider ?? '').toLowerCase().includes(q)) &&
+        (statusFilter === 'all' ||
+          (statusFilter === 'running' && a.running) ||
+          (statusFilter === 'attention' && ATTENTION_STATES.has(a.activity))))
+      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+  }, [agents, filter, statusFilter])
 
   const addExisting = async () => {
     const path = await window.api.pickFolder()
@@ -105,6 +130,33 @@ export default function App(): JSX.Element {
     else { logsRef.current.set(a.path, ''); setTab('output') }
   }
   const stop = async (a: AgentState) => { await window.api.stopAgent(a.path) }
+  // Stop-then-start, for applying config/MCP changes in one click on a running
+  // agent (and recovering a crashed/stalled one).
+  const restart = async (a: AgentState) => {
+    if (a.running) { await window.api.stopAgent(a.path); await new Promise((r) => setTimeout(r, 800)) }
+    logsRef.current.set(a.path, '')
+    const r = await window.api.startAgent(a.path)
+    if ((r as any).error) showToast((r as any).error, true)
+    else { selectAgent(a.path); setTab('output') }
+  }
+
+  // Fleet-wide lifecycle — the most frequent daily action, previously one agent
+  // at a time. Bulk start does NOT yank you to a single agent's Output tab.
+  const startAll = async () => {
+    const stopped = agents.filter((a) => !a.running)
+    if (!stopped.length) return showToast('All agents are already running')
+    showToast(`Starting ${stopped.length} agent${stopped.length === 1 ? '' : 's'}…`)
+    for (const a of stopped) await window.api.startAgent(a.path)
+    refresh()
+  }
+  const stopAll = async () => {
+    const running = agents.filter((a) => a.running)
+    if (!running.length) return showToast('No agents are running')
+    if (!window.confirm(`Stop all ${running.length} running agent${running.length === 1 ? '' : 's'}?`)) return
+    showToast(`Stopping ${running.length}…`)
+    for (const a of running) await window.api.stopAgent(a.path)
+    refresh()
+  }
 
   const exportAgent = async (a: AgentState) => {
     const out = await window.api.saveFile(`${a.name.replace(/[^\w.-]+/g, '_')}.zip`)
@@ -136,19 +188,42 @@ export default function App(): JSX.Element {
       <div className="app" style={{ flex: 1, minHeight: 0 }}>
       <aside className="sidebar">
         <div className="sidebar-head">
-          <h1><span className="logo">◆</span> AutoDev{runningCount > 0 && <span className="badge" style={{ marginLeft: 8 }}>{runningCount} running</span>}</h1>
+          <h1><span className="logo">◆</span> AutoDev{runningCount > 0 && <span className="badge" style={{ marginLeft: 8 }}>{runningCount} running</span>}
+            {attentionCount > 0 && <span className="attn-chip" style={{ marginLeft: 6 }} title="Agents needing attention — click to filter"
+              onClick={() => setStatusFilter((f) => (f === 'attention' ? 'all' : 'attention'))}>⚠ {attentionCount}</span>}</h1>
           <div className="row">
             <button title="Add existing workspace" onClick={addExisting}>+ Add</button>
-            <button title="Import agent backup" onClick={importAgent}>⬆</button>
+            <button title="Import agent backup" aria-label="Import agent backup" onClick={importAgent}>⬆</button>
           </div>
         </div>
+        {agents.length > 0 && (
+          <div className="fleet-actions">
+            <button onClick={startAll} disabled={runningCount === agents.length} title="Start every stopped agent">▶ Start all</button>
+            <button className="danger" onClick={stopAll} disabled={runningCount === 0} title="Stop every running agent">■ Stop all</button>
+          </div>
+        )}
+        {agents.length >= 4 && (
+          <div className="list-filter">
+            <input value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Search agents by name or provider" placeholder="Search agents…" />
+            <div className="filter-chips" role="group" aria-label="Filter by status">
+              {(['all', 'running', 'attention'] as const).map((f) => (
+                <button key={f} className={statusFilter === f ? 'on' : ''} aria-pressed={statusFilter === f}
+                  onClick={() => setStatusFilter(f)}>
+                  {f === 'all' ? 'All' : f === 'running' ? 'Running' : 'Attention'}
+                  <span className="n">{f === 'all' ? agents.length : f === 'running' ? runningCount : attentionCount}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="agent-list">
           {agents.length === 0 && <div className="empty" style={{ padding: 24, fontSize: 12 }}>No agents yet.<br />Create or add one.</div>}
-          {agents.map((a) => (
+          {agents.length > 0 && visibleAgents.length === 0 && <div className="no-match">No agents match.</div>}
+          {visibleAgents.map((a) => (
             <div key={a.path} role="button" tabIndex={0} aria-pressed={a.path === selected}
               className={'agent-row' + (a.path === selected ? ' active' : '')}
-              onClick={() => setSelected(a.path)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(a.path) } }}>
+              onClick={() => selectAgent(a.path)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAgent(a.path) } }}>
               <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
                 <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}</div>
@@ -174,14 +249,36 @@ export default function App(): JSX.Element {
         {openedMakeApp && <div style={{ display: showMakeApp ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><MakeAppView /></div>}
         {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} /></div>}
         {openedSessions && <div style={{ display: showSessions ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><SessionsBrowser visible={showSessions} /></div>}
-        {!showMakeApp && !showOffice && !showSessions && !current && <div className="empty">Select an agent</div>}
+        {!showMakeApp && !showOffice && !showSessions && !current && (
+          agents.length === 0 ? (
+            <div className="welcome">
+              <div className="mark">◆</div>
+              <h2>Welcome to AutoDev</h2>
+              <p>Run AI coding agents on your own machine and steer a team of them. Start by creating your first agent, or connect to a remote Pixel Office.</p>
+              <div className="ctas">
+                <button className="cta primary" onClick={() => setCreating(true)}>
+                  <span className="ico">＋</span><span>Create your first agent<span className="sub">Pick a folder and a provider — you'll add tasks after</span></span>
+                </button>
+                <button className="cta" onClick={addExisting}>
+                  <span className="ico">📁</span><span>Add an existing workspace<span className="sub">Already have an AutoDev folder? Point at it</span></span>
+                </button>
+                <button className="cta" onClick={() => { setShowMakeApp(true); setOpenedMakeApp(true) }}>
+                  <span className="ico">✨</span><span>Make an app<span className="sub">Describe an app and generate a team to build it</span></span>
+                </button>
+                <button className="cta" onClick={() => { setShowOffice(true); setOpenedOffice(true) }}>
+                  <span className="ico">☁</span><span>Connect a Pixel Office<span className="sub">Operate your remote office characters</span></span>
+                </button>
+              </div>
+            </div>
+          ) : <div className="empty">Select an agent</div>
+        )}
         {!showMakeApp && !showOffice && !showSessions && current && (
           <>
             <div className="detail-head">
               <span className={'dot ' + current.activity} />
-              <div>
+              <div className="head-id">
                 <h2>{current.name}</h2>
-                <div className="path">{current.path}</div>
+                <div className="path" title={current.path}>{current.path}</div>
               </div>
               <span className="badge">{current.provider ?? '—'}</span>
               {current.wsUrl && <span className="badge">● office</span>}
@@ -190,6 +287,7 @@ export default function App(): JSX.Element {
               {current.running
                 ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
+              {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" onClick={() => restart(current)}>↻ Restart</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
               <button title="Bind this local agent to an office character (via a signed setup URL)" onClick={() => setConnectFor(current.path)}>⚿ Bind to office</button>
               <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
@@ -204,7 +302,7 @@ export default function App(): JSX.Element {
                   {current.activity === 'needs-auth' && <span className="attention-hint"> Sign in to {current.provider ?? 'the provider'} (open the Terminal below and run its login), then the loop resumes automatically.</span>}
                 </div>
                 {(current.activity === 'crashed' || current.activity === 'stalled') && (
-                  <button className="start" onClick={() => { if (current.running) { stop(current); setTimeout(() => start(current), 800) } else { start(current) } }}>↻ Restart</button>
+                  <button className="start" onClick={() => restart(current)}>↻ Restart</button>
                 )}
               </div>
             )}
@@ -402,11 +500,20 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
 
   const save = async (): Promise<void> => {
     setBusy(true)
-    await window.api.runCli(['config', 'set', 'provider', provider, a.path])
-    if (sessionName !== (a.sessionName ?? '')) await window.api.runCli(['config', 'set', 'sessionName', sessionName, a.path])
-    await window.api.runCli(['config', 'set', modelKeyFor(provider), model, a.path])
-    await window.api.runCli(['config', 'set', 'enableFileBrowser', fileBrowser ? 'true' : 'false', a.path])
-    setBusy(false); showToast('Saved'); onSaved()
+    // Each key is a separate CLI write; check every exit code so a failed write
+    // can't be reported as a green "Saved" (silent loss of intent on a settings
+    // screen). Stop at the first failure and surface its stderr.
+    const writes: Array<[string, string]> = [['provider', provider]]
+    if (sessionName !== (a.sessionName ?? '')) writes.push(['sessionName', sessionName])
+    writes.push([modelKeyFor(provider), model], ['enableFileBrowser', fileBrowser ? 'true' : 'false'])
+    for (const [k, v] of writes) {
+      const r = await window.api.runCli(['config', 'set', k, v, a.path])
+      if (r.code !== 0) { setBusy(false); return showToast(r.stderr || `Save failed writing "${k}"`, true) }
+    }
+    setBusy(false)
+    // A running loop won't pick up a new provider/model until it restarts — say so.
+    showToast(a.running ? 'Saved — restart the agent to apply' : 'Saved')
+    onSaved()
   }
   const saveMcp = async (): Promise<void> => {
     setMcpBusy(true)

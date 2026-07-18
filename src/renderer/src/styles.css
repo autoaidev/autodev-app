@@ -10,6 +10,12 @@
   --amber: #d29922;
   --red: #f85149;
   --gray: #6e7681;
+  /* Aliases the Office / Make-app / Sessions views were written against with
+     hardcoded fallbacks — defining them here makes those views share one palette
+     instead of always hitting the fallback and looking like a different app. */
+  --muted: #9da7b3;
+  --text: #e6edf3;
+  --accent-dim: #1f6feb33;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -68,9 +74,13 @@ body {
 /* main */
 .main { display: flex; flex-direction: column; overflow: hidden; }
 .empty { margin: auto; color: var(--fg2); text-align: center; }
-.detail-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; }
-.detail-head h2 { margin: 0; font-size: 17px; }
-.detail-head .path { color: var(--fg2); font-size: 11px; }
+/* flex-wrap + a shrinkable id block keep the action buttons on-screen: a long
+   absolute path used to push Export/Remove past the right edge (unclickable) at
+   the 900px min width. Now the path ellipsizes and buttons wrap instead. */
+.detail-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.detail-head h2 { margin: 0; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.detail-head .head-id { min-width: 0; flex: 1 1 180px; }
+.detail-head .path { color: var(--fg2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 .tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--border); background: var(--bg2); }
 .tab { padding: 9px 14px; cursor: pointer; color: var(--fg2); border-bottom: 2px solid transparent; }
@@ -113,3 +123,36 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--bg3); border: 1px solid var(--border); color: var(--fg2); }
 .toast { position: fixed; bottom: 18px; right: 18px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; z-index: 60; max-width: 420px; }
 .toast.err { border-color: var(--red); color: var(--red); }
+
+/* Sidebar fleet controls: bulk start/stop + search + status filter. */
+.fleet-actions { display: flex; gap: 6px; padding: 8px 12px 0; }
+.fleet-actions button { flex: 1; padding: 6px 8px; font-size: 12px; }
+.list-filter { padding: 8px 12px; display: flex; flex-direction: column; gap: 7px; }
+.list-filter input { padding: 6px 9px; font-size: 12px; }
+.filter-chips { display: flex; gap: 5px; }
+.filter-chips button { flex: 1; padding: 4px 6px; font-size: 11px; border-radius: 999px; color: var(--fg2); }
+.filter-chips button.on { background: var(--accent-dim); border-color: var(--accent); color: var(--fg); }
+.filter-chips button .n { opacity: .7; margin-left: 3px; }
+/* Attention roll-up chip in the sidebar header — click to filter to trouble. */
+.attn-chip { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  background: rgba(210,153,34,0.15); border: 1px solid var(--amber); color: var(--amber); }
+.attn-chip:hover { background: rgba(210,153,34,0.28); }
+
+/* First-run welcome (shown when there are zero agents). */
+.welcome { margin: auto; max-width: 460px; text-align: center; padding: 32px; }
+.welcome .mark { font-size: 40px; color: var(--accent); }
+.welcome h2 { margin: 12px 0 6px; font-size: 20px; }
+.welcome p { color: var(--fg2); line-height: 1.6; margin: 0 0 22px; }
+.welcome .ctas { display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.welcome .cta { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg2); cursor: pointer; color: var(--fg); font-size: 13px; }
+.welcome .cta:hover { border-color: var(--accent); }
+.welcome .cta.primary { border-color: var(--accent); background: var(--accent-dim); }
+.welcome .cta .ico { font-size: 20px; flex: 0 0 auto; }
+.welcome .cta .sub { display: block; color: var(--fg2); font-size: 11px; margin-top: 2px; }
+.no-match { padding: 20px; color: var(--fg2); font-size: 12px; text-align: center; }
+
+/* Restore a visible focus ring on inputs that set an inline static border (the
+   inline border out-specificities the global :focus border-color, so without a
+   ring these fields showed no focus at all). */
+.fld-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
