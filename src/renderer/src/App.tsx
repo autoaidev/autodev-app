@@ -3,7 +3,7 @@ import SessionsBrowser from './SessionsBrowser'
 import PixelOfficeView from './PixelOfficeView'
 import MakeAppView from './MakeAppView'
 
-type Activity = 'working' | 'idle' | 'stopped'
+type Activity = 'working' | 'idle' | 'stopped' | 'stalled' | 'needs-auth' | 'rate-limited' | 'crashed'
 interface AgentState {
   path: string
   name: string
@@ -14,9 +14,19 @@ interface AgentState {
   activity: Activity
   tasks: { total: number; remaining: number; done: number }
   lastOutput?: string
+  error?: string
+  exitCode?: number | null
 }
 
-const PROVIDERS = ['claude-tui', 'claude-cli', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-tui']
+// Human labels + whether the state needs the operator's attention (drives the
+// status pill/dot styling and the recovery CTA).
+const ACTIVITY_LABEL: Record<Activity, string> = {
+  working: 'Working', idle: 'Idle', stopped: 'Stopped', stalled: 'Stalled',
+  'needs-auth': 'Needs re-auth', 'rate-limited': 'Rate-limited', crashed: 'Crashed'
+}
+const ATTENTION_STATES = new Set<Activity>(['stalled', 'needs-auth', 'rate-limited', 'crashed'])
+
+const PROVIDERS = ['claude-tui', 'claude-cli', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-cli', 'grok-tui']
 
 // Visually-hidden but screen-reader-available (for persistent aria-live regions).
 const srOnly: React.CSSProperties = {
@@ -139,10 +149,10 @@ export default function App(): JSX.Element {
               className={'agent-row' + (a.path === selected ? ' active' : '')}
               onClick={() => setSelected(a.path)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelected(a.path) } }}>
-              <span className={'dot ' + a.activity} title={a.activity} />
+              <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
-                <div className="name">{a.name}</div>
-                <div className="sub">{a.provider ?? 'no provider'} · {a.tasks.remaining} left</div>
+                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}</div>
+                <div className="sub">{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : `${a.tasks.remaining} left`}</div>
               </div>
             </div>
           ))}
@@ -175,6 +185,7 @@ export default function App(): JSX.Element {
               </div>
               <span className="badge">{current.provider ?? '—'}</span>
               {current.wsUrl && <span className="badge">● office</span>}
+              <span className={'status-pill ' + current.activity} title={current.error || ACTIVITY_LABEL[current.activity]}>{ACTIVITY_LABEL[current.activity]}</span>
               <div className="spacer" />
               {current.running
                 ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
@@ -184,6 +195,19 @@ export default function App(): JSX.Element {
               <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
               <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
+
+            {ATTENTION_STATES.has(current.activity) && current.error && (
+              <div className={'attention-banner ' + current.activity} role="alert">
+                <span className="attention-icon" aria-hidden="true">{current.activity === 'needs-auth' ? '🔑' : current.activity === 'rate-limited' ? '⏳' : '⚠'}</span>
+                <div className="attention-text">
+                  <strong>{ACTIVITY_LABEL[current.activity]}</strong> — {current.error}
+                  {current.activity === 'needs-auth' && <span className="attention-hint"> Sign in to {current.provider ?? 'the provider'} (open the Terminal below and run its login), then the loop resumes automatically.</span>}
+                </div>
+                {(current.activity === 'crashed' || current.activity === 'stalled') && (
+                  <button className="start" onClick={() => { if (current.running) { stop(current); setTimeout(() => start(current), 800) } else { start(current) } }}>↻ Restart</button>
+                )}
+              </div>
+            )}
 
             <div className="tabs" role="tablist"
               onKeyDown={(e) => {
@@ -277,7 +301,7 @@ function Overview({ a }: { a: AgentState }): JSX.Element {
   return (
     <>
       <div className="cards">
-        <div className="card"><div className="k">Status</div><div className="v" style={{ textTransform: 'capitalize' }}>{a.activity}</div></div>
+        <div className="card"><div className="k">Status</div><div className="v"><span className={'dot ' + a.activity} /> {ACTIVITY_LABEL[a.activity]}{typeof a.exitCode === 'number' && a.exitCode !== 0 ? ` (exit ${a.exitCode})` : ''}</div>{a.error && ATTENTION_STATES.has(a.activity) && <div className="card-note">{a.error}</div>}</div>
         <div className="card"><div className="k">Remaining</div><div className="v">{a.tasks.remaining}</div></div>
         <div className="card"><div className="k">Done</div><div className="v">{a.tasks.done}</div></div>
         <div className="card"><div className="k">Total</div><div className="v">{a.tasks.total}</div></div>

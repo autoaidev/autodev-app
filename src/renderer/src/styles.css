@@ -35,6 +35,34 @@ body {
 .dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.4s infinite; }
 .dot.idle { background: var(--amber); }
 .dot.stopped { background: var(--gray); }
+/* Attention states — truthful health beyond working/idle/stopped. */
+.dot.stalled { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: blink 1s steps(2,start) infinite; }
+.dot.needs-auth { background: #d2a8ff; box-shadow: 0 0 6px #d2a8ff; }
+.dot.rate-limited { background: #58a6ff; }
+.dot.crashed { background: var(--red); box-shadow: 0 0 6px var(--red); }
+@keyframes blink { 50% { opacity: 0.3; } }
+
+/* Status pill in the detail head. */
+.status-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--fg); }
+.status-pill.working { color: var(--green); border-color: var(--green); }
+.status-pill.idle { color: var(--amber); border-color: var(--amber); }
+.status-pill.stopped { color: var(--gray); }
+.status-pill.stalled { color: var(--amber); border-color: var(--amber); }
+.status-pill.needs-auth { color: #d2a8ff; border-color: #d2a8ff; }
+.status-pill.rate-limited { color: #58a6ff; border-color: #58a6ff; }
+.status-pill.crashed { color: var(--red); border-color: var(--red); }
+
+/* Attention banner below the head for problem states. */
+.attention-banner { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); }
+.attention-banner.crashed { border-color: var(--red); background: rgba(248,81,73,0.08); }
+.attention-banner.needs-auth { border-color: #d2a8ff; background: rgba(210,168,255,0.08); }
+.attention-banner.rate-limited { border-color: #58a6ff; background: rgba(88,166,255,0.08); }
+.attention-banner.stalled { border-color: var(--amber); background: rgba(210,153,34,0.08); }
+.attention-icon { font-size: 16px; flex: 0 0 auto; }
+.attention-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; }
+.attention-hint { color: var(--gray); }
+.attn-tag { margin-left: 5px; font-size: 11px; }
+.card-note { margin-top: 4px; font-size: 11px; color: var(--gray); line-height: 1.4; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 /* main */
