@@ -58,6 +58,33 @@ const srOnly: React.CSSProperties = {
   overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0
 }
 
+// Keep Tab within a dialog and restore focus to the trigger on close, so keyboard
+// and screen-reader users aren't dropped into the obscured sidebar behind the
+// backdrop (which aria-modal claims is hidden).
+function useFocusTrap<T extends HTMLElement>(): React.RefObject<T> {
+  const ref = useRef<T>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const prev = document.activeElement as HTMLElement | null
+    const sel = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    const focusables = (): HTMLElement[] => Array.from(el.querySelectorAll<HTMLElement>(sel))
+    const first = focusables()[0]
+    if (first && !el.contains(document.activeElement)) first.focus()
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return
+      const f = focusables()
+      if (!f.length) return
+      const a = f[0], b = f[f.length - 1]
+      if (e.shiftKey && document.activeElement === a) { e.preventDefault(); b.focus() }
+      else if (!e.shiftKey && document.activeElement === b) { e.preventDefault(); a.focus() }
+    }
+    el.addEventListener('keydown', onKey)
+    return () => { el.removeEventListener('keydown', onKey); try { prev?.focus() } catch { /* gone */ } }
+  }, [])
+  return ref
+}
+
 export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -77,6 +104,7 @@ export default function App(): JSX.Element {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
   const [creating, setCreating] = useState(false)
+  const [nudgePath, setNudgePath] = useState<string | null>(null)  // just-created agent: nudge the first task
   const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
@@ -386,12 +414,13 @@ export default function App(): JSX.Element {
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
 
-            <MessageBar key={current.path} path={current.path} running={current.running} showToast={showToast} />
+            <MessageBar key={current.path} path={current.path} running={current.running} showToast={showToast}
+              nudge={nudgePath === current.path && current.tasks.total === 0} onSent={() => setNudgePath(null)} />
           </>
         )}
       </main>
 
-      {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); refresh().then(() => setSelected(p)) }} showToast={showToast} />}
+      {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {/* Persistent live regions (always in DOM) so screen readers announce
           status/error changes; polite for info, assertive for errors. */}
@@ -405,9 +434,14 @@ export default function App(): JSX.Element {
 
 // Persistent composer at the bottom of the agent detail — sends a message/task
 // to the agent (appended to its TODO.md; the loop picks it up).
-function MessageBar({ path, running, showToast }: { path: string; running: boolean; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+function MessageBar({ path, running, showToast, nudge, onSent }: { path: string; running: boolean; showToast: (m: string, e?: boolean) => void; nudge?: boolean; onSent?: () => void }): JSX.Element {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  // A brand-new agent has an empty TODO, so Start would do nothing visible — pull
+  // the operator straight to the composer so the create → give-it-work path is
+  // obvious rather than discovered by accident.
+  useEffect(() => { if (nudge) taRef.current?.focus() }, [nudge])
   const send = async (): Promise<void> => {
     const t = text.trim()
     if (!t || busy) return
@@ -416,6 +450,7 @@ function MessageBar({ path, running, showToast }: { path: string; running: boole
     setBusy(false)
     if (r?.error) { showToast(r.error, true); return }
     setText('')
+    onSent?.()
     showToast(running ? 'Queued — added to TODO; the agent runs it on its next cycle.' : 'Queued — added to TODO; the agent runs it when you Start it.')
   }
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -425,17 +460,21 @@ function MessageBar({ path, running, showToast }: { path: string; running: boole
     // NB: this queues a TODO task (not a live chat/steer). The honest labels below
     // set that expectation — a real-time "instant message" lives on the Pixel
     // Office → Operate pane (office characters), via the steer endpoint.
-    <div className="msgbar">
-      <textarea
-        rows={1}
-        value={text}
-        aria-label="Add a task to this agent's queue"
-        placeholder="Add a task to this agent's TODO…  (Enter to add · Shift+Enter for newline)"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={onKey}
-      />
-      <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '＋ Add task'}</button>
-    </div>
+    <>
+      {nudge && <div className="composer-hint">👇 This agent has no tasks yet — add its first task to get it working.</div>}
+      <div className="msgbar">
+        <textarea
+          ref={taRef}
+          rows={1}
+          value={text}
+          aria-label="Add a task to this agent's queue"
+          placeholder="Add a task to this agent's TODO…  (Enter to add · Shift+Enter for newline)"
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={onKey}
+        />
+        <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '＋ Add task'}</button>
+      </div>
+    </>
   )
 }
 
@@ -659,10 +698,14 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
     setBusy(false)
     onDone()
   }
+  const trapRef = useFocusTrap<HTMLDivElement>()
   return (
     <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="connect-modal-title" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="connect-modal-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="connect-modal-title">Connect to pixel-office</h3>
+        <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
+          Links this local agent to a character in your pixel office. Open the office in your browser, pick the character, and copy its <em>signed setup URL</em> (or a full ws:// URL) here.
+        </p>
         <label className="field"><span className="lbl">Binding</span>
           <select autoFocus value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url')}>
             <option value="setup">Signed setup URL (from the office UI)</option>
@@ -730,9 +773,10 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
     onCreated(path)
   }
 
+  const trapRef = useFocusTrap<HTMLDivElement>()
   return (
     <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="create-modal-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="create-modal-title">{existing ? 'Connect existing agent' : 'Create agent'}</h3>
         <label className="field"><span className="lbl">Workspace folder</span>
           <div className="row"><input autoFocus value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>

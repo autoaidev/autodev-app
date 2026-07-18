@@ -81,18 +81,21 @@ export default function MakeAppView(): JSX.Element {
   if (!connected) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <div style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
+        <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>✨ Make an app</h2>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Sign in to your pixel-office first, then describe what you want to build.</p>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Describe an app and your pixel-office generates a team to build it. Sign in first.</p>
           <label className="fld" htmlFor="makeapp-base">Server URL</label>
           <input id="makeapp-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
           <label className="fld" htmlFor="makeapp-email">Email</label>
           <input id="makeapp-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
           <label className="fld" htmlFor="makeapp-password">Password</label>
-          <input id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
+          <input id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
           {err && <div role="alert" style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
-          <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
-        </div>
+          <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password}>{busy ? 'Connecting…' : 'Connect'}</button>
+          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted,#8b949e)' }}>
+            New here? <a href="#" onClick={(e) => { e.preventDefault(); if (base.trim()) void window.api.openExternal(base.trim()) }} style={{ color: 'var(--accent)' }}>Open the office</a> to create an account.
+          </p>
+        </form>
       </div>
     )
   }

@@ -205,19 +205,21 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   if (!connected) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <div style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
+        <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>☁ Connect to your Pixel Office</h2>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Sign in to list and operate your remote office agents.</p>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>A Pixel Office is your team of remote agents. Sign in to list and operate them.</p>
           <label className="fld" htmlFor="office-base">Server URL</label>
           <input id="office-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder={DEFAULT_BASE} style={inp} />
           <label className="fld" htmlFor="office-email">Email</label>
           <input id="office-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
           <label className="fld" htmlFor="office-password">Password</label>
-          <input id="office-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && connect()} style={inp} />
+          <input id="office-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
           {err && <div role="alert" style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
-          <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password || !base} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
-          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted,#8b949e)' }}>Stores the durable login token locally (not your password).</p>
-        </div>
+          <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password || !base}>{busy ? 'Connecting…' : 'Connect'}</button>
+          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted,#8b949e)' }}>
+            New here? <a href="#" onClick={(e) => { e.preventDefault(); if (base.trim()) void window.api.openExternal(base.trim()) }} style={{ color: 'var(--accent)' }}>Open the office</a> to create an account. Stores the durable login token locally (not your password).
+          </p>
+        </form>
       </div>
     )
   }
