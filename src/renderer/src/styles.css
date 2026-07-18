@@ -37,6 +37,14 @@ body {
 .agent-row .meta { flex: 1; min-width: 0; }
 .agent-row .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .agent-row .sub { color: var(--fg2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Multi-select checkbox: subtle until the row is hovered, active, or checked. */
+.row-check { width: auto; margin: 0; flex: 0 0 auto; cursor: pointer; opacity: .35; transition: opacity .12s; }
+.agent-row:hover .row-check, .agent-row.active .row-check, .agent-row.checked .row-check { opacity: 1; }
+.agent-row.checked { background: var(--accent-dim); }
+.bulk-bar { display: flex; align-items: center; gap: 6px; padding: 7px 12px; background: var(--bg3);
+  border-bottom: 1px solid var(--border); }
+.bulk-bar strong { font-size: 12px; }
+.bulk-bar button { padding: 4px 9px; font-size: 12px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
 .dot.working { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse 1.4s infinite; }
 .dot.idle { background: var(--amber); }

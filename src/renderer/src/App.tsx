@@ -110,6 +110,7 @@ export default function App(): JSX.Element {
   const [cliMissing, setCliMissing] = useState(false)
   const [ioBusy, setIoBusy] = useState(false)              // export/import in flight (long zips outlive the toast)
   const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
+  const [checked, setChecked] = useState<Set<string>>(new Set())    // multi-select for bulk actions
   const logsRef = useRef<Map<string, string>>(new Map())
   // Bump this to force a re-render when a log line lands in logsRef (a ref, so it
   // doesn't itself trigger renders). The value is unused — only the re-render is.
@@ -222,6 +223,34 @@ export default function App(): JSX.Element {
     refresh()
   }
 
+  const toggleChecked = (path: string) => setChecked((s) => { const n = new Set(s); n.has(path) ? n.delete(path) : n.add(path); return n })
+  // Drop checks for agents that no longer exist (removed/filtered out of registry).
+  useEffect(() => {
+    setChecked((prev) => {
+      if (!prev.size) return prev
+      const next = new Set([...prev].filter((p) => agents.some((a) => a.path === p)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [agents])
+  // Bulk lifecycle over the checked subset — the "restart these 4 opencode agents"
+  // case that Start-all / Stop-all can't target.
+  const bulk = async (kind: 'start' | 'stop' | 'restart' | 'remove') => {
+    const paths = [...checked]
+    if (!paths.length) return
+    if (kind === 'stop' && !window.confirm(`Stop ${paths.length} selected agent${paths.length === 1 ? '' : 's'}?`)) return
+    if (kind === 'remove' && !window.confirm(`Remove ${paths.length} selected agent${paths.length === 1 ? '' : 's'} from the list? (workspace files are kept)`)) return
+    for (const p of paths) {
+      const a = agents.find((x) => x.path === p)
+      if (!a) continue
+      if (kind === 'start' && !a.running) await window.api.startAgent(p)
+      else if (kind === 'stop' && a.running) await window.api.stopAgent(p)
+      else if (kind === 'restart') { if (a.running) { await window.api.stopAgent(p); await new Promise((r) => setTimeout(r, 600)) } await window.api.startAgent(p) }
+      else if (kind === 'remove') { await window.api.removeAgent(p); if (selected === p) setSelected(null) }
+    }
+    setChecked(new Set())
+    refresh()
+  }
+
   // Power-operator keyboard shortcuts: j/k (or ↑/↓) move selection, s toggles
   // start/stop, r restarts, c creates. Ignored while typing or a modal is open.
   useEffect(() => {
@@ -310,14 +339,27 @@ export default function App(): JSX.Element {
             </div>
           </div>
         )}
+        {checked.size > 0 && (
+          <div className="bulk-bar" role="toolbar" aria-label="Bulk actions for selected agents">
+            <strong>{checked.size} selected</strong>
+            <div className="spacer" />
+            <button title="Start selected" aria-label="Start selected" onClick={() => bulk('start')}>▶</button>
+            <button className="danger" title="Stop selected" aria-label="Stop selected" onClick={() => bulk('stop')}>■</button>
+            <button title="Restart selected" aria-label="Restart selected" onClick={() => bulk('restart')}>↻</button>
+            <button className="danger" title="Remove selected from list" aria-label="Remove selected from list" onClick={() => bulk('remove')}>🗑</button>
+            <button title="Clear selection" aria-label="Clear selection" onClick={() => setChecked(new Set())}>✕</button>
+          </div>
+        )}
         <div className="agent-list">
           {agents.length === 0 && <div className="empty" style={{ padding: 24, fontSize: 12 }}>No agents yet.<br />Create or add one.</div>}
           {agents.length > 0 && visibleAgents.length === 0 && <div className="no-match">No agents match.</div>}
           {visibleAgents.map((a) => (
             <div key={a.path} role="button" tabIndex={0} aria-pressed={a.path === selected}
-              className={'agent-row' + (a.path === selected ? ' active' : '')}
+              className={'agent-row' + (a.path === selected ? ' active' : '') + (checked.has(a.path) ? ' checked' : '')}
               onClick={() => selectAgent(a.path)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAgent(a.path) } }}>
+              <input type="checkbox" className="row-check" checked={checked.has(a.path)} aria-label={`Select ${a.name} for bulk actions`}
+                onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
               <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
                 <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}</div>
