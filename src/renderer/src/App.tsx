@@ -13,6 +13,7 @@ interface AgentState {
   running: boolean
   activity: Activity
   tasks: { total: number; remaining: number; done: number }
+  currentTask?: string
   lastOutput?: string
   error?: string
   exitCode?: number | null
@@ -26,7 +27,30 @@ const ACTIVITY_LABEL: Record<Activity, string> = {
 }
 const ATTENTION_STATES = new Set<Activity>(['stalled', 'needs-auth', 'rate-limited', 'crashed'])
 
-const PROVIDERS = ['claude-tui', 'claude-cli', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-cli', 'grok-tui']
+// Grouped by vendor with human labels, so the first decision a new user makes
+// isn't a wall of 8 cryptic slugs. claude-tui is the recommended default.
+const PROVIDER_GROUPS: Array<{ vendor: string; options: Array<{ id: string; label: string }> }> = [
+  { vendor: 'Claude', options: [{ id: 'claude-tui', label: 'Claude — interactive (recommended)' }, { id: 'claude-cli', label: 'Claude — headless CLI' }] },
+  { vendor: 'GitHub Copilot', options: [{ id: 'copilot-cli', label: 'Copilot — CLI' }, { id: 'copilot-sdk', label: 'Copilot — SDK (API key)' }] },
+  { vendor: 'OpenCode', options: [{ id: 'opencode-cli', label: 'OpenCode — CLI' }, { id: 'opencode-sdk', label: 'OpenCode — SDK (API key)' }] },
+  { vendor: 'Grok', options: [{ id: 'grok-cli', label: 'Grok — CLI' }, { id: 'grok-tui', label: 'Grok — interactive' }] }
+]
+const PROVIDER_HINT = 'interactive = a terminal you can watch/log into · CLI = headless · SDK = needs an API key'
+
+function ProviderSelect({ value, onChange, id }: { value: string; onChange: (v: string) => void; id?: string }): JSX.Element {
+  return (
+    <>
+      <select id={id} value={value} onChange={(e) => onChange(e.target.value)} aria-describedby={id ? id + '-hint' : undefined}>
+        {PROVIDER_GROUPS.map((g) => (
+          <optgroup key={g.vendor} label={g.vendor}>
+            {g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </optgroup>
+        ))}
+      </select>
+      <div id={id ? id + '-hint' : undefined} style={{ color: 'var(--fg2)', fontSize: 11, marginTop: 4, textTransform: 'none', letterSpacing: 0 }}>{PROVIDER_HINT}</div>
+    </>
+  )
+}
 
 // Visually-hidden but screen-reader-available (for persistent aria-live regions).
 const srOnly: React.CSSProperties = {
@@ -56,6 +80,8 @@ export default function App(): JSX.Element {
   const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
+  const [ioBusy, setIoBusy] = useState(false)              // export/import in flight (long zips outlive the toast)
+  const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
   const logsRef = useRef<Map<string, string>>(new Map())
   // Bump this to force a re-render when a log line lands in logsRef (a ref, so it
   // doesn't itself trigger renders). The value is unused — only the re-render is.
@@ -68,7 +94,8 @@ export default function App(): JSX.Element {
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
-  useEffect(() => { window.api.cliCheck().then((c: { found: boolean }) => setCliMissing(!c.found)) }, [])
+  const recheckCli = useCallback(async () => { const c = await window.api.cliCheck(); setCliMissing(!c.found) }, [])
+  useEffect(() => { recheckCli() }, [recheckCli])
 
   // Safety-net poll: file-watch pushes most updates, but a periodic refresh keeps
   // task counts / running state correct even if a watch event is missed.
@@ -129,7 +156,16 @@ export default function App(): JSX.Element {
     if ((r as any).error) showToast((r as any).error, true)
     else { logsRef.current.set(a.path, ''); setTab('output') }
   }
-  const stop = async (a: AgentState) => { await window.api.stopAgent(a.path) }
+  const stop = async (a: AgentState) => { setStopping((s) => new Set(s).add(a.path)); await window.api.stopAgent(a.path) }
+  // Clear the "stopping" flag once the child has actually exited (running flips
+  // false on the next poll / watch tick), so the button doesn't stick on "Stopping…".
+  useEffect(() => {
+    setStopping((prev) => {
+      if (!prev.size) return prev
+      const next = new Set([...prev].filter((p) => agents.find((a) => a.path === p)?.running))
+      return next.size === prev.size ? prev : next
+    })
+  }, [agents])
   // Stop-then-start, for applying config/MCP changes in one click on a running
   // agent (and recovering a crashed/stalled one).
   const restart = async (a: AgentState) => {
@@ -159,30 +195,36 @@ export default function App(): JSX.Element {
   }
 
   const exportAgent = async (a: AgentState) => {
+    if (ioBusy) return
     const out = await window.api.saveFile(`${a.name.replace(/[^\w.-]+/g, '_')}.zip`)
     if (!out) return
-    showToast('Exporting…')
+    setIoBusy(true); showToast('Exporting…')
     const r = await window.api.runCli(['export', a.path, '--output', out])
+    setIoBusy(false)
     if (r.code !== 0) showToast(r.stderr || 'Export failed', true)
     else showToast(`Exported → ${out}`)
   }
 
   const importAgent = async () => {
+    if (ioBusy) return
     const zip = await window.api.pickFile([{ name: 'Agent backup', extensions: ['zip'] }])
     if (!zip) return
     const dest = await window.api.pickFolder()
     if (!dest) return
-    showToast('Importing…')
+    setIoBusy(true); showToast('Importing…')
     const r = await window.api.runCli(['import', zip, dest])
-    if (r.code !== 0) return showToast(r.stderr || 'Import failed', true)
-    await window.api.addAgent(dest); await refresh(); setSelected(dest); showToast('Imported')
+    if (r.code !== 0) { setIoBusy(false); return showToast(r.stderr || 'Import failed', true) }
+    const added = await window.api.addAgent(dest)
+    setIoBusy(false)
+    if ((added as any)?.error) return showToast((added as any).error, true)
+    await refresh(); setSelected(dest); showToast('Imported')
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       {cliMissing && (
         <div style={{ background: '#3d1c1c', borderBottom: '1px solid var(--red)', color: '#ffb4b0', padding: '8px 16px', fontSize: 12, flex: '0 0 auto' }}>
-          ⚠ The <code>autodev</code> CLI was not found. Place <code>autodev-cli</code> beside the app or set the <code>AUTODEV_CLI_JS</code> environment variable to <code>autodev-cli/bin/autodev.js</code>.
+          ⚠ The <code>autodev</code> CLI isn't installed — agents can't run until it is. See the setup steps in the main panel.
         </div>
       )}
       <div className="app" style={{ flex: 1, minHeight: 0 }}>
@@ -192,13 +234,13 @@ export default function App(): JSX.Element {
             {attentionCount > 0 && <span className="attn-chip" style={{ marginLeft: 6 }} title="Agents needing attention — click to filter"
               onClick={() => setStatusFilter((f) => (f === 'attention' ? 'all' : 'attention'))}>⚠ {attentionCount}</span>}</h1>
           <div className="row">
-            <button title="Add existing workspace" onClick={addExisting}>+ Add</button>
-            <button title="Import agent backup" aria-label="Import agent backup" onClick={importAgent}>⬆</button>
+            <button title="Add existing workspace" onClick={addExisting} disabled={cliMissing}>+ Add</button>
+            <button title="Import agent backup" aria-label="Import agent backup" onClick={importAgent} disabled={cliMissing || ioBusy}>⬆</button>
           </div>
         </div>
         {agents.length > 0 && (
           <div className="fleet-actions">
-            <button onClick={startAll} disabled={runningCount === agents.length} title="Start every stopped agent">▶ Start all</button>
+            <button onClick={startAll} disabled={cliMissing || runningCount === agents.length} title="Start every stopped agent">▶ Start all</button>
             <button className="danger" onClick={stopAll} disabled={runningCount === 0} title="Stop every running agent">■ Stop all</button>
           </div>
         )}
@@ -227,19 +269,19 @@ export default function App(): JSX.Element {
               <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
                 <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}</div>
-                <div className="sub">{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : `${a.tasks.remaining} left`}</div>
+                <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
               </div>
             </div>
           ))}
         </div>
         <div style={{ padding: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button style={{ width: '100%', background: showMakeApp ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showMakeApp ? 'var(--accent,#388bfd)' : undefined }}
+          <button aria-pressed={showMakeApp} style={{ width: '100%', background: showMakeApp ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showMakeApp ? 'var(--accent,#388bfd)' : undefined }}
             onClick={() => { setShowMakeApp((s) => !s); setShowOffice(false); setShowSessions(false); setOpenedMakeApp(true) }} title="Describe an app and generate an office team to build it">✨ Make app</button>
-          <button style={{ width: '100%', background: showOffice ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showOffice ? 'var(--accent,#388bfd)' : undefined }}
+          <button aria-pressed={showOffice} style={{ width: '100%', background: showOffice ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showOffice ? 'var(--accent,#388bfd)' : undefined }}
             onClick={() => { setShowOffice((s) => !s); setShowSessions(false); setShowMakeApp(false); setOpenedOffice(true) }} title="Connect & operate your remote pixel-office agents">☁ Pixel Office</button>
-          <button style={{ width: '100%', background: showSessions ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showSessions ? 'var(--accent,#388bfd)' : undefined }}
+          <button aria-pressed={showSessions} style={{ width: '100%', background: showSessions ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showSessions ? 'var(--accent,#388bfd)' : undefined }}
             onClick={() => { setShowSessions((s) => !s); setShowOffice(false); setShowMakeApp(false); setOpenedSessions(true) }} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
-          <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)}>＋ Create agent</button>
+          <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)} disabled={cliMissing} title={cliMissing ? 'Install the autodev CLI first' : undefined}>＋ Create agent</button>
         </div>
       </aside>
 
@@ -249,7 +291,8 @@ export default function App(): JSX.Element {
         {openedMakeApp && <div style={{ display: showMakeApp ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><MakeAppView /></div>}
         {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} /></div>}
         {openedSessions && <div style={{ display: showSessions ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><SessionsBrowser visible={showSessions} /></div>}
-        {!showMakeApp && !showOffice && !showSessions && !current && (
+        {!showMakeApp && !showOffice && !showSessions && cliMissing && <CliSetup onRecheck={recheckCli} />}
+        {!showMakeApp && !showOffice && !showSessions && !cliMissing && !current && (
           agents.length === 0 ? (
             <div className="welcome">
               <div className="mark">◆</div>
@@ -272,7 +315,7 @@ export default function App(): JSX.Element {
             </div>
           ) : <div className="empty">Select an agent</div>
         )}
-        {!showMakeApp && !showOffice && !showSessions && current && (
+        {!showMakeApp && !showOffice && !showSessions && !cliMissing && current && (
           <>
             <div className="detail-head">
               <span className={'dot ' + current.activity} />
@@ -285,12 +328,12 @@ export default function App(): JSX.Element {
               <span className={'status-pill ' + current.activity} title={current.error || ACTIVITY_LABEL[current.activity]}>{ACTIVITY_LABEL[current.activity]}</span>
               <div className="spacer" />
               {current.running
-                ? <button className="danger" onClick={() => stop(current)}>■ Stop</button>
+                ? <button className="danger" disabled={stopping.has(current.path)} onClick={() => stop(current)}>{stopping.has(current.path) ? 'Stopping…' : '■ Stop'}</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
               {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" onClick={() => restart(current)}>↻ Restart</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
               <button title="Bind this local agent to an office character (via a signed setup URL)" onClick={() => setConnectFor(current.path)}>⚿ Bind to office</button>
-              <button title="Export agent backup" onClick={() => exportAgent(current)}>⬇ Export</button>
+              <button title="Export agent backup" disabled={ioBusy} onClick={() => exportAgent(current)}>{ioBusy ? '⬇ …' : '⬇ Export'}</button>
               <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
             </div>
 
@@ -327,9 +370,10 @@ export default function App(): JSX.Element {
               {(['overview', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
                 <div key={t} role="tab" aria-selected={tab === t} tabIndex={tab === t ? 0 : -1}
                   className={'tab' + (tab === t ? ' active' : '')}
+                  title={t === 'sessions' ? 'Resume a past provider session for this workspace' : undefined}
                   onClick={() => setTab(t)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t) } }}>
-                  {t[0].toUpperCase() + t.slice(1)}
+                  {t === 'sessions' ? 'Resume' : t[0].toUpperCase() + t.slice(1)}
                 </div>
               ))}
             </div>
@@ -395,6 +439,30 @@ function MessageBar({ path, running, showToast }: { path: string; running: boole
   )
 }
 
+// Blocking setup screen when the autodev CLI is absent — the app can't create,
+// start, or configure agents without it. Plain-language, with a recheck button,
+// instead of leaving the feature buttons live to fail one by one.
+function CliSetup({ onRecheck }: { onRecheck: () => Promise<void> }): JSX.Element {
+  const [checking, setChecking] = useState(false)
+  return (
+    <div className="welcome">
+      <div className="mark">⚙</div>
+      <h2>Set up the AutoDev CLI</h2>
+      <p>AutoDev runs your agents through the <code>autodev</code> command-line tool, and the app can't find it yet. Install it, then recheck.</p>
+      <div style={{ textAlign: 'left', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', fontSize: 12.5, lineHeight: 1.6 }}>
+        <div style={{ color: 'var(--fg2)' }}>Install it globally:</div>
+        <pre className="todo" style={{ margin: '6px 0 10px' }}>npm install -g autodev-cli</pre>
+        <div style={{ color: 'var(--fg2)' }}>…or point <code>AUTODEV_CLI_JS</code> at <code>autodev-cli/bin/autodev.js</code>.</div>
+      </div>
+      <div className="ctas" style={{ marginTop: 18 }}>
+        <button className="cta primary" disabled={checking} onClick={async () => { setChecking(true); await onRecheck(); setChecking(false) }}>
+          <span className="ico">↻</span><span>{checking ? 'Checking…' : 'Recheck'}</span>
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function Overview({ a }: { a: AgentState }): JSX.Element {
   return (
     <>
@@ -404,6 +472,7 @@ function Overview({ a }: { a: AgentState }): JSX.Element {
         <div className="card"><div className="k">Done</div><div className="v">{a.tasks.done}</div></div>
         <div className="card"><div className="k">Total</div><div className="v">{a.tasks.total}</div></div>
       </div>
+      {a.currentTask && <><div className="card"><div className="k">{a.running ? 'Working on' : 'Next task'}</div><div style={{ marginTop: 4, lineHeight: 1.4 }}>{a.currentTask}</div></div><div style={{ height: 12 }} /></>}
       <div className="card"><div className="k">Provider</div><div style={{ marginTop: 4 }}>{a.provider ?? '—'}</div></div>
       <div style={{ height: 12 }} />
       <div className="card"><div className="k">Session name</div><div style={{ marginTop: 4 }}>{a.sessionName || '(folder name)'}</div></div>
@@ -428,14 +497,18 @@ function Output({ text }: { text: string }): JSX.Element {
 interface SessionInfo { provider: string; id: string; name: string; updated: number }
 function SessionsTab({ path, provider, showToast }: { path: string; provider?: string; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [sessions, setSessions] = useState<SessionInfo[] | null>(null)
+  const [err, setErr] = useState<string | null>(null)
   const load = useCallback(() => {
-    setSessions(null)
+    setSessions(null); setErr(null)
     // Scope to the agent's configured provider so the list matches the selection
     // (grok agent → grok sessions, opencode → opencode, …). The listing itself
     // lives in the CLI (`autodev sessions --provider`) so it's shared, not duped.
     const args = provider ? ['sessions', path, '--provider', provider, '--json'] : ['sessions', path, '--json']
     window.api.runCli(args).then((r) => {
-      try { setSessions(JSON.parse(r.stdout || '[]')) } catch { setSessions([]) }
+      // Distinguish a broken query from a genuinely empty one — a failed CLI call
+      // must not masquerade as "0 sessions".
+      if (r.code !== 0) { setErr(r.stderr || 'Failed to list sessions.'); setSessions([]); return }
+      try { setSessions(JSON.parse(r.stdout || '[]')) } catch { setErr('Could not parse the session list from the CLI.'); setSessions([]) }
     })
   }, [path, provider])
   useEffect(() => { load() }, [load])
@@ -443,11 +516,16 @@ function SessionsTab({ path, provider, showToast }: { path: string; provider?: s
   return (
     <>
       <div className="row" style={{ marginBottom: 12 }}>
-        <strong>{sessions.length} session{sessions.length === 1 ? '' : 's'}</strong>
+        <strong>{err ? 'Sessions unavailable' : `${sessions.length} session${sessions.length === 1 ? '' : 's'}`}</strong>
         <div className="spacer" />
         <button onClick={load}>↻ Refresh</button>
       </div>
-      {sessions.length === 0 && <div style={{ color: 'var(--fg2)' }}>No inspectable sessions for this workspace yet.</div>}
+      {err && (
+        <div role="alert" style={{ padding: '10px 12px', background: 'rgba(248,81,73,0.08)', border: '1px solid var(--red)', borderRadius: 8, color: '#ffb4b0', fontSize: 12, marginBottom: 12 }}>
+          {err}<div style={{ marginTop: 8 }}><button onClick={load}>↻ Retry</button></div>
+        </div>
+      )}
+      {!err && sessions.length === 0 && <div style={{ color: 'var(--fg2)' }}>No inspectable sessions for this workspace yet.</div>}
       {sessions.map((s) => (
         <div className="card" key={s.provider + s.id} style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 12 }}>
           <span className="badge">{s.provider}</span>
@@ -526,7 +604,7 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
   return (
     <div style={{ maxWidth: 560 }}>
       <label className="field"><span className="lbl">Provider</span>
-        <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
+        <ProviderSelect value={provider} onChange={setProvider} id="config-provider" />
       </label>
       <label className="field"><span className="lbl">Model ({modelKeyFor(provider)})</span>
         <input value={model} placeholder="(provider default)" onChange={(e) => setModel(e.target.value)} />
@@ -541,9 +619,9 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
       <button className="primary" disabled={busy} onClick={() => void save()}>{busy ? 'Saving…' : 'Save'}</button>
 
       <div style={{ marginTop: 20, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
-        <button onClick={() => setShowMcp((s) => !s)}>{showMcp ? '▾' : '▸'} MCP servers (.mcp.json)</button>
+        <button aria-expanded={showMcp} aria-controls="mcp-panel" onClick={() => setShowMcp((s) => !s)}>{showMcp ? '▾' : '▸'} MCP servers (.mcp.json)</button>
         {showMcp && (
-          <div style={{ marginTop: 10 }}>
+          <div id="mcp-panel" style={{ marginTop: 10 }}>
             <textarea value={mcpText} onChange={(e) => setMcpText(e.target.value)} rows={14} spellCheck={false} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
             <div className="row" style={{ marginTop: 8 }}>
               <button className="primary" disabled={mcpBusy} onClick={() => void saveMcp()}>{mcpBusy ? 'Saving…' : 'Save MCP'}</button>
@@ -667,7 +745,7 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
         ) : (
           <>
             <label className="field"><span className="lbl">Provider</span>
-              <select value={provider} onChange={(e) => setProvider(e.target.value)}>{PROVIDERS.map((p) => <option key={p}>{p}</option>)}</select>
+              <ProviderSelect value={provider} onChange={setProvider} id="create-provider" />
             </label>
             <label className="field"><span className="lbl">Session name (optional)</span>
               <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />

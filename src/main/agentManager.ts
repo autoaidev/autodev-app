@@ -168,7 +168,8 @@ export class AgentManager extends EventEmitter {
       wsUrl: settings.wsUrl,
       running,
       activity,
-      tasks: todo,
+      tasks: { total: todo.total, remaining: todo.remaining, done: todo.done },
+      currentTask: todo.currentTask,
       lastOutput: this._latestOutput(path, settings.provider),
       error,
       exitCode
@@ -179,13 +180,17 @@ export class AgentManager extends EventEmitter {
     try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return null }
   }
 
-  private _readTodoCounts(file: string): { total: number; remaining: number; done: number } {
+  private _readTodoCounts(file: string): { total: number; remaining: number; done: number; currentTask?: string } {
     try {
       const t = readFileSync(file, 'utf8')
       const pending = (t.match(/^- \[ \]/gm) || []).length
       const inProgress = (t.match(/^- \[~\]/gm) || []).length
       const done = (t.match(/^- \[x\]/gim) || []).length
-      return { total: pending + inProgress + done, remaining: pending + inProgress, done }
+      // What the agent is actually on: prefer an in-progress [~] item, else the
+      // next pending [ ] item — so the fleet view can answer "what's it doing?".
+      const cur = (t.match(/^- \[~\] (.+)$/m) || [])[1] ?? (t.match(/^- \[ \] (.+)$/m) || [])[1]
+      const currentTask = cur ? cur.trim().replace(/\s+/g, ' ').slice(0, 140) : undefined
+      return { total: pending + inProgress + done, remaining: pending + inProgress, done, currentTask }
     } catch { return { total: 0, remaining: 0, done: 0 } }
   }
 
