@@ -106,6 +106,7 @@ export default function App(): JSX.Element {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
   const [creating, setCreating] = useState(false)
+  const [initPath, setInitPath] = useState<string | null>(null)    // "Add existing folder" chose an un-initialized folder → offer to init it here
   const [nudgePath, setNudgePath] = useState<string | null>(null)  // just-created agent: nudge the first task
   const [connectFor, setConnectFor] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
@@ -188,7 +189,12 @@ export default function App(): JSX.Element {
     const path = await window.api.pickFolder()
     if (!path) return
     const r = await window.api.addAgent(path)
-    if ((r as any).error) return showToast((r as any).error, true)
+    // A folder that isn't an AutoDev workspace yet used to dead-end on an error
+    // toast ("Not an AutoDev workspace…"). Instead, offer to initialize it in
+    // place: open the same Create/init dialog, pre-seeded with the chosen folder,
+    // so the user picks a provider and we run `autodev init` there (or cancels,
+    // no error). A TODO.md-only folder still adds directly (add() accepts it).
+    if ((r as any).error) { setInitPath(path); return }
     await refresh(); setSelected(path)
   }
 
@@ -512,6 +518,7 @@ export default function App(): JSX.Element {
       </main>
 
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
+      {initPath && <CreateModal initialPath={initPath} initMode onClose={() => setInitPath(null)} onCreated={(p) => { setInitPath(null); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {/* Persistent live regions (always in DOM) so screen readers announce
           status/error changes; polite for info, assertive for errors. */}
@@ -796,9 +803,21 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
 
 interface PickAgent { office: string; officeSlug: string; id: string; name: string; slug: string; online: boolean }
 
+// Pull the URL out of whatever the user pasted: a bare URL, or the whole copied
+// command (e.g. `autodev --setup-url='https://…'` or `autodev connect --url "wss://…"`).
+// Falls back to the trimmed, de-quoted string so a plain URL still works.
+function extractFlagUrl(raw: string, flag: string): string {
+  const s = raw.trim()
+  const m = s.match(new RegExp(flag + `[=\\s]+['"]?([^'"\\s]+)`))
+  if (m) return m[1]
+  return s.replace(/^['"]+|['"]+$/g, '')
+}
+
 function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: string; agent?: AgentState; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [mode, setMode] = useState<'setup' | 'url' | 'pick'>('setup')
   const [value, setValue] = useState('')
+  // "Create a new character" (charId === '__new__') name input.
+  const [newCharName, setNewCharName] = useState('')
   const [fileBrowser, setFileBrowser] = useState(false)
   const [busy, setBusy] = useState(false)
   // "Pick from my office" state — only meaningful when already logged in.
@@ -838,8 +857,9 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
   // Keep the character select consistent with the selected office.
   const charsForOffice = pickAgents.filter((a) => a.officeSlug === officeSlug)
   useEffect(() => {
-    if (charsForOffice.length && !charsForOffice.some((a) => a.id === charId)) setCharId(charsForOffice[0].id)
-    if (!charsForOffice.length) setCharId('')
+    if (charsForOffice.length && !charsForOffice.some((a) => a.id === charId) && charId !== '__new__') setCharId(charsForOffice[0].id)
+    // An office with no characters defaults to "create a new one" so it's never a dead end.
+    if (!charsForOffice.length) setCharId('__new__')
   }, [officeSlug, pickAgents]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Run the CLI connect + restart-if-running dance. Shared by every binding mode
@@ -867,18 +887,32 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
   const connect = async () => {
     if (mode === 'pick') {
       if (!authed) return showToast('Log in to your pixel office first (Office tab).', true)
-      if (!charId) return showToast('Pick a character first', true)
       setBusy(true)
-      const su = (await window.api.officeSetupUrl(officeSlug, charId)) as { ok?: boolean; setupUrl?: string; error?: string }
+      let targetCharId = charId
+      // Create a brand-new character in the office when requested, then bind to it.
+      if (charId === '__new__') {
+        const nm = newCharName.trim()
+        if (!nm) { setBusy(false); return showToast('Name the new character first', true) }
+        const office = offices.find((o) => o.slug === officeSlug)
+        if (!office) { setBusy(false); return showToast('Pick an office first', true) }
+        const created = (await window.api.officeCreateCharacter(office.id, nm)) as { ok?: boolean; id?: string; error?: string }
+        if (created?.error || !created?.id) { setBusy(false); return showToast(created?.error || 'Could not create the character', true) }
+        targetCharId = created.id
+      }
+      if (!targetCharId) { setBusy(false); return showToast('Pick a character first', true) }
+      const su = (await window.api.officeSetupUrl(officeSlug, targetCharId)) as { ok?: boolean; setupUrl?: string; error?: string }
       if (su?.error || !su?.setupUrl) { setBusy(false); return showToast(su?.error || 'Could not get a setup URL for that character', true) }
       const ok = await runConnect({ setupUrl: su.setupUrl })
       setBusy(false)
       if (ok) onDone()
       return
     }
-    if (!value.trim()) return showToast('Paste a URL first', true)
+    if (!value.trim()) return showToast('Paste the URL (or the whole connect command) first', true)
     setBusy(true)
-    const ok = await runConnect(mode === 'setup' ? { setupUrl: value.trim() } : { wsUrl: value.trim() })
+    // Accept a bare URL OR the full copied command (autodev --setup-url='…').
+    const ok = await runConnect(mode === 'setup'
+      ? { setupUrl: extractFlagUrl(value, '--setup-url') }
+      : { wsUrl: extractFlagUrl(value, '--url') })
     setBusy(false)
     if (ok) onDone()
   }
@@ -890,7 +924,7 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
         <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
           {mode === 'pick'
             ? <>Links this local agent to a character in your pixel office. Pick the office and character below — no copy-paste needed while you're logged in.</>
-            : <>Links this local agent to a character in your pixel office. Open the office in your browser, pick the character, and copy its <em>signed setup URL</em> (or a full ws:// URL) here.</>}
+            : <>Links this local agent to a character in your pixel office. Open the office in your browser, pick the character, and paste its <em>signed setup URL</em> — or the whole <code>autodev --setup-url=…</code> command — here.</>}
         </p>
         <label className="field"><span className="lbl">Binding</span>
           <select autoFocus value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url' | 'pick')}>
@@ -916,16 +950,21 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
                 </select>
               </label>
               <label className="field"><span className="lbl">Character</span>
-                <select value={charId} onChange={(e) => setCharId(e.target.value)} disabled={charsForOffice.length === 0}>
-                  {charsForOffice.length === 0 && <option value="">(no characters in this office)</option>}
+                <select value={charId} onChange={(e) => setCharId(e.target.value)}>
                   {charsForOffice.map((a) => <option key={a.id} value={a.id}>{a.name}{a.online ? ' · online' : ''}</option>)}
+                  <option value="__new__">＋ Create a new character…</option>
                 </select>
               </label>
+              {charId === '__new__' && (
+                <label className="field"><span className="lbl">New character name</span>
+                  <input value={newCharName} placeholder="e.g. Researcher" autoFocus onChange={(e) => setNewCharName(e.target.value)} />
+                </label>
+              )}
             </>
           )
         ) : (
           <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
-            <textarea rows={3} value={value} placeholder={mode === 'setup' ? 'https://…/api/cli/setup/…?signature=…' : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
+            <textarea rows={3} value={value} placeholder={mode === 'setup' ? "https://…/api/cli/setup/…   — or paste:  autodev --setup-url='…'" : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
           </label>
         )}
         <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 10px', cursor: 'pointer' }}>
@@ -941,8 +980,11 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
   )
 }
 
-function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; onCreated: (p: string) => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
-  const [path, setPath] = useState('')
+function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: { onClose: () => void; onCreated: (p: string) => void; showToast: (m: string, e?: boolean) => void; initialPath?: string; initMode?: boolean }): JSX.Element {
+  // initMode: reached from "Add existing folder" when the chosen folder isn't an
+  // AutoDev workspace yet — pre-seed the path and frame the modal as "initialize
+  // this folder" instead of a blank "create". Same init path either way.
+  const [path, setPath] = useState(initialPath ?? '')
   const [provider, setProvider] = useState('claude-tui')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -990,7 +1032,12 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
   return (
     <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
       <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="create-modal-title" onClick={(e) => e.stopPropagation()}>
-        <h3 id="create-modal-title">{existing ? 'Connect existing agent' : 'Create agent'}</h3>
+        <h3 id="create-modal-title">{existing ? 'Connect existing agent' : initMode ? 'Initialize this folder?' : 'Create agent'}</h3>
+        {initMode && !existing && (
+          <div className="field" style={{ background: '#2a230d', border: '1px solid #7a5c16', borderRadius: 6, padding: '8px 10px', color: '#fcd34d', fontSize: 12 }}>
+            This folder isn't an AutoDev agent yet. Pick a provider to initialize it here.
+          </div>
+        )}
         <label className="field"><span className="lbl">Workspace folder</span>
           <div className="row"><input autoFocus value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
         </label>
@@ -1011,7 +1058,7 @@ function CreateModal({ onClose, onCreated, showToast }: { onClose: () => void; o
         )}
         <div className="actions">
           <button onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={busy} onClick={submit}>{busy ? (existing ? 'Connecting…' : 'Creating…') : (existing ? 'Connect' : 'Create')}</button>
+          <button className="primary" disabled={busy} onClick={submit}>{busy ? (existing ? 'Connecting…' : initMode ? 'Initializing…' : 'Creating…') : (existing ? 'Connect' : initMode ? 'Initialize' : 'Create')}</button>
         </div>
       </div>
     </div>
