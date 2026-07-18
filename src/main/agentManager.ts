@@ -176,6 +176,10 @@ export class AgentManager extends EventEmitter {
         error = ss.error
       } else {
         activity = this._activityFromHooks(path)
+        // An agent with NO remaining work (all tasks done) can't be "hung on a
+        // task" — a quiet hooks file just means it finished and is idle-polling.
+        // Only warn "stalled/hung" when there's actually work in flight.
+        if (activity === 'stalled' && todo.remaining === 0) activity = 'idle'
         if (activity === 'crashed') error = 'The run reported a failure (StopFailure) — likely a crash or watchdog timeout.'
         else if (activity === 'stalled') error = 'No activity for several minutes — the agent may be hung (e.g. a dead token or a wedged tool).'
       }
