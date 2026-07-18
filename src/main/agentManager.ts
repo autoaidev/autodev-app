@@ -385,6 +385,9 @@ export class AgentManager extends EventEmitter {
     if (w) { try { w.close() } catch { /* ignore */ } this._watchers.delete(path) }
   }
 
+  /** How many agent loops are running right now (for the quit-guard + tray). */
+  runningCount(): number { return this._procs.size }
+
   disposeAll(): void {
     for (const child of this._procs.values()) { try { child.kill('SIGKILL') } catch { /* ignore */ } }
     for (const w of this._watchers.values()) { try { w.close() } catch { /* ignore */ } }

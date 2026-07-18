@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage } from 'electron'
 import { join } from 'path'
 import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
@@ -7,6 +7,8 @@ import { PixelOfficeClient } from './pixelOffice'
 import { resolveCliJs } from './cli'
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
 const manager = new AgentManager()
 const sessions = new SessionManager()
 const ptys = new PtyManager()
@@ -47,6 +49,18 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // Closing the window must NOT SIGKILL every running agent. If loops are active,
+  // hide to the tray and keep them running; the user quits explicitly from the
+  // tray (or the in-app Quit) which sets isQuitting.
+  mainWindow.on('close', (e) => {
+    if (!isQuitting && manager.runningCount() > 0) {
+      e.preventDefault()
+      mainWindow?.hide()
+      if (Notification.isSupported()) {
+        new Notification({ title: 'AutoDev still running', body: `${manager.runningCount()} agent(s) keep working in the background. Reopen or quit from the tray icon.` }).show()
+      }
+    }
+  })
   if (process.env['OPEN_DEVTOOLS']) mainWindow.webContents.openDevTools({ mode: 'bottom' })
   mainWindow.webContents.setWindowOpenHandler((details) => {
     openExternalSafe(details.url)
@@ -74,6 +88,52 @@ function broadcast(channel: string, payload: unknown): void {
 manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))
 manager.on('log', (l) => broadcast('agent:log', l))
+
+// --- OS notifications on meaningful transitions ---------------------------
+// The point of autonomy is NOT sitting and watching. Fire a native notification
+// when an agent needs attention (needs-auth / crashed / stalled / rate-limited)
+// or finishes its work (working → idle). Only on a real state TRANSITION so the
+// 5s poll doesn't spam.
+const _lastActivity = new Map<string, string>()
+manager.on('agentUpdated', (s: any) => {
+  if (!s?.path || !Notification.isSupported()) return
+  const prev = _lastActivity.get(s.path)
+  _lastActivity.set(s.path, s.activity)
+  if (prev === undefined || prev === s.activity) return
+  let title: string | null = null
+  let body = s.error || s.name
+  if (s.activity === 'needs-auth') title = `🔑 ${s.name} needs re-authentication`
+  else if (s.activity === 'crashed') title = `⚠ ${s.name} crashed`
+  else if (s.activity === 'stalled') title = `⚠ ${s.name} stalled`
+  else if (s.activity === 'rate-limited') title = `⏳ ${s.name} rate-limited`
+  else if (s.activity === 'idle' && prev === 'working') { title = `✓ ${s.name} finished`; body = `${s.tasks?.done ?? 0} tasks done — now idle` }
+  if (!title) return
+  const n = new Notification({ title, body })
+  n.on('click', () => { mainWindow?.show(); mainWindow?.focus(); broadcast('agent:focus', s.path) })
+  n.show()
+})
+
+// --- tray + graceful background running -----------------------------------
+function refreshTray(): void {
+  if (!tray) return
+  const n = manager.runningCount()
+  tray.setToolTip(n > 0 ? `AutoDev — ${n} agent(s) running` : 'AutoDev')
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: n > 0 ? `${n} agent(s) running` : 'No agents running', enabled: false },
+    { type: 'separator' },
+    { label: 'Show AutoDev', click: () => { mainWindow?.show(); mainWindow?.focus() } },
+    { label: n > 0 ? `Quit — stops ${n} agent${n === 1 ? '' : 's'}` : 'Quit', click: () => { isQuitting = true; app.quit() } }
+  ]))
+}
+function createTray(): void {
+  try {
+    const img = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
+    tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 18, height: 18 }))
+    tray.on('click', () => { if (mainWindow?.isVisible()) mainWindow.focus(); else mainWindow?.show() })
+    refreshTray()
+    manager.on('changed', refreshTray)
+  } catch { /* tray unavailable (headless CI) — skip */ }
+}
 sessions.on('data', (d) => broadcast('session:data', d))
 ptys.on('data', (d) => broadcast('pty:data', d))
 ptys.on('exit', (d) => broadcast('pty:exit', d))
@@ -131,8 +191,11 @@ ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, cou
 
 app.whenReady().then(() => {
   createWindow()
+  createTray()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+// Only truly quit when no agents are running (else the window-close guard has
+// hidden us to the tray and the loops keep going).
+app.on('window-all-closed', () => { if (process.platform !== 'darwin' && manager.runningCount() === 0) app.quit() })
 app.on('before-quit', () => { manager.disposeAll(); sessions.closeAll(); ptys.killAll() })
