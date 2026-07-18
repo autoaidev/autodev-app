@@ -185,6 +185,7 @@ ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agent
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string) => office.createCharacter(officeId, name))
 ipcMain.handle('office:offices', () => office.offices())
+ipcMain.handle('office:setupUrl', (_e, officeSlug: string, agentId: string) => office.setupUrl(officeSlug, agentId))
 ipcMain.handle('office:connectSession', (_e, officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => office.connectSession(officeSlug, officeId, cwd, sessionId, name))
 ipcMain.handle('office:createOffice', (_e, name: string, description: string) => office.createOffice(name, description))
 ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, count: number) => office.generateTeam(officeId, prompt, count))

@@ -794,18 +794,63 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
   )
 }
 
+interface PickAgent { office: string; officeSlug: string; id: string; name: string; slug: string; online: boolean }
+
 function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: string; agent?: AgentState; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
-  const [mode, setMode] = useState<'setup' | 'url'>('setup')
+  const [mode, setMode] = useState<'setup' | 'url' | 'pick'>('setup')
   const [value, setValue] = useState('')
   const [fileBrowser, setFileBrowser] = useState(false)
   const [busy, setBusy] = useState(false)
-  const connect = async () => {
-    if (!value.trim()) return showToast('Paste a URL first', true)
-    setBusy(true)
-    const args = mode === 'setup' ? ['connect', '--setup-url', value.trim(), path] : ['connect', '--url', value.trim(), path]
+  // "Pick from my office" state — only meaningful when already logged in.
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [offices, setOffices] = useState<{ slug: string; id: number; name: string }[]>([])
+  const [pickAgents, setPickAgents] = useState<PickAgent[]>([])
+  const [officeSlug, setOfficeSlug] = useState('')
+  const [charId, setCharId] = useState('')
+  const [pickErr, setPickErr] = useState('')
+  const [loadingPick, setLoadingPick] = useState(false)
+
+  // Lazily load the user's offices + characters the first time the picker mode
+  // is chosen. Reuses the app's already-authenticated pixel-office session (the
+  // same one the Office view uses) — no separate login here. If there's no live
+  // session, we don't invent one: we surface it and the paste flows still work.
+  useEffect(() => {
+    if (mode !== 'pick' || authed !== null) return
+    (async () => {
+      setLoadingPick(true); setPickErr('')
+      try {
+        const st = (await window.api.officeStatus()) as { connected: boolean }
+        const ok = st.connected || (await window.api.officeAutoConnect())
+        setAuthed(!!ok)
+        if (!ok) { setLoadingPick(false); return }
+        const offs = (await window.api.officeOffices()) as { slug: string; id: number; name: string }[]
+        const ags = (await window.api.officeAgents()) as PickAgent[]
+        setOffices(offs)
+        setPickAgents(ags)
+        if (offs.length) setOfficeSlug((cur) => cur || offs[0].slug)
+      } catch (e) {
+        setAuthed(false)
+        setPickErr(String((e as Error)?.message ?? e))
+      } finally { setLoadingPick(false) }
+    })()
+  }, [mode, authed])
+
+  // Keep the character select consistent with the selected office.
+  const charsForOffice = pickAgents.filter((a) => a.officeSlug === officeSlug)
+  useEffect(() => {
+    if (charsForOffice.length && !charsForOffice.some((a) => a.id === charId)) setCharId(charsForOffice[0].id)
+    if (!charsForOffice.length) setCharId('')
+  }, [officeSlug, pickAgents]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Run the CLI connect + restart-if-running dance. Shared by every binding mode
+  // so the picker proceeds EXACTLY like the paste flow does.
+  const runConnect = async (bind: { setupUrl?: string; wsUrl?: string }) => {
+    const args = bind.setupUrl
+      ? ['connect', '--setup-url', bind.setupUrl, path]
+      : ['connect', '--url', bind.wsUrl as string, path]
     if (fileBrowser) args.push('--file-browser')
     const r = await window.api.runCli(args)
-    if (r.code !== 0) { setBusy(false); return showToast(r.stderr || 'Connect failed', true) }
+    if (r.code !== 0) { showToast(r.stderr || 'Connect failed', true); return false }
     // A running agent won't pick up the new office binding until its loop is
     // restarted — so bounce it automatically instead of making the user do it.
     if (agent?.running) {
@@ -816,8 +861,26 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
     } else {
       showToast('Connected to pixel-office')
     }
+    return true
+  }
+
+  const connect = async () => {
+    if (mode === 'pick') {
+      if (!authed) return showToast('Log in to your pixel office first (Office tab).', true)
+      if (!charId) return showToast('Pick a character first', true)
+      setBusy(true)
+      const su = (await window.api.officeSetupUrl(officeSlug, charId)) as { ok?: boolean; setupUrl?: string; error?: string }
+      if (su?.error || !su?.setupUrl) { setBusy(false); return showToast(su?.error || 'Could not get a setup URL for that character', true) }
+      const ok = await runConnect({ setupUrl: su.setupUrl })
+      setBusy(false)
+      if (ok) onDone()
+      return
+    }
+    if (!value.trim()) return showToast('Paste a URL first', true)
+    setBusy(true)
+    const ok = await runConnect(mode === 'setup' ? { setupUrl: value.trim() } : { wsUrl: value.trim() })
     setBusy(false)
-    onDone()
+    if (ok) onDone()
   }
   const trapRef = useFocusTrap<HTMLDivElement>()
   return (
@@ -825,17 +888,46 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
       <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="connect-modal-title" onClick={(e) => e.stopPropagation()}>
         <h3 id="connect-modal-title">Connect to pixel-office</h3>
         <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
-          Links this local agent to a character in your pixel office. Open the office in your browser, pick the character, and copy its <em>signed setup URL</em> (or a full ws:// URL) here.
+          {mode === 'pick'
+            ? <>Links this local agent to a character in your pixel office. Pick the office and character below — no copy-paste needed while you're logged in.</>
+            : <>Links this local agent to a character in your pixel office. Open the office in your browser, pick the character, and copy its <em>signed setup URL</em> (or a full ws:// URL) here.</>}
         </p>
         <label className="field"><span className="lbl">Binding</span>
-          <select autoFocus value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url')}>
+          <select autoFocus value={mode} onChange={(e) => setMode(e.target.value as 'setup' | 'url' | 'pick')}>
+            <option value="pick">Pick from my office (logged in)</option>
             <option value="setup">Signed setup URL (from the office UI)</option>
             <option value="url">Full ws:// URL (token + endpoint)</option>
           </select>
         </label>
-        <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
-          <textarea rows={3} value={value} placeholder={mode === 'setup' ? 'https://…/api/cli/setup/…?signature=…' : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
-        </label>
+        {mode === 'pick' ? (
+          loadingPick ? (
+            <p style={{ fontSize: 12, color: 'var(--fg2)' }}>Loading your offices…</p>
+          ) : authed === false ? (
+            <p style={{ fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
+              Not logged in to a pixel office. Open the <strong>Office</strong> tab to connect, or use one of the paste-URL bindings above.
+              {pickErr && <><br /><span style={{ color: 'var(--danger,#ff6b6b)' }}>{pickErr}</span></>}
+            </p>
+          ) : (
+            <>
+              <label className="field"><span className="lbl">Office</span>
+                <select value={officeSlug} onChange={(e) => setOfficeSlug(e.target.value)}>
+                  {offices.length === 0 && <option value="">(no office)</option>}
+                  {offices.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
+                </select>
+              </label>
+              <label className="field"><span className="lbl">Character</span>
+                <select value={charId} onChange={(e) => setCharId(e.target.value)} disabled={charsForOffice.length === 0}>
+                  {charsForOffice.length === 0 && <option value="">(no characters in this office)</option>}
+                  {charsForOffice.map((a) => <option key={a.id} value={a.id}>{a.name}{a.online ? ' · online' : ''}</option>)}
+                </select>
+              </label>
+            </>
+          )
+        ) : (
+          <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
+            <textarea rows={3} value={value} placeholder={mode === 'setup' ? 'https://…/api/cli/setup/…?signature=…' : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
+          </label>
+        )}
         <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 10px', cursor: 'pointer' }}>
           <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} />
           <span>Enable file browser <span style={{ color: 'var(--fg2,#8b95a7)', fontSize: 12 }}>— browse & edit this agent's files from the office</span></span>

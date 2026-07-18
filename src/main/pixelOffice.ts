@@ -495,6 +495,26 @@ export class PixelOfficeClient {
     return list.map((o: any) => ({ slug: o.slug, id: o.id, name: o.name }))
   }
 
+  /**
+   * Mint a fresh signed setup URL for a chosen office character — the exact same
+   * temporary-signed `/api/cli/setup/<token>` URL the office UI's "Connect this
+   * agent" modal shows for pasting into `autodev connect --setup-url`. Reads it
+   * from the owner-only credentials endpoint (which also re-arms the single-use
+   * setup guard), so the picker can feed it straight into the CLI connect path
+   * without the user copy-pasting anything.
+   */
+  async setupUrl(officeSlug: string, agentId: string): Promise<{ ok: true; setupUrl: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    try {
+      const data = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(agentId)}/credentials`))?.data ?? {}
+      const url = data.setupUrl as string | undefined
+      if (!url) return { error: 'The office did not return a setup URL for this character.' }
+      return { ok: true, setupUrl: url }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
   async listAgents(): Promise<OfficeAgent[]> {
     if (!this._authed) throw new Error('Not connected to a pixel-office.')
     const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []

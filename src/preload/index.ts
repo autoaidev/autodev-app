@@ -43,6 +43,7 @@ const api = {
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeCreateCharacter: (officeId: number, name: string) => ipcRenderer.invoke('office:createCharacter', officeId, name),
   officeOffices: () => ipcRenderer.invoke('office:offices'),
+  officeSetupUrl: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:setupUrl', officeSlug, agentId),
   officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name),
   officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),
   officeGenerateTeam: (officeId: number, prompt: string, count: number) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count),
