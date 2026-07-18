@@ -325,7 +325,7 @@ export default function App(): JSX.Element {
       <div className="topbar">
         <div className="brand"><span className="logo">◆</span> AutoDev</div>
         <nav className="topnav" role="tablist" aria-label="Main views">
-          {([['agents', '🖥', 'Agents'], ['makeapp', '✨', 'Make app'], ['office', '☁', 'Pixel Office'], ['sessions', '🗂', 'Sessions']] as const).map(([v, ico, label]) => (
+          {([['agents', '🖥', 'Agents'], ['makeapp', '🐣', 'Spawn agents'], ['office', '☁', 'Pixel Office'], ['sessions', '🗂', 'Sessions']] as const).map(([v, ico, label]) => (
             <button key={v} role="tab" aria-selected={activeView === v} className={'topnav-item' + (activeView === v ? ' active' : '')}
               onClick={() => showView(v)} title={label}>{ico} {label}</button>
           ))}
@@ -423,7 +423,7 @@ export default function App(): JSX.Element {
                   <span className="ico">📁</span><span>Add an existing workspace<span className="sub">Already have an AutoDev folder? Point at it</span></span>
                 </button>
                 <button className="cta" onClick={() => { setShowMakeApp(true); setOpenedMakeApp(true) }}>
-                  <span className="ico">✨</span><span>Make an app<span className="sub">Describe an app and generate a team to build it</span></span>
+                  <span className="ico">🐣</span><span>Spawn agents<span className="sub">Describe an idea, generate a team, tweak & spawn them</span></span>
                 </button>
                 <button className="cta" onClick={() => { setShowOffice(true); setOpenedOffice(true) }}>
                   <span className="ico">☁</span><span>Connect a Pixel Office<span className="sub">Operate your remote office characters</span></span>

@@ -261,7 +261,11 @@ export class AgentManager extends EventEmitter {
     // Fresh start clears any prior crash/pause state so a restart reads clean.
     this._lastExit.delete(path)
     this._streamState.delete(path)
-    const child = spawn(cmd, args, { cwd: path, env: baseEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+    // AUTODEV_EXIT_WITH_PARENT: the loop watches this process and exits if the app
+    // dies, so closing/crashing the app never leaves a stale loop (+ its provider
+    // subprocess) running. disposeAll() still SIGKILLs them on a clean quit; this
+    // is the backstop for force-quit / crash where disposeAll can't run.
+    const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, AUTODEV_EXIT_WITH_PARENT: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
     this._procs.set(path, child)
     const onData = (buf: Buffer) => {
       const s = buf.toString('utf8')
