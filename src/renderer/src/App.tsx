@@ -100,7 +100,9 @@ export default function App(): JSX.Element {
   const [openedSessions, setOpenedSessions] = useState(false)
   const [openedOffice, setOpenedOffice] = useState(false)
   const [openedMakeApp, setOpenedMakeApp] = useState(false)
-  const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('overview')
+  // Output-first: live activity is the evidence the agent is working, so it leads
+  // instead of an Overview that mostly restates the head/sidebar chrome.
+  const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('output')
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
   const [creating, setCreating] = useState(false)
@@ -156,6 +158,16 @@ export default function App(): JSX.Element {
   const selectAgent = useCallback((path: string) => {
     setSelected(path); setShowOffice(false); setShowSessions(false); setShowMakeApp(false)
   }, [])
+
+  // Top-nav: which of the four major surfaces is shown. 'agents' is the default
+  // workspace (sidebar list + agent detail); the others are the heavy views.
+  const activeView = showMakeApp ? 'makeapp' : showOffice ? 'office' : showSessions ? 'sessions' : 'agents'
+  const showView = (v: 'agents' | 'makeapp' | 'office' | 'sessions'): void => {
+    setShowMakeApp(v === 'makeapp'); setShowOffice(v === 'office'); setShowSessions(v === 'sessions')
+    if (v === 'makeapp') setOpenedMakeApp(true)
+    if (v === 'office') setOpenedOffice(true)
+    if (v === 'sessions') setOpenedSessions(true)
+  }
 
   // The list, filtered by search + status, with the agents that need attention
   // floated to the top (then running, then alphabetical) so trouble is never
@@ -308,16 +320,25 @@ export default function App(): JSX.Element {
           ⚠ The <code>autodev</code> CLI isn't installed — agents can't run until it is. See the setup steps in the main panel.
         </div>
       )}
+      {/* Top-level nav — the four major surfaces live here, separated from the
+          agent-creation controls so navigation no longer reads as "create". */}
+      <div className="topbar">
+        <div className="brand"><span className="logo">◆</span> AutoDev</div>
+        <nav className="topnav" role="tablist" aria-label="Main views">
+          {([['agents', '🖥', 'Agents'], ['makeapp', '✨', 'Make app'], ['office', '☁', 'Pixel Office'], ['sessions', '🗂', 'Sessions']] as const).map(([v, ico, label]) => (
+            <button key={v} role="tab" aria-selected={activeView === v} className={'topnav-item' + (activeView === v ? ' active' : '')}
+              onClick={() => showView(v)} title={label}>{ico} {label}</button>
+          ))}
+        </nav>
+        <div className="spacer" />
+        {runningCount > 0 && <span className="badge">{runningCount} running</span>}
+        {attentionCount > 0 && <span className="attn-chip" title="Agents needing attention — click to filter"
+          onClick={() => { showView('agents'); setStatusFilter((f) => (f === 'attention' ? 'all' : 'attention')) }}>⚠ {attentionCount}</span>}
+      </div>
       <div className="app" style={{ flex: 1, minHeight: 0 }}>
       <aside className="sidebar">
         <div className="sidebar-head">
-          <h1><span className="logo">◆</span> AutoDev{runningCount > 0 && <span className="badge" style={{ marginLeft: 8 }}>{runningCount} running</span>}
-            {attentionCount > 0 && <span className="attn-chip" style={{ marginLeft: 6 }} title="Agents needing attention — click to filter"
-              onClick={() => setStatusFilter((f) => (f === 'attention' ? 'all' : 'attention'))}>⚠ {attentionCount}</span>}</h1>
-          <div className="row">
-            <button title="Add existing workspace" onClick={addExisting} disabled={cliMissing}>+ Add</button>
-            <button title="Import agent backup" aria-label="Import agent backup" onClick={importAgent} disabled={cliMissing || ioBusy}>⬆</button>
-          </div>
+          <h1>Agents{agents.length > 0 && <span className="badge" style={{ marginLeft: 8 }}>{agents.length}</span>}</h1>
         </div>
         {agents.length > 0 && (
           <div className="fleet-actions">
@@ -368,14 +389,16 @@ export default function App(): JSX.Element {
             </div>
           ))}
         </div>
-        <div style={{ padding: 12, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <button aria-pressed={showMakeApp} style={{ width: '100%', background: showMakeApp ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showMakeApp ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowMakeApp((s) => !s); setShowOffice(false); setShowSessions(false); setOpenedMakeApp(true) }} title="Describe an app and generate an office team to build it">✨ Make app</button>
-          <button aria-pressed={showOffice} style={{ width: '100%', background: showOffice ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showOffice ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowOffice((s) => !s); setShowSessions(false); setShowMakeApp(false); setOpenedOffice(true) }} title="Connect & operate your remote pixel-office agents">☁ Pixel Office</button>
-          <button aria-pressed={showSessions} style={{ width: '100%', background: showSessions ? 'var(--accent-dim,#1f6feb33)' : undefined, borderColor: showSessions ? 'var(--accent,#388bfd)' : undefined }}
-            onClick={() => { setShowSessions((s) => !s); setShowOffice(false); setShowMakeApp(false); setOpenedSessions(true) }} title="Capture Claude sessions on this machine">🗂 Claude sessions</button>
-          <button className="primary" style={{ width: '100%' }} onClick={() => setCreating(true)} disabled={cliMissing} title={cliMissing ? 'Install the autodev CLI first' : undefined}>＋ Create agent</button>
+        {/* One consolidated entry point for getting an agent into the list —
+            create / add existing / import — instead of three scattered controls. */}
+        <div className="sidebar-foot">
+          <OverflowMenu full up trigger="＋ New agent" triggerClass="primary" triggerLabel="Add an agent"
+            triggerDisabled={cliMissing}
+            items={[
+              { label: '＋ Create new agent', onClick: () => setCreating(true) },
+              { label: '📁 Add existing folder', onClick: addExisting },
+              { label: '⬆ Import from backup', onClick: importAgent }
+            ]} />
         </div>
       </aside>
 
@@ -549,7 +572,10 @@ function MessageBar({ path, running, showToast, nudge, onSent }: { path: string;
 // Secondary/destructive actions collapsed behind a "⋯" so the primary Start/Stop/
 // Restart stand out and the destructive Remove isn't one slot from a benign
 // button with identical styling.
-function OverflowMenu({ items }: { items: Array<{ label: string; onClick: () => void; danger?: boolean; sep?: boolean }> }): JSX.Element {
+function OverflowMenu({ items, trigger = '⋯', triggerClass, triggerLabel = 'More actions', full = false, up = false, triggerDisabled = false }: {
+  items: Array<{ label: string; onClick: () => void; danger?: boolean; sep?: boolean }>
+  trigger?: React.ReactNode; triggerClass?: string; triggerLabel?: string; full?: boolean; up?: boolean; triggerDisabled?: boolean
+}): JSX.Element {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -560,10 +586,10 @@ function OverflowMenu({ items }: { items: Array<{ label: string; onClick: () => 
     return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
   }, [open])
   return (
-    <div className="overflow" ref={ref}>
-      <button aria-haspopup="menu" aria-expanded={open} aria-label="More actions" title="More actions" onClick={() => setOpen((o) => !o)}>⋯</button>
+    <div className={'overflow' + (full ? ' full' : '')} ref={ref}>
+      <button className={triggerClass} disabled={triggerDisabled} aria-haspopup="menu" aria-expanded={open} aria-label={triggerLabel} title={triggerLabel} onClick={() => setOpen((o) => !o)}>{trigger}</button>
       {open && (
-        <div className="overflow-menu" role="menu">
+        <div className={'overflow-menu' + (up ? ' up' : '')} role="menu">
           {items.map((it, i) => (
             <button key={i} role="menuitem" className={(it.danger ? 'danger' : '') + (it.sep ? ' sep' : '')}
               onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
@@ -608,8 +634,7 @@ function Overview({ a }: { a: AgentState }): JSX.Element {
         <div className="card"><div className="k">Total</div><div className="v">{a.tasks.total}</div></div>
       </div>
       {a.currentTask && <><div className="card"><div className="k">{a.running ? 'Working on' : 'Next task'}</div><div style={{ marginTop: 4, lineHeight: 1.4 }}>{a.currentTask}</div></div><div style={{ height: 12 }} /></>}
-      <div className="card"><div className="k">Provider</div><div style={{ marginTop: 4 }}>{a.provider ?? '—'}</div></div>
-      <div style={{ height: 12 }} />
+      {/* Provider is already in the detail-head badge + sidebar sub-line — don't repeat it here. */}
       <div className="card"><div className="k">Session name</div><div style={{ marginTop: 4 }}>{a.sessionName || '(folder name)'}</div></div>
       {a.wsUrl && <><div style={{ height: 12 }} /><div className="card"><div className="k">Pixel-office</div><div style={{ marginTop: 4, wordBreak: 'break-all', fontSize: 11 }}>{a.wsUrl}</div></div></>}
     </>
