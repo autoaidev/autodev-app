@@ -36,6 +36,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [newCharName, setNewCharName] = useState('')
   const [newCharOffice, setNewCharOffice] = useState<number | ''>('')
   const [creatingChar, setCreatingChar] = useState(false)
+  const [showNewChar, setShowNewChar] = useState(false)  // create-character form collapsed by default
   const [createMsg, setCreateMsg] = useState('')
   const inFlight = useRef(false)
   // Mirror `term` into a ref so the background poll can tell whether a live PTY is
@@ -232,14 +233,17 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <strong style={{ fontSize: 13 }}>☁ Office agents</strong>
           <span className="badge">{agents.length}</span>
           <div style={{ flex: 1 }} />
+          <button className="start" onClick={() => setShowNewChar((s) => !s)} aria-expanded={showNewChar} aria-controls="new-char-form" title="Create a new office character">＋ New</button>
           <button onClick={loadAgents} disabled={loadingAgents} title="Refresh office agents" aria-label="Refresh office agents">↻</button>
           <button className="danger" title="Disconnect from office" aria-label="Disconnect from office"
             onClick={() => { if (term && !window.confirm(`Disconnect will end your running Operate session for "${term.name}" and take the character offline. Continue?`)) return; disconnect() }}>⏻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {/* Spawn a new office character from the app (goal: "spawn agents from
-              the app") — creates the character server-side, then Operate it. */}
-          <form
+              the app") — creates the character server-side, then Operate it.
+              Collapsed by default so the agent list is the primary content. */}
+          {showNewChar && <form
+            id="new-char-form"
             onSubmit={(e) => { e.preventDefault(); void createChar() }}
             style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}
           >
@@ -265,7 +269,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
             </select>
             <button className="start" type="submit" disabled={creatingChar || !newCharName.trim() || newCharOffice === ''}>{creatingChar ? '…' : '＋ New character'}</button>
             {createMsg && <span style={{ flexBasis: '100%', fontSize: 11, color: createMsg.startsWith('✓') ? 'var(--green,#3fb950)' : '#f85149' }}>{createMsg}</span>}
-          </form>
+          </form>}
           {listErr && (
             <div role="alert" style={{ margin: 10, padding: '8px 10px', background: '#3b0d0d', color: '#fecaca', fontSize: 12, borderRadius: 6, border: '1px solid #7f1d1d' }}>
               {listErr}

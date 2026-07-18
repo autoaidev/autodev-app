@@ -125,7 +125,7 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
           <span className="badge">{list.length}</span>
           <div style={{ flex: 1 }} />
           <button className="primary" onClick={spawnClaude} title="Spawn a new interactive Claude session in a folder">＋ Spawn Claude</button>
-          <button onClick={refresh} title="Rescan">↻</button>
+          <button onClick={refresh} title="Rescan sessions" aria-label="Rescan sessions">↻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {loading && <div className="empty" style={{ padding: 20, fontSize: 12 }}>Scanning ~/.claude…</div>}

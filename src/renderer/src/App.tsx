@@ -222,6 +222,30 @@ export default function App(): JSX.Element {
     refresh()
   }
 
+  // Power-operator keyboard shortcuts: j/k (or ↑/↓) move selection, s toggles
+  // start/stop, r restarts, c creates. Ignored while typing or a modal is open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const el = document.activeElement as HTMLElement | null
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      if (e.metaKey || e.ctrlKey || e.altKey || creating || connectFor || cliMissing) return
+      const list = visibleAgents
+      if ((e.key === 'j' || e.key === 'ArrowDown') && list.length) {
+        e.preventDefault(); const i = list.findIndex((a) => a.path === selected); selectAgent(list[Math.min(list.length - 1, i + 1)].path)
+      } else if ((e.key === 'k' || e.key === 'ArrowUp') && list.length) {
+        e.preventDefault(); const i = list.findIndex((a) => a.path === selected); selectAgent(list[Math.max(0, (i < 0 ? 0 : i) - 1)].path)
+      } else if (e.key === 's' && current) {
+        e.preventDefault(); if (current.running) stop(current); else start(current)
+      } else if (e.key === 'r' && current?.running) {
+        e.preventDefault(); restart(current)
+      } else if (e.key === 'c') {
+        e.preventDefault(); setCreating(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [visibleAgents, selected, current, creating, connectFor, cliMissing, selectAgent])
+
   const exportAgent = async (a: AgentState) => {
     if (ioBusy) return
     const out = await window.api.saveFile(`${a.name.replace(/[^\w.-]+/g, '_')}.zip`)
@@ -360,9 +384,11 @@ export default function App(): JSX.Element {
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
               {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" onClick={() => restart(current)}>↻ Restart</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
-              <button title="Bind this local agent to an office character (via a signed setup URL)" onClick={() => setConnectFor(current.path)}>⚿ Bind to office</button>
-              <button title="Export agent backup" disabled={ioBusy} onClick={() => exportAgent(current)}>{ioBusy ? '⬇ …' : '⬇ Export'}</button>
-              <button className="danger" title="Remove from list (does not delete files)" onClick={async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() }}>Remove</button>
+              <OverflowMenu items={[
+                { label: '⚿ Bind to office', onClick: () => setConnectFor(current.path) },
+                { label: ioBusy ? '⬇ Exporting…' : '⬇ Export backup', onClick: () => { if (!ioBusy) exportAgent(current) } },
+                { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
+              ]} />
             </div>
 
             {ATTENTION_STATES.has(current.activity) && current.error && (
@@ -475,6 +501,34 @@ function MessageBar({ path, running, showToast, nudge, onSent }: { path: string;
         <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '＋ Add task'}</button>
       </div>
     </>
+  )
+}
+
+// Secondary/destructive actions collapsed behind a "⋯" so the primary Start/Stop/
+// Restart stand out and the destructive Remove isn't one slot from a benign
+// button with identical styling.
+function OverflowMenu({ items }: { items: Array<{ label: string; onClick: () => void; danger?: boolean; sep?: boolean }> }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent): void => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    const onEsc = (e: KeyboardEvent): void => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc); document.addEventListener('keydown', onEsc)
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onEsc) }
+  }, [open])
+  return (
+    <div className="overflow" ref={ref}>
+      <button aria-haspopup="menu" aria-expanded={open} aria-label="More actions" title="More actions" onClick={() => setOpen((o) => !o)}>⋯</button>
+      {open && (
+        <div className="overflow-menu" role="menu">
+          {items.map((it, i) => (
+            <button key={i} role="menuitem" className={(it.danger ? 'danger' : '') + (it.sep ? ' sep' : '')}
+              onClick={() => { setOpen(false); it.onClick() }}>{it.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
