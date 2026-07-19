@@ -11,6 +11,7 @@ const api = {
   sendAgentMessage: (path: string, text: string) => ipcRenderer.invoke('agent:message', path, text),
   readAgentMcp: (path: string) => ipcRenderer.invoke('agent:readMcp', path),
   writeAgentMcp: (path: string, content: string) => ipcRenderer.invoke('agent:writeMcp', path, content),
+  agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   cliCheck: () => ipcRenderer.invoke('cli:check'),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),

@@ -1,7 +1,7 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync } from 'fs'
-import { join, basename, dirname } from 'path'
+import { join, basename, dirname, delimiter as pathDelimiter } from 'path'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
 
@@ -13,6 +13,51 @@ import { resolveCliJs, nodeRunner } from './cli'
 // all used to paint as a healthy "working"/"idle"; the CLI already emits the
 // signals, we just have to read them.
 export type Activity = 'working' | 'idle' | 'stopped' | 'stalled' | 'needs-auth' | 'rate-limited' | 'crashed'
+
+export interface McpServerStatus {
+  name: string
+  kind: 'remote' | 'stdio'
+  detail: string   // remote host or stdio command line — never secrets
+  builtin: boolean
+  enabled: boolean
+  status: 'connected' | 'unreachable' | 'ready' | 'missing' | 'disabled'
+  latencyMs?: number
+  error?: string
+}
+
+/** True if a bare runner (no path separators) resolves on PATH, or an explicit
+ *  path exists. Synchronous PATH scan — no subprocess, no side effects. */
+function runnerOnPath(cmd: string): boolean {
+  if (!cmd) return false
+  if (cmd.includes('/') || cmd.includes('\\')) { try { return existsSync(cmd) } catch { return false } }
+  const dirs = (process.env.PATH || '').split(pathDelimiter).filter(Boolean)
+  const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : ['']
+  for (const d of dirs) {
+    for (const ext of exts) {
+      try { if (existsSync(join(d, cmd + ext)) || existsSync(join(d, cmd + ext.toLowerCase()))) return true } catch { /* ignore */ }
+    }
+  }
+  return false
+}
+
+/** MCP `initialize` handshake against a remote (http/sse) endpoint. A 200 means
+ *  the server is reachable and speaking MCP; timeouts/other codes = unreachable. */
+async function probeRemoteMcp(url: string, headers: Record<string, string>): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+  const f = (globalThis as any).fetch as typeof fetch | undefined
+  if (!f) return { ok: false, error: 'fetch unavailable' }
+  const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'autodev-app', version: '1' } } })
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 6000)
+  const t0 = Date.now()
+  try {
+    const r = await f(url, { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...headers }, body, signal: ctl.signal })
+    const latencyMs = Date.now() - t0
+    if (r.ok) return { ok: true, latencyMs }
+    return { ok: false, latencyMs, error: `HTTP ${r.status}` }
+  } catch (e: any) {
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : (e?.message ?? 'network error') }
+  } finally { clearTimeout(timer) }
+}
 
 export interface AgentState {
   path: string
@@ -404,6 +449,45 @@ export class AgentManager extends EventEmitter {
       writeFileSync(join(path, '.mcp.json'), content, 'utf8')
       return { ok: true }
     } catch (e: any) { return { error: e?.message ?? 'Failed to write .mcp.json' } }
+  }
+
+  /**
+   * Parse the workspace's effective MCP servers (.mcp.json — the CLI writes the
+   * office A2A server and built-ins here alongside user entries) and probe each
+   * for LIVE connectivity, so the app can show whether an agent's MCP wiring
+   * actually works, not just what's configured:
+   *   - remote (http/sse, has `url`): POST an MCP `initialize` handshake with the
+   *     configured headers; a 200 = connected, anything else = unreachable.
+   *   - stdio (has `command`): the runner is resolved from PATH = ready, else
+   *     missing (the server would fail to spawn).
+   * Never returns secrets — only names/kind/host-or-command/status.
+   */
+  async mcpStatus(path: string): Promise<{ servers: McpServerStatus[] } | { error: string }> {
+    let cfg: { mcpServers?: Record<string, any> }
+    try {
+      const p = join(path, '.mcp.json')
+      cfg = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : {}
+    } catch (e: any) { return { error: e?.message ?? 'Failed to read .mcp.json' } }
+
+    const entries = Object.entries(cfg.mcpServers ?? {})
+    const servers = await Promise.all(entries.map(async ([name, e]: [string, any]): Promise<McpServerStatus> => {
+      const remote = typeof e?.url === 'string' && e.url.length > 0
+      const enabled = e?.enabled !== false
+      const builtin = e?._meta?.kind === 'builtin'
+      let detail = ''
+      if (remote) { try { detail = new URL(e.url).host } catch { detail = '' } }
+      else if (e?.command) { detail = [e.command, ...(e.args ?? [])].join(' ') }
+
+      if (!enabled) return { name, kind: remote ? 'remote' : 'stdio', detail, builtin, enabled, status: 'disabled' }
+      if (remote) {
+        const r = await probeRemoteMcp(e.url, e.headers ?? {})
+        return { name, kind: 'remote', detail, builtin, enabled, status: r.ok ? 'connected' : 'unreachable', latencyMs: r.latencyMs, error: r.error }
+      }
+      const ok = e?.command ? runnerOnPath(e.command) : false
+      return { name, kind: 'stdio', detail, builtin, enabled, status: ok ? 'ready' : 'missing', error: ok ? undefined : `runner '${e?.command ?? '?'}' not on PATH` }
+    }))
+    servers.sort((a, b) => a.name.localeCompare(b.name))
+    return { servers }
   }
 
   // --- CLI passthrough (init/config/connect/export/import/status) ----------

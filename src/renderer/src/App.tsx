@@ -722,6 +722,34 @@ function TodoTab({ path }: { path: string }): JSX.Element {
 const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel' }
 function modelKeyFor(provider: string): string { return MODEL_KEY[provider.split('-')[0]] ?? 'claudeModel' }
 
+interface McpStat {
+  name: string; kind: 'remote' | 'stdio'; detail: string; builtin: boolean; enabled: boolean
+  status: 'connected' | 'unreachable' | 'ready' | 'missing' | 'disabled'; latencyMs?: number; error?: string
+}
+const MCP_STATUS_META: Record<McpStat['status'], { dot: string; color: string; label: string }> = {
+  connected:   { dot: '●', color: 'var(--ok, #3fb950)',   label: 'connected' },
+  ready:       { dot: '●', color: 'var(--ok, #3fb950)',   label: 'ready' },
+  unreachable: { dot: '✗', color: 'var(--bad, #f85149)',  label: 'unreachable' },
+  missing:     { dot: '✗', color: 'var(--bad, #f85149)',  label: 'missing' },
+  disabled:    { dot: '○', color: 'var(--fg2, #8b949e)',  label: 'disabled' }
+}
+function McpRow({ s }: { s: McpStat }): JSX.Element {
+  const m = MCP_STATUS_META[s.status]
+  return (
+    <li style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '4px 0', fontSize: 12, borderBottom: '1px solid var(--border)' }}>
+      <span title={m.label} style={{ color: m.color, fontSize: 13 }}>{m.dot}</span>
+      <span style={{ fontWeight: 600 }}>{s.name}</span>
+      <span style={{ color: 'var(--fg2)', fontSize: 11, border: '1px solid var(--border)', borderRadius: 4, padding: '0 4px' }}>
+        {s.kind}{s.builtin ? ' · builtin' : ''}
+      </span>
+      <span style={{ color: 'var(--fg2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.detail}>{s.detail}</span>
+      <span style={{ color: m.color, whiteSpace: 'nowrap' }}>
+        {m.label}{s.latencyMs != null ? ` · ${s.latencyMs}ms` : ''}{s.error && s.status !== 'disabled' ? ` · ${s.error}` : ''}
+      </span>
+    </li>
+  )
+}
+
 function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [provider, setProvider] = useState(a.provider ?? 'claude-tui')
   const [sessionName, setSessionName] = useState(a.sessionName ?? '')
@@ -732,6 +760,18 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
   const [mcpText, setMcpText] = useState('')
   const [showMcp, setShowMcp] = useState(false)
   const [mcpBusy, setMcpBusy] = useState(false)
+  // MCP live connectivity
+  const [mcpStat, setMcpStat] = useState<McpStat[] | null>(null)
+  const [mcpStatBusy, setMcpStatBusy] = useState(false)
+  const loadMcpStat = useCallback(async (): Promise<void> => {
+    setMcpStatBusy(true)
+    const r = await window.api.agentMcpStatus(a.path) as { servers?: McpStat[]; error?: string }
+    setMcpStatBusy(false)
+    setMcpStat(r?.servers ?? [])
+  }, [a.path])
+  // Probe once when the panel is first opened; reset when switching agents.
+  useEffect(() => { setMcpStat(null) }, [a.path])
+  useEffect(() => { if (showMcp && mcpStat === null && !mcpStatBusy) void loadMcpStat() }, [showMcp, mcpStat, mcpStatBusy, loadMcpStat])
 
   // load the current model for the active provider
   useEffect(() => {
@@ -789,6 +829,19 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
         <button aria-expanded={showMcp} aria-controls="mcp-panel" onClick={() => setShowMcp((s) => !s)}>{showMcp ? '▾' : '▸'} MCP servers (.mcp.json)</button>
         {showMcp && (
           <div id="mcp-panel" style={{ marginTop: 10 }}>
+            <div style={{ marginBottom: 12 }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <span className="lbl" style={{ margin: 0 }}>Connectivity</span>
+                <button onClick={() => void loadMcpStat()} disabled={mcpStatBusy} title="Re-probe each server (remote: MCP handshake; stdio: runner on PATH)">{mcpStatBusy ? 'Checking…' : '↻ Recheck'}</button>
+              </div>
+              {mcpStat === null
+                ? <div style={{ color: 'var(--fg2)', fontSize: 12 }}>{mcpStatBusy ? 'Checking…' : ''}</div>
+                : mcpStat.length === 0
+                  ? <div style={{ color: 'var(--fg2)', fontSize: 12 }}>No MCP servers configured.</div>
+                  : <ul style={{ listStyle: 'none', padding: 0, margin: 0, borderTop: '1px solid var(--border)' }}>
+                      {mcpStat.map((s) => <McpRow key={s.name} s={s} />)}
+                    </ul>}
+            </div>
             <textarea value={mcpText} onChange={(e) => setMcpText(e.target.value)} rows={14} spellCheck={false} style={{ fontFamily: 'ui-monospace, monospace', fontSize: 12 }} />
             <div className="row" style={{ marginTop: 8 }}>
               <button className="primary" disabled={mcpBusy} onClick={() => void saveMcp()}>{mcpBusy ? 'Saving…' : 'Save MCP'}</button>
