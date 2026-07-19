@@ -4,3 +4,5 @@ dist/
 .DS_Store
 *.log
 vendor/
+tsconfig.web.tsbuildinfo
+tsconfig.node.tsbuildinfo
