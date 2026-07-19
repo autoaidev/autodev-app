@@ -1,6 +1,6 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync } from 'fs'
 import { join, basename, dirname, delimiter as pathDelimiter } from 'path'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
@@ -187,20 +187,36 @@ export class AgentManager extends EventEmitter {
     const now = Date.now()
     const cached = this._extPidCache.get(path)
     if (cached && now - cached.at < 3000) return cached.pid
-    let found: number | null = null
+    const found = this._externalPids(path)[0] ?? null
+    this._extPidCache.set(path, { pid: found, at: now })
+    return found
+  }
+
+  /**
+   * Every externally-started `autodev start` loop whose cwd IS this workspace.
+   * Compares by realpath so a symlinked path (e.g. /home → /var/home) still
+   * matches — a plain string compare there would miss the loop and make Stop a
+   * silent no-op. Returns all matches so Stop can clear a duplicated loop too.
+   */
+  private _externalPids(path: string): number[] {
+    if (process.platform !== 'linux') return []
+    let target = path
+    try { target = realpathSync(path) } catch { /* use raw */ }
+    const pids: number[] = []
     try {
       for (const ent of readdirSync('/proc')) {
         if (!/^\d+$/.test(ent)) continue
         let cwd: string
         try { cwd = readlinkSync(`/proc/${ent}/cwd`) } catch { continue }
-        if (cwd !== path) continue
+        let rcwd = cwd
+        try { rcwd = realpathSync(cwd) } catch { /* use raw */ }
+        if (cwd !== path && rcwd !== target) continue
         let cmd: string
         try { cmd = readFileSync(`/proc/${ent}/cmdline`, 'utf8').replace(/\0/g, ' ') } catch { continue }
-        if (/autodev/.test(cmd) && /\bstart\b/.test(cmd)) { found = parseInt(ent, 10); break }
+        if (/autodev/.test(cmd) && /\bstart\b/.test(cmd)) pids.push(parseInt(ent, 10))
       }
     } catch { /* /proc unreadable — treat as not running externally */ }
-    this._extPidCache.set(path, { pid: found, at: now })
-    return found
+    return pids
   }
 
   // --- state reading -------------------------------------------------------
@@ -398,11 +414,13 @@ export class AgentManager extends EventEmitter {
       setTimeout(() => { try { child.kill('SIGKILL') } catch { /* ignore */ } }, 4000).unref()
       return
     }
-    // No child of ours — stop an externally-started loop for this workspace by
-    // its pid (SIGINT for a graceful provider shutdown, SIGKILL as a fallback).
-    const pid = this._externalPid(path)
-    if (pid) {
-      this._extPidCache.delete(path)
+    // No child of ours — stop every externally-started loop for this workspace
+    // (there can be more than one after a messy restart) by pid: SIGINT for a
+    // graceful provider shutdown, SIGKILL as a fallback.
+    const pids = this._externalPids(path)
+    this._extPidCache.delete(path)
+    for (const pid of pids) {
+      this.emit('log', { path, line: `\n[stopping external loop pid=${pid}]\n` })
       try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
       setTimeout(() => { try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ } }, 4000).unref()
     }

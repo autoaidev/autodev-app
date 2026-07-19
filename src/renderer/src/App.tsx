@@ -235,7 +235,10 @@ export default function App(): JSX.Element {
   const stopAll = async () => {
     const running = agents.filter((a) => a.running)
     if (!running.length) return showToast('No agents are running')
-    if (!window.confirm(`Stop all ${running.length} running agent${running.length === 1 ? '' : 's'}?`)) return
+    // Stopping is non-destructive (you can start again), so don't gate it behind
+    // a confirm — the sandboxed renderer's window.confirm can silently return
+    // false and no-op the whole action, which is exactly the "clicked Stop but
+    // nothing stops" bug.
     showToast(`Stopping ${running.length}…`)
     for (const a of running) await window.api.stopAgent(a.path)
     refresh()
@@ -255,8 +258,9 @@ export default function App(): JSX.Element {
   const bulk = async (kind: 'start' | 'stop' | 'restart' | 'remove') => {
     const paths = [...checked]
     if (!paths.length) return
-    if (kind === 'stop' && !window.confirm(`Stop ${paths.length} selected agent${paths.length === 1 ? '' : 's'}?`)) return
-    if (kind === 'remove' && !window.confirm(`Remove ${paths.length} selected agent${paths.length === 1 ? '' : 's'} from the list? (workspace files are kept)`)) return
+    // Stop is non-destructive → no confirm. Remove is, so confirm via the native
+    // main-process dialog (the sandboxed window.confirm is unreliable).
+    if (kind === 'remove' && !(await window.api.confirmDialog(`Remove ${paths.length} selected agent${paths.length === 1 ? '' : 's'} from the list?`, 'Workspace files are kept.'))) return
     for (const p of paths) {
       const a = agents.find((x) => x.path === p)
       if (!a) continue
@@ -458,7 +462,7 @@ export default function App(): JSX.Element {
               <OverflowMenu items={[
                 { label: '⚿ Bind to office', onClick: () => setConnectFor(current.path) },
                 { label: ioBusy ? '⬇ Exporting…' : '⬇ Export backup', onClick: () => { if (!ioBusy) exportAgent(current) } },
-                { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!window.confirm(`Remove "${current.name}" from the list? (workspace files are kept)`)) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
+                { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!(await window.api.confirmDialog(`Remove "${current.name}" from the list?`, 'Workspace files are kept.'))) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
               ]} />
             </div>
 

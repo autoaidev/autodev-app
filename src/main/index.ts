@@ -146,6 +146,16 @@ ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); re
 ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
 ipcMain.handle('agent:stop', (_e, path: string) => { manager.stop(path); return true })
+// A native confirmation dialog driven from the main process. `window.confirm`
+// in the sandboxed renderer is unreliable (it can return false without ever
+// showing a dialog), which silently no-op'd destructive actions — so route them
+// through the OS dialog instead. Returns true only when the user confirms.
+ipcMain.handle('dialog:confirm', async (_e, message: string, detail?: string) => {
+  const r = await dialog.showMessageBox(mainWindow ?? undefined as unknown as BrowserWindow, {
+    type: 'question', buttons: ['Cancel', 'OK'], defaultId: 1, cancelId: 0, message, detail
+  })
+  return r.response === 1
+})
 ipcMain.handle('agent:message', (_e, path: string, text: string) => manager.sendMessage(path, text))
 ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
 ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
