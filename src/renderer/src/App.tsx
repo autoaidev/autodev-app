@@ -201,6 +201,10 @@ export default function App(): JSX.Element {
   const start = async (a: AgentState) => {
     const r = await window.api.startAgent(a.path)
     if ((r as any).error) showToast((r as any).error, true)
+    // A loop (ours from a prior session, or an external `autodev start`) already
+    // owns this workspace — the manager refuses to spawn a duplicate. Say so
+    // instead of silently doing nothing, and refresh so it shows as running.
+    else if ((r as any).alreadyRunning) { showToast(`${a.name} is already running`); await refresh() }
     else { logsRef.current.set(a.path, ''); setTab('output') }
   }
   const stop = async (a: AgentState) => { setStopping((s) => new Set(s).add(a.path)); await window.api.stopAgent(a.path) }

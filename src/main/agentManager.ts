@@ -351,11 +351,17 @@ export class AgentManager extends EventEmitter {
   }
 
   // --- loop control --------------------------------------------------------
-  start(path: string, provider?: string): { ok: true } | { error: string } {
+  start(path: string, provider?: string): { ok: true; alreadyRunning?: boolean } | { error: string } {
     // Already running — our own child OR an external loop for this workspace.
     // The external check makes "Start all" a no-op for live agents instead of
     // spawning a duplicate loop that fights the first for the same office slug.
-    if (this._procs.has(path) || this._externalPid(path) !== null) return { ok: true }
+    // Bypass the 3s _externalPid cache here (delete then re-scan): a loop the user
+    // just started elsewhere — a terminal `autodev start` or this app's own
+    // survivor from a prior session — may not have been in the cached scan, and a
+    // stale "not running" would let this spawn a duplicate. `alreadyRunning` lets
+    // the UI say so instead of silently no-op'ing.
+    this._extPidCache.delete(path)
+    if (this._procs.has(path) || this._externalPid(path) !== null) return { ok: true, alreadyRunning: true }
     const cliJs = resolveCliJs()
     if (!cliJs) return { error: 'autodev CLI not found. Set AUTODEV_CLI_JS or place autodev-cli beside the app.' }
     const { cmd, baseEnv } = nodeRunner()
@@ -551,9 +557,23 @@ export class AgentManager extends EventEmitter {
   runningCount(): number { return this._procs.size }
 
   disposeAll(): void {
+    // Kill the loops WE spawned…
     for (const child of this._procs.values()) { try { child.kill('SIGKILL') } catch { /* ignore */ } }
+    // …and any EXTERNAL `autodev start` loops for our registered workspaces —
+    // survivors of a previous app session (e.g. a crash before AUTODEV_EXIT_WITH_
+    // PARENT fired, or a terminal-started loop) that this session shows as running
+    // but never owned. If left alive they outlive the app and, on the next launch,
+    // bind the same office slug and evict the fresh loop every ~5s. SIGINT lets the
+    // loop shut its provider down gracefully; it runs independently of our exit.
+    for (const p of this._paths) {
+      if (this._procs.has(p)) continue
+      for (const pid of this._externalPids(p)) {
+        try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
+      }
+    }
     for (const w of this._watchers.values()) { try { w.close() } catch { /* ignore */ } }
     this._procs.clear()
     this._watchers.clear()
+    this._extPidCache.clear()
   }
 }
