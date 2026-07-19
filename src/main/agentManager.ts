@@ -227,6 +227,8 @@ export class AgentManager extends EventEmitter {
         if (activity === 'stalled' && todo.remaining === 0) activity = 'idle'
         if (activity === 'crashed') error = 'The run reported a failure (StopFailure) — likely a crash or watchdog timeout.'
         else if (activity === 'stalled') error = 'No activity for several minutes — the agent may be hung (e.g. a dead token or a wedged tool).'
+        else if (activity === 'needs-auth') error = 'Provider login expired — re-authenticate to resume.'
+        else if (activity === 'rate-limited') error = 'Rate-limited by the provider — auto-resumes when the window clears.'
       }
     } else {
       exitCode = this._lastExit.get(path)
@@ -300,6 +302,11 @@ export class AgentManager extends EventEmitter {
           const ev = JSON.parse(lines[i])
           const name = ev.hook_event_name || ev.hook || ev.payload?.type || ev.type
           const et = ev.event_type || ev.event
+          // Pause states first: a loop paused for auth/rate-limit emits these as
+          // its LAST event (no further hooks until resume), so scanning newest-first
+          // surfaces them. The next task_start on resume supersedes them.
+          if (name === 'reauth_required' || et === 'reauth_required') return 'needs-auth'
+          if (name === 'rate_limit' || et === 'rate_limit' || name === 'rate_limited' || et === 'rate_limited') return 'rate-limited'
           if (FAILURE_EVENTS.has(name) || et === 'stop_failure') return 'crashed'
           if (CLEAN_IDLE_EVENTS.has(name) || CLEAN_IDLE_ETYPES.has(et)) return 'idle'
           if (WORKING_EVENTS.has(name) || WORKING_ETYPES.has(et)) return stale() ? 'stalled' : 'working'

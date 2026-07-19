@@ -467,8 +467,11 @@ export default function App(): JSX.Element {
                 <span className="attention-icon" aria-hidden="true">{current.activity === 'needs-auth' ? '🔑' : current.activity === 'rate-limited' ? '⏳' : '⚠'}</span>
                 <div className="attention-text">
                   <strong>{ACTIVITY_LABEL[current.activity]}</strong> — {current.error}
-                  {current.activity === 'needs-auth' && <span className="attention-hint"> Sign in to {current.provider ?? 'the provider'} (open the Terminal below and run its login), then the loop resumes automatically.</span>}
+                  {current.activity === 'needs-auth' && <span className="attention-hint"> Re-authenticate <b>{current.provider ?? 'the provider'}</b> for this workspace: open a terminal in the folder and run its login (e.g. <code>{loginCommandFor(current.provider)}</code>). The loop resumes on its own once the login succeeds.</span>}
                 </div>
+                {current.activity === 'needs-auth' && (
+                  <button className="start" title="Open the workspace folder so you can run the provider login in a terminal" onClick={() => window.api.openPath(current.path)}>📁 Open workspace</button>
+                )}
                 {(current.activity === 'crashed' || current.activity === 'stalled') && (
                   <button className="start" onClick={() => restart(current)}>↻ Restart</button>
                 )}
@@ -721,6 +724,11 @@ function TodoTab({ path }: { path: string }): JSX.Element {
 
 const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel' }
 function modelKeyFor(provider: string): string { return MODEL_KEY[provider.split('-')[0]] ?? 'claudeModel' }
+
+// The interactive login command per provider family — shown in the needs-auth
+// banner so the user knows exactly what to run in the workspace terminal.
+const LOGIN_CMD: Record<string, string> = { claude: 'claude  (then /login)', grok: 'grok  (sign in when prompted)', copilot: 'copilot  (then /login)', opencode: 'opencode auth login' }
+function loginCommandFor(provider?: string): string { return LOGIN_CMD[(provider ?? '').split('-')[0]] ?? 'the provider login' }
 
 interface McpStat {
   name: string; kind: 'remote' | 'stdio'; detail: string; builtin: boolean; enabled: boolean
