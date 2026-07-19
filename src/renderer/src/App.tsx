@@ -121,9 +121,18 @@ export default function App(): JSX.Element {
   const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
   const [checked, setChecked] = useState<Set<string>>(new Set())    // multi-select for bulk actions
   const logsRef = useRef<Map<string, string>>(new Map())
-  // Bump this to force a re-render when a log line lands in logsRef (a ref, so it
-  // doesn't itself trigger renders). The value is unused — only the re-render is.
-  const [, setLogTick] = useState(0)
+  // Log lines arrive at HIGH frequency — every running agent streams a chunk on each
+  // stdout/stderr `data` event (7 loops in an office = many per second). Forcing a
+  // whole-App re-render on each one used to reconcile the controlled composer/search
+  // inputs mid-keystroke, silently dropping the character being typed — so the "Add a
+  // task" box felt untypeable whenever agents were actively streaming (and mysteriously
+  // worked once they went quiet). Instead of a top-level tick, notify ONLY the mounted
+  // Output pane through this subscription, so the log storm never re-renders the inputs.
+  const logListeners = useRef<Set<() => void>>(new Set())
+  const subscribeLog = useCallback((cb: () => void) => {
+    logListeners.current.add(cb)
+    return () => { logListeners.current.delete(cb) }
+  }, [])
 
   const refresh = useCallback(async () => {
     const list = await window.api.listAgents()
@@ -149,7 +158,9 @@ export default function App(): JSX.Element {
     const offLog = window.api.onAgentLog(({ path, line }) => {
       const cur = logsRef.current.get(path) ?? ''
       logsRef.current.set(path, (cur + line).slice(-20000))
-      setLogTick((t) => t + 1)
+      // Re-render only the Output pane (if mounted), never the whole App — see the
+      // logListeners note above. Keeps typing in the composer/search uninterrupted.
+      logListeners.current.forEach((cb) => cb())
     })
     return () => { offUpd(); offChg(); offLog() }
   }, [refresh])
@@ -533,7 +544,7 @@ export default function App(): JSX.Element {
 
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
-              {tab === 'output' && <Output text={logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} />}
+              {tab === 'output' && <Output getText={() => logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} subscribe={subscribeLog} />}
               {tab === 'sessions' && <SessionsTab path={current.path} provider={current.provider} showToast={showToast} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
@@ -676,8 +687,15 @@ function Overview({ a }: { a: AgentState }): JSX.Element {
   )
 }
 
-function Output({ text }: { text: string }): JSX.Element {
+function Output({ getText, subscribe }: { getText: () => string; subscribe: (cb: () => void) => () => void }): JSX.Element {
   const ref = useRef<HTMLPreElement>(null)
+  // Self-subscribe to the log stream: new lines re-render ONLY this pane, so the
+  // parent App — and the composer/search inputs it holds — is never re-rendered by
+  // streaming output, and typing is never interrupted. Reads the latest buffer via
+  // getText() on each of its own renders.
+  const [, force] = useState(0)
+  useEffect(() => subscribe(() => force((t) => t + 1)), [subscribe])
+  const text = getText()
   // Stick to the bottom on new output ONLY if the user was already at the bottom,
   // so scrolling up to read history isn't yanked back on the next streamed line.
   const stick = useRef(true)
