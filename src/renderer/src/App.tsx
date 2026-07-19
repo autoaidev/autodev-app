@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import SessionsBrowser from './SessionsBrowser'
 import PixelOfficeView from './PixelOfficeView'
 import MakeAppView from './MakeAppView'
+import { extractFlagUrl } from './urlExtract'
 
 type Activity = 'working' | 'idle' | 'stopped' | 'stalled' | 'needs-auth' | 'rate-limited' | 'crashed'
 interface AgentState {
@@ -888,16 +889,6 @@ function Config({ a, onSaved, showToast }: { a: AgentState; onSaved: () => void;
 
 interface PickAgent { office: string; officeSlug: string; id: string; name: string; slug: string; online: boolean }
 
-// Pull the URL out of whatever the user pasted: a bare URL, or the whole copied
-// command (e.g. `autodev --setup-url='https://…'` or `autodev connect --url "wss://…"`).
-// Falls back to the trimmed, de-quoted string so a plain URL still works.
-function extractFlagUrl(raw: string, flag: string): string {
-  const s = raw.trim()
-  const m = s.match(new RegExp(flag + `[=\\s]+['"]?([^'"\\s]+)`))
-  if (m) return m[1]
-  return s.replace(/^['"]+|['"]+$/g, '')
-}
-
 function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: string; agent?: AgentState; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
   const [mode, setMode] = useState<'setup' | 'url' | 'pick'>('setup')
   const [value, setValue] = useState('')
@@ -993,13 +984,28 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
       return
     }
     if (!value.trim()) return showToast('Paste the URL (or the whole connect command) first', true)
-    setBusy(true)
     // Accept a bare URL OR the full copied command (autodev --setup-url='…').
-    const ok = await runConnect(mode === 'setup'
-      ? { setupUrl: extractFlagUrl(value, '--setup-url') }
-      : { wsUrl: extractFlagUrl(value, '--url') })
+    const flag = mode === 'setup' ? '--setup-url' : '--url'
+    const url = extractFlagUrl(value, flag)
+    if (!url) return showToast(mode === 'setup'
+      ? "Couldn't find a setup URL there — paste the signed https://… URL or the whole autodev --setup-url=… command"
+      : "Couldn't find a ws:// URL there — paste the full wss://… URL or the whole connect command", true)
+    setBusy(true)
+    const ok = await runConnect(mode === 'setup' ? { setupUrl: url } : { wsUrl: url })
     setBusy(false)
     if (ok) onDone()
+  }
+  // Pasting the whole copied `autodev --setup-url=…` command? Silently pull the
+  // URL out and drop just the clean URL into the field, so the user sees exactly
+  // what was captured. A bare URL (or anything we can't parse) pastes normally.
+  const onPasteExtract = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const pasted = e.clipboardData.getData('text')
+    const url = extractFlagUrl(pasted, mode === 'setup' ? '--setup-url' : '--url')
+    if (url && url !== pasted.trim()) {
+      e.preventDefault()
+      setValue(url)
+      showToast('Captured the URL from the pasted command')
+    }
   }
   const trapRef = useFocusTrap<HTMLDivElement>()
   return (
@@ -1049,7 +1055,7 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
           )
         ) : (
           <label className="field"><span className="lbl">{mode === 'setup' ? 'Setup URL' : 'WebSocket URL'}</span>
-            <textarea rows={3} value={value} placeholder={mode === 'setup' ? "https://…/api/cli/setup/…   — or paste:  autodev --setup-url='…'" : 'wss://host/ws?token=…&endpoint=…'} onChange={(e) => setValue(e.target.value)} />
+            <textarea rows={3} value={value} placeholder={mode === 'setup' ? "https://…/api/cli/setup/…   — or paste:  autodev --setup-url='…'" : 'wss://host/ws?token=…&endpoint=…'} onPaste={onPasteExtract} onChange={(e) => setValue(e.target.value)} />
           </label>
         )}
         <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 10px', cursor: 'pointer' }}>
