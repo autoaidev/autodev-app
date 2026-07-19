@@ -238,6 +238,12 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <button className="danger" title="Disconnect from office" aria-label="Disconnect from office"
             onClick={() => { if (term && !window.confirm(`Disconnect will end your running Operate session for "${term.name}" and take the character offline. Continue?`)) return; disconnect() }}>⏻</button>
         </div>
+        {/* Clarify the direction: this pane runs an OFFICE character locally — the
+            reverse of the Agents tab's "Connect to office" (which pushes a local
+            agent up into an office). */}
+        <div style={{ padding: '6px 12px', fontSize: 11, color: 'var(--muted,#8b949e)', lineHeight: 1.4, borderBottom: '1px solid var(--border)' }}>
+          Run one of your office characters as a live agent on this machine — the reverse of connecting a local agent up to an office.
+        </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {/* Spawn a new office character from the app (goal: "spawn agents from
               the app") — creates the character server-side, then Operate it.
@@ -290,7 +296,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
                 <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{a.office}{a.status ? ' · ' + a.status : ''}</div>
               </div>
-              <button className="start" onClick={() => operate(a)} disabled={operatingId === a.officeSlug + a.id} title="Wire a local Claude session to this office character via MCP">{operatingId === a.officeSlug + a.id ? 'operating…' : '▶ Operate'}</button>
+              <button className="start" onClick={() => operate(a)} disabled={operatingId === a.officeSlug + a.id} title="Run this office character as a live agent on this machine — it comes online in the office and starts working">{operatingId === a.officeSlug + a.id ? 'operating…' : '▶ Connect & operate'}</button>
             </div>
           ))}
         </div>
@@ -300,10 +306,18 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         {!term && (
           <div className="empty" style={{ margin: 'auto', maxWidth: 420, textAlign: 'center', lineHeight: 1.6 }}>
             <div style={{ fontSize: 22 }}>▶</div>
-            <strong>Operate an office agent</strong><br />
-            Wires a scratch workspace to that character's office-MCP and opens a
-            local Claude terminal here. While the session runs, the character shows
-            as MCP-connected (online) in the office.
+            <strong>Run an office character here</strong><br />
+            Run one of your office characters as a live agent on this machine — it
+            comes online in the office and starts working. Pick one on the left and
+            hit <b>▶ Connect &amp; operate</b>.
+            <details style={{ marginTop: 12, fontSize: 11, color: 'var(--muted,#8b949e)', textAlign: 'left' }}>
+              <summary style={{ cursor: 'pointer', textAlign: 'center' }}>What happens?</summary>
+              <div style={{ marginTop: 6, lineHeight: 1.5 }}>
+                Opens a local Claude terminal against a scratch workspace wired to that
+                character's office-MCP. While the session runs, the character shows as
+                MCP-connected (online) in the office.
+              </div>
+            </details>
           </div>
         )}
         {term && (

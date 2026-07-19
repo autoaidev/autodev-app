@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import TerminalPane from './TerminalPane'
+import { CONNECT_LABEL } from './App'
 
 interface SessionMeta {
   id: string; file: string; project: string; cwd: string
@@ -174,7 +175,7 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
               </div>
               {sel.live && <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● live</span>}
               <div style={{ flex: 1 }} />
-              <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ Connect to office</button>
+              <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ {CONNECT_LABEL}</button>
               <button onClick={() => window.api.openPath(sel.cwd)} title="Open workspace folder">📁 Open</button>
             </div>
             {connectOpen && (

@@ -27,6 +27,11 @@ const ACTIVITY_LABEL: Record<Activity, string> = {
 }
 const ATTENTION_STATES = new Set<Activity>(['stalled', 'needs-auth', 'rate-limited', 'crashed'])
 
+// One vocabulary for "link this local agent to an office character" — shared by the
+// header button, the ConnectModal title, and the Sessions browser, so the app's
+// core flow is never named three different things.
+export const CONNECT_LABEL = 'Connect to office'
+
 // Grouped by vendor with human labels, so the first decision a new user makes
 // isn't a wall of 8 cryptic slugs. claude-tui is the recommended default.
 const PROVIDER_GROUPS: Array<{ vendor: string; options: Array<{ id: string; label: string }> }> = [
@@ -397,7 +402,7 @@ export default function App(): JSX.Element {
                 onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
               <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
-                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}</div>
+                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className="office-chip" title="Connected to an office">● office</span>}</div>
                 <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
               </div>
             </div>
@@ -455,7 +460,15 @@ export default function App(): JSX.Element {
                 <div className="path" title={current.path}>{current.path}</div>
               </div>
               <span className="badge">{current.provider ?? '—'}</span>
-              {current.wsUrl && <span className="badge">● office</span>}
+              {/* Bound state: a GREEN pill (not a passive grey badge) that opens a
+                  small menu to change the binding or disconnect. */}
+              {current.wsUrl && (
+                <OverflowMenu trigger={<>● office</>} triggerClass="office-pill" triggerLabel="Connected to office — change or disconnect"
+                  items={[
+                    { label: '☁ Change binding', onClick: () => setConnectFor(current.path) },
+                    { label: '⏻ Disconnect', danger: true, sep: true, onClick: () => showToast('Disconnecting a bound agent isn’t wired yet — use “Change binding” to rebind it for now.', true) }
+                  ]} />
+              )}
               <span className={'status-pill ' + current.activity} title={current.error || ACTIVITY_LABEL[current.activity]}>{ACTIVITY_LABEL[current.activity]}</span>
               <div className="spacer" />
               {current.running
@@ -463,8 +476,11 @@ export default function App(): JSX.Element {
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
               {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" onClick={() => restart(current)}>↻ Restart</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
+              {/* Connecting a local agent to an office is the app's core flow — promote
+                  it to a first-class accent button (only while unbound; a bound agent
+                  shows the green office pill instead). */}
+              {!current.wsUrl && <button className="primary" title="Link this agent to a character in your pixel office" onClick={() => setConnectFor(current.path)}>☁ {CONNECT_LABEL}</button>}
               <OverflowMenu items={[
-                { label: '⚿ Bind to office', onClick: () => setConnectFor(current.path) },
                 { label: ioBusy ? '⬇ Exporting…' : '⬇ Export backup', onClick: () => { if (!ioBusy) exportAgent(current) } },
                 { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!(await window.api.confirmDialog(`Remove "${current.name}" from the list?`, 'Workspace files are kept.'))) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
               ]} />
@@ -989,7 +1005,7 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
   return (
     <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
       <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="connect-modal-title" onClick={(e) => e.stopPropagation()}>
-        <h3 id="connect-modal-title">Connect to pixel-office</h3>
+        <h3 id="connect-modal-title">{CONNECT_LABEL}</h3>
         <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
           {mode === 'pick'
             ? <>Links this local agent to a character in your pixel office. Pick the office and character below — no copy-paste needed while you're logged in.</>
