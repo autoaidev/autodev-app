@@ -127,18 +127,18 @@ export default function MakeAppView(): JSX.Element {
   if (!connected) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: '#111725', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
+        <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>🐣 Spawn agents</h2>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>Describe what you want built and generate a team. Sign in first.</p>
+          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)' }}>Describe what you want built and generate a team. Sign in first.</p>
           <label className="fld" htmlFor="makeapp-base">Server URL</label>
-          <input id="makeapp-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
+          <input className="fld-input" id="makeapp-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
           <label className="fld" htmlFor="makeapp-email">Email</label>
-          <input id="makeapp-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
+          <input className="fld-input" id="makeapp-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
           <label className="fld" htmlFor="makeapp-password">Password</label>
-          <input id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
-          {err && <div role="alert" style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
+          <input className="fld-input" id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
+          {err && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, margin: '6px 0' }}>{err}</div>}
           <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password}>{busy ? 'Connecting…' : 'Connect'}</button>
-          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted,#8b949e)' }}>
+          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted)' }}>
             New here? <a href="#" onClick={(e) => { e.preventDefault(); if (base.trim()) void window.api.openExternal(base.trim()) }} style={{ color: 'var(--accent)' }}>Open the office</a> to create an account.
           </p>
         </form>
@@ -151,31 +151,31 @@ export default function MakeAppView(): JSX.Element {
     <div style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto' }}>
       <div style={{ width: 620, maxWidth: '100%', padding: 24 }}>
         <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>🐣 Spawn agents</h2>
-        <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>
+        <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>
           Describe your idea, generate a team, tweak each agent's name and model, then spawn them locally or open the office.
         </p>
 
         <label className="fld">What do you want to build?</label>
-        <textarea value={desc} onChange={(e) => setDesc(e.target.value)}
+        <textarea className="fld-input" value={desc} onChange={(e) => setDesc(e.target.value)}
           placeholder="e.g. A recipe app that suggests meals from ingredients I have at home"
           rows={4} style={{ ...inp, resize: 'vertical', minHeight: 90 }} disabled={creating} />
 
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
           <div>
             <label className="fld">Team size</label>
-            <input type="number" min={1} max={12} value={count}
+            <input className="fld-input" type="number" min={1} max={12} value={count}
               onChange={(e) => setCount(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))}
-              style={{ ...inp, width: 90 }} disabled={creating} />
+              style={{ ...inp, width: 90, marginBottom: 0 }} disabled={creating} />
           </div>
           <div style={{ flex: 1 }}>
-            <label className="fld">Default provider (per-agent editable below)</label>
-            <select value={defaultProvider} onChange={(e) => setDefaultProvider(e.target.value)} style={{ ...inp }} disabled={creating}>
+            <label className="fld">Default provider (editable per agent)</label>
+            <select className="fld-input" value={defaultProvider} onChange={(e) => setDefaultProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={creating}>
               {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
             </select>
           </div>
         </div>
 
-        {err && <div style={{ color: '#ff8b80', fontSize: 12, margin: '6px 0' }}>{err}</div>}
+        {err && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, margin: '10px 0 0' }}>{err}</div>}
 
         {!edits && (
           <button className="primary" style={{ width: '100%', marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
@@ -188,37 +188,37 @@ export default function MakeAppView(): JSX.Element {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <strong style={{ fontSize: 14 }}>{office.name}</strong>
               <span className="badge">{edits.length} agents</span>
-              <span style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>— edit names &amp; models below</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>— edit names &amp; models below</span>
             </div>
             {edits.length === 0 && <div className="empty" style={{ fontSize: 12, padding: 12 }}>No team was generated — you can still set it up in the browser.</div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {edits.map((a, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#111725', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
                   <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: (a.color || '#2a3350') + '22', border: `1px solid ${a.color || '#2a3350'}` }}>{a.emoji || '🧑'}</span>
-                  <input value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
+                  <input className="fld-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
                     style={{ ...inp, margin: 0, flex: '1 1 140px', minWidth: 100 }} disabled={spawning} />
-                  <select value={a.provider} onChange={(e) => patchEdit(i, { provider: e.target.value })} aria-label={`Agent ${i + 1} provider`}
+                  <select className="fld-input" value={a.provider} onChange={(e) => patchEdit(i, { provider: e.target.value })} aria-label={`Agent ${i + 1} provider`}
                     style={{ ...inp, margin: 0, flex: '0 0 150px' }} disabled={spawning}>
                     {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
                   </select>
-                  <input value={a.model} onChange={(e) => patchEdit(i, { model: e.target.value })} placeholder="model (default)" aria-label={`Agent ${i + 1} model`}
+                  <input className="fld-input" value={a.model} onChange={(e) => patchEdit(i, { model: e.target.value })} placeholder="default model" aria-label={`Agent ${i + 1} model`}
                     style={{ ...inp, margin: 0, flex: '0 0 130px' }} disabled={spawning} />
                 </div>
               ))}
             </div>
 
             {edits.length > 0 && (
-              <div style={{ marginTop: 16, padding: 12, background: '#0d1420', border: '1px solid var(--border)', borderRadius: 8 }}>
+              <div style={{ marginTop: 16, padding: 14, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
                 <label className="fld">Spawn locally — folder (one workspace per agent is created here)</label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
+                  <input className="fld-input" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
                   <button onClick={pickFolder} disabled={spawning}>Browse</button>
                 </div>
                 <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={spawnLocal}>
                   {spawning ? 'Spawning…' : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
                 </button>
-                {spawnMsg && <div style={{ color: 'var(--green,#3fb950)', fontSize: 12, marginTop: 8 }}>{spawnMsg}</div>}
+                {spawnMsg && <div role="status" style={{ color: 'var(--green)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{spawnMsg}</div>}
               </div>
             )}
 
@@ -233,7 +233,9 @@ export default function MakeAppView(): JSX.Element {
   )
 }
 
+// Match the app-wide input styling (styles.css `input,select,textarea`) so these
+// inline-styled fields read as the same control set as the rest of the app.
 const inp: React.CSSProperties = {
-  width: '100%', boxSizing: 'border-box', marginBottom: 8, padding: '7px 9px',
-  background: '#1b2233', border: '1px solid #2a3350', borderRadius: 6, color: '#e6edf3', fontSize: 13
+  width: '100%', boxSizing: 'border-box', marginBottom: 8, padding: '8px 10px',
+  background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--fg)', fontSize: 13
 }
