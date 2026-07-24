@@ -121,6 +121,7 @@ export default function App(): JSX.Element {
   const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
   const [restarting, setRestarting] = useState<Set<string>>(new Set())  // agents mid-restart (stop→start)
   const [checked, setChecked] = useState<Set<string>>(new Set())    // multi-select for bulk actions
+  const [bulkBusy, setBulkBusy] = useState<'start' | 'stop' | 'restart' | 'remove' | null>(null)  // bulk op in flight — disables the bar + spins the active button
   const logsRef = useRef<Map<string, string>>(new Map())
   // Log lines arrive at HIGH frequency — every running agent streams a chunk on each
   // stdout/stderr `data` event (7 loops in an office = many per second). Forcing a
@@ -285,20 +286,27 @@ export default function App(): JSX.Element {
   // case that Start-all / Stop-all can't target.
   const bulk = async (kind: 'start' | 'stop' | 'restart' | 'remove') => {
     const paths = [...checked]
-    if (!paths.length) return
+    // Ignore re-clicks while a bulk op is already running (feedback-at-button:
+    // bulkBusy disables the bar, but guard here too against a stray dispatch).
+    if (!paths.length || bulkBusy) return
     // Stop is non-destructive → no confirm. Remove is, so confirm via the native
     // main-process dialog (the sandboxed window.confirm is unreliable).
     if (kind === 'remove' && !(await window.api.confirmDialog(`Remove ${paths.length} selected agent${paths.length === 1 ? '' : 's'} from the list?`, 'Workspace files are kept.'))) return
-    for (const p of paths) {
-      const a = agents.find((x) => x.path === p)
-      if (!a) continue
-      if (kind === 'start' && !a.running) await window.api.startAgent(p)
-      else if (kind === 'stop' && a.running) await window.api.stopAgent(p)
-      else if (kind === 'restart') { if (a.running) { await window.api.stopAgent(p); await new Promise((r) => setTimeout(r, 600)) } await window.api.startAgent(p) }
-      else if (kind === 'remove') { await window.api.removeAgent(p); if (selected === p) setSelected(null) }
+    setBulkBusy(kind)
+    try {
+      for (const p of paths) {
+        const a = agents.find((x) => x.path === p)
+        if (!a) continue
+        if (kind === 'start' && !a.running) await window.api.startAgent(p)
+        else if (kind === 'stop' && a.running) await window.api.stopAgent(p)
+        else if (kind === 'restart') { if (a.running) { await window.api.stopAgent(p); await new Promise((r) => setTimeout(r, 600)) } await window.api.startAgent(p) }
+        else if (kind === 'remove') { await window.api.removeAgent(p); if (selected === p) setSelected(null) }
+      }
+      setChecked(new Set())
+      refresh()
+    } finally {
+      setBulkBusy(null)
     }
-    setChecked(new Set())
-    refresh()
   }
 
   // Power-operator keyboard shortcuts: j/k (or ↑/↓) move selection, s toggles
@@ -399,14 +407,16 @@ export default function App(): JSX.Element {
           </div>
         )}
         {checked.size > 0 && (
-          <div className="bulk-bar" role="toolbar" aria-label="Bulk actions for selected agents">
+          <div className="bulk-bar" role="toolbar" aria-label="Bulk actions for selected agents" aria-busy={!!bulkBusy}>
             <strong>{checked.size} selected</strong>
             <div className="spacer" />
-            <button title="Start selected" aria-label="Start selected" onClick={() => bulk('start')}>▶</button>
-            <button className="danger" title="Stop selected" aria-label="Stop selected" onClick={() => bulk('stop')}>■</button>
-            <button title="Restart selected" aria-label="Restart selected" onClick={() => bulk('restart')}>↻</button>
-            <button className="danger" title="Remove selected from list" aria-label="Remove selected from list" onClick={() => bulk('remove')}>🗑</button>
-            <button title="Clear selection" aria-label="Clear selection" onClick={() => setChecked(new Set())}>✕</button>
+            {/* Feedback-at-button: while a bulk op runs the whole bar disables and the
+                active action shows a "…" so it can't be double-fired and isn't silent. */}
+            <button title="Start selected" aria-label="Start selected" disabled={!!bulkBusy} onClick={() => bulk('start')}>{bulkBusy === 'start' ? '…' : '▶'}</button>
+            <button className="danger" title="Stop selected" aria-label="Stop selected" disabled={!!bulkBusy} onClick={() => bulk('stop')}>{bulkBusy === 'stop' ? '…' : '■'}</button>
+            <button title="Restart selected" aria-label="Restart selected" disabled={!!bulkBusy} onClick={() => bulk('restart')}>{bulkBusy === 'restart' ? '…' : '↻'}</button>
+            <button className="danger" title="Remove selected from list" aria-label="Remove selected from list" disabled={!!bulkBusy} onClick={() => bulk('remove')}>{bulkBusy === 'remove' ? '…' : '🗑'}</button>
+            <button title="Clear selection" aria-label="Clear selection" disabled={!!bulkBusy} onClick={() => setChecked(new Set())}>✕</button>
           </div>
         )}
         <div className="agent-list">
