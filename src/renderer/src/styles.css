@@ -33,7 +33,7 @@ body {
 .topbar .brand .logo { color: var(--accent); }
 .topnav { display: flex; gap: 2px; }
 .topnav-item { background: none; border: 1px solid transparent; color: var(--fg2); padding: 6px 12px;
-  border-radius: 7px; font-size: 13px; }
+  border-radius: 6px; font-size: 13px; }
 .topnav-item:hover { color: var(--fg); border-color: var(--border); }
 .topnav-item.active { color: var(--fg); background: var(--accent-dim); border-color: var(--accent); }
 .topbar .spacer { flex: 1; }
@@ -87,9 +87,9 @@ body {
 .attention-banner.stalled { border-color: var(--amber); background: rgba(210,153,34,0.08); }
 .attention-icon { font-size: 16px; flex: 0 0 auto; }
 .attention-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; }
-.attention-hint { color: var(--gray); }
+.attention-hint { color: var(--fg2); }
 .attn-tag { margin-left: 5px; font-size: 11px; }
-.card-note { margin-top: 4px; font-size: 11px; color: var(--gray); line-height: 1.4; }
+.card-note { margin-top: 4px; font-size: 11px; color: var(--fg2); line-height: 1.4; }
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 /* main */

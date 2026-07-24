@@ -119,6 +119,7 @@ export default function App(): JSX.Element {
   const [cliMissing, setCliMissing] = useState(false)
   const [ioBusy, setIoBusy] = useState(false)              // export/import in flight (long zips outlive the toast)
   const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
+  const [restarting, setRestarting] = useState<Set<string>>(new Set())  // agents mid-restart (stop→start)
   const [checked, setChecked] = useState<Set<string>>(new Set())    // multi-select for bulk actions
   const logsRef = useRef<Map<string, string>>(new Map())
   // Log lines arrive at HIGH frequency — every running agent streams a chunk on each
@@ -237,11 +238,17 @@ export default function App(): JSX.Element {
   // Stop-then-start, for applying config/MCP changes in one click on a running
   // agent (and recovering a crashed/stalled one).
   const restart = async (a: AgentState) => {
-    if (a.running) { await window.api.stopAgent(a.path); await new Promise((r) => setTimeout(r, 800)) }
-    logsRef.current.set(a.path, '')
-    const r = await window.api.startAgent(a.path)
-    if ((r as any).error) showToast((r as any).error, true)
-    else { selectAgent(a.path); setTab('output') }
+    if (restarting.has(a.path)) return
+    setRestarting((s) => new Set(s).add(a.path))
+    try {
+      if (a.running) { await window.api.stopAgent(a.path); await new Promise((r) => setTimeout(r, 800)) }
+      logsRef.current.set(a.path, '')
+      const r = await window.api.startAgent(a.path)
+      if ((r as any).error) showToast((r as any).error, true)
+      else { selectAgent(a.path); setTab('output') }
+    } finally {
+      setRestarting((s) => { const n = new Set(s); n.delete(a.path); return n })
+    }
   }
 
   // Fleet-wide lifecycle — the most frequent daily action, previously one agent
@@ -373,7 +380,7 @@ export default function App(): JSX.Element {
         </div>
         {agents.length > 0 && (
           <div className="fleet-actions">
-            <button onClick={startAll} disabled={cliMissing || runningCount === agents.length} title="Start every stopped agent">▶ Start all</button>
+            <button className="start" onClick={startAll} disabled={cliMissing || runningCount === agents.length} title="Start every stopped agent">▶ Start all</button>
             <button className="danger" onClick={stopAll} disabled={runningCount === 0} title="Stop every running agent">■ Stop all</button>
           </div>
         )}
@@ -486,7 +493,7 @@ export default function App(): JSX.Element {
               {current.running
                 ? <button className="danger" disabled={stopping.has(current.path)} onClick={() => stop(current)}>{stopping.has(current.path) ? 'Stopping…' : '■ Stop'}</button>
                 : <button className="start" onClick={() => start(current)}>▶ Start</button>}
-              {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" onClick={() => restart(current)}>↻ Restart</button>}
+              {current.running && <button title="Restart (stop then start) — applies Config / MCP changes" disabled={restarting.has(current.path)} onClick={() => restart(current)}>{restarting.has(current.path) ? '↻ Restarting…' : '↻ Restart'}</button>}
               <button title="Open workspace folder" onClick={() => window.api.openPath(current.path)}>📁 Open</button>
               {/* Connecting a local agent to an office is the app's core flow — promote
                   it to a first-class accent button (only while unbound; a bound agent
@@ -509,7 +516,7 @@ export default function App(): JSX.Element {
                   <button className="start" title="Open the workspace folder so you can run the provider login in a terminal" onClick={() => window.api.openPath(current.path)}>📁 Open workspace</button>
                 )}
                 {(current.activity === 'crashed' || current.activity === 'stalled') && (
-                  <button className="start" onClick={() => restart(current)}>↻ Restart</button>
+                  <button className="start" disabled={restarting.has(current.path)} onClick={() => restart(current)}>{restarting.has(current.path) ? '↻ Restarting…' : '↻ Restart'}</button>
                 )}
               </div>
             )}
@@ -609,7 +616,7 @@ function MessageBar({ path, running, showToast, nudge, onSent }: { path: string;
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
         />
-        <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? '…' : '＋ Add task'}</button>
+        <button className="primary" disabled={busy || !text.trim()} onClick={() => void send()}>{busy ? 'Adding…' : '＋ Add task'}</button>
       </div>
     </>
   )
