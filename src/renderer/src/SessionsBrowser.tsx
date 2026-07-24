@@ -1,6 +1,15 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, type CSSProperties } from 'react'
 import TerminalPane from './TerminalPane'
 import { CONNECT_LABEL } from './App'
+
+// One shared "live" green pill so the session list, transcript head and the
+// spawned-terminal head all read as the same status chip (was three different
+// hardcoded #12351f/#7ee2a0 copies). Matches the app's translucent-green
+// .office-pill language instead of an off-palette one-off.
+const livePill: CSSProperties = { background: 'rgba(63,185,80,.15)', borderColor: 'var(--green)', color: 'var(--green)' }
+// Every top bar in this view shares one height + padding so the list header and
+// the right-pane heads line up across the vertical divider.
+const headBar: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, minHeight: 49 }
 
 interface SessionMeta {
   id: string; file: string; project: string; cwd: string
@@ -22,6 +31,7 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
   const [sel, setSel] = useState<SessionMeta | null>(null)
   const [msgs, setMsgs] = useState<SessionMsg[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [term, setTerm] = useState<{ id: string; cwd: string; command?: string; name?: string } | null>(null)
   const [connectOpen, setConnectOpen] = useState(false)
   const [offices, setOffices] = useState<{ slug: string; id: number; name: string }[]>([])
@@ -35,6 +45,13 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
     const l = (await window.api.sessionsDiscover()) as SessionMeta[]
     setList(l); setLoading(false)
   }, [])
+
+  // Manual ↻ press: give feedback-at-button (the icon is briefly disabled/dimmed)
+  // so a click on the already-auto-refreshing list still visibly registers.
+  const manualRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try { await refresh() } finally { setTimeout(() => setRefreshing(false), 400) }
+  }, [refresh])
 
   // Rescan on open and every 5s WHILE visible. The view stays mounted across tab
   // switches now (so a live Resume PTY survives), so a hidden tab shouldn't keep
@@ -121,12 +138,12 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
       {/* session list */}
       <div style={{ width: 320, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={headBar}>
           <strong style={{ fontSize: 13 }}>🗂 Claude sessions</strong>
           <span className="badge">{list.length}</span>
           <div style={{ flex: 1 }} />
           <button className="primary" onClick={spawnClaude} title="Spawn a new interactive Claude session in a folder">＋ Spawn Claude</button>
-          <button onClick={refresh} title="Rescan sessions" aria-label="Rescan sessions">↻</button>
+          <button onClick={manualRefresh} disabled={refreshing} title="Rescan sessions" aria-label="Rescan sessions" style={{ padding: '7px 11px' }}>↻</button>
         </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
           {loading && <div className="empty" style={{ padding: 20, fontSize: 12 }}>Scanning ~/.claude…</div>}
@@ -136,13 +153,13 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
               onClick={() => openSession(s)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s) } }}
               className={'agent-row' + (sel?.file === s.file ? ' active' : '')}
-              style={{ display: 'block', padding: '8px 12px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="dot" style={{ background: s.live ? 'var(--green,#3fb950)' : '#484f58' }} title={s.live ? 'live' : 'idle'} />
-                <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
-                {s.live && <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>live</span>}
+              style={{ display: 'block', padding: '9px 14px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className={'dot ' + (s.live ? 'working' : 'stopped')} title={s.live ? 'live' : 'idle'} />
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
+                {s.live && <span className="badge" style={livePill}>live</span>}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div className="sub" style={{ marginTop: 3, marginLeft: 17 }}>
                 📁 {base(s.cwd)} · {s.msgs} msgs · {ago(s.mtime)}
               </div>
             </div>
@@ -154,10 +171,9 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         {term && (
           <>
-            <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● {term.name ?? 'claude'}</span>
-              <div style={{ fontSize: 12, color: 'var(--muted,#8b949e)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{term.cwd}</div>
-              <div style={{ flex: 1 }} />
+            <div style={headBar}>
+              <span className="badge" style={livePill}>● {term.name ?? 'claude'}</span>
+              <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{term.cwd}</div>
               <button className="danger" onClick={() => setTerm(null)} title="End session &amp; close pane">■ Close</button>
             </div>
             <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
@@ -168,40 +184,39 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
         {!term && !sel && <div className="empty" style={{ margin: 'auto' }}>Select a session to capture &amp; stream it live<br />— or <b>＋ Spawn Claude</b> to start a new one</div>}
         {!term && sel && (
           <>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ minWidth: 0 }}>
+            <div style={headBar}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel.title}</div>
-                <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{sel.cwd} · {sel.id.slice(0, 8)}</div>
+                <div className="sub" style={{ marginTop: 2 }}>{sel.cwd} · {sel.id.slice(0, 8)}</div>
               </div>
-              {sel.live && <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● live</span>}
-              <div style={{ flex: 1 }} />
+              {sel.live && <span className="badge" style={livePill}>● live</span>}
               <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ {CONNECT_LABEL}</button>
               <button onClick={() => window.api.openPath(sel.cwd)} title="Open workspace folder">📁 Open</button>
             </div>
             {connectOpen && (
-              <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#0d1117' }}>
-                <span id="connect-office-label" style={{ fontSize: 12, color: 'var(--muted,#8b949e)' }}>☁ Resume live as a character in:</span>
-                <select aria-labelledby="connect-office-label" value={officeSel} onChange={(e) => setOfficeSel(e.target.value)} style={{ fontSize: 12, padding: '3px 6px' }}>
+              <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--bg)' }}>
+                <span id="connect-office-label" style={{ fontSize: 12, color: 'var(--muted)' }}>☁ Resume live as a character in:</span>
+                <select aria-labelledby="connect-office-label" value={officeSel} onChange={(e) => setOfficeSel(e.target.value)} style={{ width: 'auto', fontSize: 12, padding: '5px 8px' }}>
                   {offices.length === 0 && <option value="">(no offices)</option>}
                   {offices.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
                 </select>
                 <button className="primary" onClick={confirmConnect} disabled={connectBusy || !officeSel}>{connectBusy ? 'Connecting…' : 'Connect & resume live'}</button>
                 <button onClick={() => setConnectOpen(false)}>Cancel</button>
-                {connectErr && <span role="alert" style={{ fontSize: 12, color: '#f85149' }}>{connectErr}</span>}
+                {connectErr && <span role="alert" style={{ fontSize: 12, color: 'var(--red)' }}>{connectErr}</span>}
               </div>
             )}
-            <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
               {msgs.length === 0 && <div className="empty" style={{ fontSize: 12 }}>(empty transcript)</div>}
               {msgs.map((m, i) => (
                 <div key={i} style={{
                   alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                   maxWidth: '85%',
-                  background: m.role === 'user' ? '#16324a' : m.role === 'assistant' ? '#1b2230' : 'transparent',
+                  background: m.role === 'user' ? 'var(--accent-dim)' : m.role === 'assistant' ? 'var(--bg2)' : 'transparent',
                   border: m.role === 'system' ? '1px dashed var(--border)' : '1px solid var(--border)',
-                  borderRadius: 8, padding: '6px 10px', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                  color: m.role === 'system' ? 'var(--muted,#8b949e)' : 'var(--text,#e6edf3)'
+                  borderRadius: 8, padding: '7px 11px', fontSize: 12, lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                  color: m.role === 'system' ? 'var(--muted)' : 'var(--text)'
                 }}>
-                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted,#8b949e)', marginBottom: 2 }}>{m.role}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 3 }}>{m.role}</div>
                   {m.text}
                 </div>
               ))}
