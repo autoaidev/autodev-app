@@ -12,6 +12,7 @@ interface AgentState {
   sessionName?: string
   wsUrl?: string
   running: boolean
+  online?: boolean
   activity: Activity
   tasks: { total: number; remaining: number; done: number }
   currentTask?: string
@@ -431,7 +432,7 @@ export default function App(): JSX.Element {
                 onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
               <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
               <div className="meta">
-                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className="office-chip" title="Connected to an office">● office</span>}</div>
+                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={a.online ? 'Online in the office' : 'Bound to an office — currently offline'}>● office</span>}</div>
                 <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
               </div>
             </div>
@@ -492,7 +493,7 @@ export default function App(): JSX.Element {
               {/* Bound state: a GREEN pill (not a passive grey badge) that opens a
                   small menu to change the binding or disconnect. */}
               {current.wsUrl && (
-                <OverflowMenu trigger={<>● office</>} triggerClass="office-pill" triggerLabel="Connected to office — change or disconnect"
+                <OverflowMenu trigger={<>● office{current.online ? '' : ' (offline)'}</>} triggerClass={'office-pill' + (current.online ? '' : ' offline')} triggerLabel={current.online ? 'Online in the office — change or disconnect' : 'Bound to office (offline) — change or disconnect'}
                   items={[
                     { label: '☁ Change binding', onClick: () => setConnectFor(current.path) },
                     { label: '⏻ Disconnect', danger: true, sep: true, onClick: () => showToast('Disconnecting a bound agent isn’t wired yet — use “Change binding” to rebind it for now.', true) }

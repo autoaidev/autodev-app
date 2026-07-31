@@ -85,6 +85,27 @@ function createWindow(): void {
 function broadcast(channel: string, payload: unknown): void {
   mainWindow?.webContents.send(channel, payload)
 }
+
+// --- pixel-office presence → local agent list ------------------------------
+// The Agents list is built from local process detection only; on its own it can't
+// see that a workspace's office character is ONLINE (kept alive by an mcp-operate
+// bridge or a loop on a remote VM). Poll the office's isConnected truth and feed
+// it to the manager so those agents read as running/online instead of "Stopped".
+// Best-effort: any failure (not logged in, offline) leaves presence empty, so the
+// list falls back to purely-local truth. Only re-broadcast when it actually changed.
+let _officePoll: NodeJS.Timeout | null = null
+async function refreshOfficePresence(): Promise<void> {
+  try {
+    const ags = await office.listAgents()
+    const changed = manager.setOfficeOnline(ags.map((a) => ({ slug: a.slug, id: a.id, online: a.online, status: a.status })))
+    if (changed) broadcast('agents:changed', null)
+  } catch { /* not connected / offline — leave office presence empty */ }
+}
+function startOfficePolling(): void {
+  if (_officePoll) return
+  void refreshOfficePresence()
+  _officePoll = setInterval(refreshOfficePresence, 8000)
+}
 manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))
 manager.on('log', (l) => broadcast('agent:log', l))
@@ -187,8 +208,18 @@ ipcMain.handle('pty:write', (_e, id: string, data: string) => { ptys.write(id, d
 ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) => { ptys.resize(id, cols, rows); return true })
 ipcMain.handle('pty:kill', (_e, id: string) => { ptys.kill(id); return true })
 // --- Remote pixel-office: connect + list + operate agents -------------------
-ipcMain.handle('office:login', (_e, baseUrl: string, email: string, password: string) => office.login(baseUrl, email, password))
-ipcMain.handle('office:autoConnect', () => office.autoConnect())
+// After a fresh login / token re-verify, immediately refresh office presence so
+// the Agents list reflects online characters without waiting for the 8s poll.
+ipcMain.handle('office:login', async (_e, baseUrl: string, email: string, password: string) => {
+  const r = await office.login(baseUrl, email, password)
+  if ((r as { ok?: boolean }).ok) { startOfficePolling(); void refreshOfficePresence() }
+  return r
+})
+ipcMain.handle('office:autoConnect', async () => {
+  const ok = await office.autoConnect()
+  if (ok) { startOfficePolling(); void refreshOfficePresence() }
+  return ok
+})
 ipcMain.handle('office:status', () => office.status())
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
@@ -204,6 +235,9 @@ ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, cou
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  // Re-verify the stored office token, then start polling office presence so the
+  // Agents list reflects which characters are live in the office from launch.
+  office.autoConnect().catch(() => false).finally(() => startOfficePolling())
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 

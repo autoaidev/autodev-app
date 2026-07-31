@@ -66,6 +66,10 @@ export interface AgentState {
   sessionName?: string
   wsUrl?: string
   running: boolean
+  /** Connected as a live character in the pixel office (presence WS open) — true
+   *  even when this app can see no LOCAL loop (e.g. an mcp-operate bridge or a
+   *  loop running on a remote VM keeps the office character online). */
+  online?: boolean
   activity: Activity
   tasks: { total: number; remaining: number; done: number }
   currentTask?: string
@@ -98,6 +102,15 @@ export class AgentManager extends EventEmitter {
   private _lastExit = new Map<string, number | null>()
   /** State detected from the live stdout stream (reauth / rate-limit pauses). */
   private _streamState = new Map<string, { activity: Activity; error: string }>()
+  /**
+   * Office presence, keyed by BOTH the office-agent slug and its id (either can
+   * match a workspace). Pushed by the main process from the pixel-office
+   * `listAgents` poll (setOfficeOnline). Lets readState() reflect an agent that
+   * is ONLINE in the office but has no locally-detected `autodev start` loop —
+   * e.g. an mcp-operate bridge or a loop on a remote VM — instead of falsely
+   * painting it "Stopped". Empty when no office is connected (⇒ purely local truth).
+   */
+  private _officeOnline = new Map<string, { online: boolean; status?: string }>()
   private readonly _registryFile = join(app.getPath('userData'), 'agents.json')
 
   /**
@@ -219,16 +232,64 @@ export class AgentManager extends EventEmitter {
     return pids
   }
 
+  /**
+   * Push the latest pixel-office presence (from the main process's office
+   * listAgents poll). Rebuilds the lookup keyed by slug AND id so a workspace can
+   * be matched by whichever it carries. Returns whether anything actually changed
+   * (so the caller can skip a redundant renderer refresh).
+   */
+  setOfficeOnline(entries: Array<{ slug?: string; id?: string; online: boolean; status?: string }>): boolean {
+    const next = new Map<string, { online: boolean; status?: string }>()
+    for (const e of entries) {
+      const v = { online: !!e.online, status: e.status }
+      if (e.slug) next.set(String(e.slug).toLowerCase(), v)
+      if (e.id) next.set(String(e.id).toLowerCase(), v)
+    }
+    // Cheap change-detection: same size + every key maps to the same online flag.
+    let changed = next.size !== this._officeOnline.size
+    if (!changed) {
+      for (const [k, v] of next) {
+        const prev = this._officeOnline.get(k)
+        if (!prev || prev.online !== v.online || prev.status !== v.status) { changed = true; break }
+      }
+    }
+    this._officeOnline = next
+    return changed
+  }
+
+  /**
+   * The office presence for a workspace, matched by the office endpoint slug
+   * embedded in its wsUrl (`…&endpoint=<slug>`) or its settings `agentId`.
+   * Undefined when no office is connected or this workspace isn't office-bound.
+   */
+  private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string } | undefined {
+    if (this._officeOnline.size === 0) return undefined
+    let slug: string | undefined
+    if (wsUrl) {
+      try { slug = new URL(wsUrl).searchParams.get('endpoint') ?? undefined }
+      catch { const m = /[?&]endpoint=([^&]+)/.exec(wsUrl); slug = m ? decodeURIComponent(m[1]) : undefined }
+    }
+    return (slug ? this._officeOnline.get(slug.toLowerCase()) : undefined)
+      ?? (agentId ? this._officeOnline.get(String(agentId).toLowerCase()) : undefined)
+  }
+
   // --- state reading -------------------------------------------------------
   readState(path: string): AgentState {
     const settings = this._readJson(join(path, '.autodev', 'settings.json')) ?? {}
     const todo = this._readTodoCounts(join(path, 'TODO.md'))
     const ownProc = this._procs.has(path)
-    const running = ownProc || this._externalPid(path) !== null
+    // "Running" is true when there's a LOCAL loop (our child or an external
+    // `autodev start` matched by cwd) OR the character is live in the office. The
+    // office branch catches agents kept online by something this app can't see
+    // locally — an mcp-operate bridge or a loop on a remote VM.
+    const localRunning = ownProc || this._externalPid(path) !== null
+    const presence = this._officePresence(settings.wsUrl, settings.agentId)
+    const officeOnline = !!presence?.online
+    const running = localRunning || officeOnline
     let activity: Activity
     let error: string | undefined
     let exitCode: number | null | undefined
-    if (running) {
+    if (localRunning) {
       const ss = this._streamState.get(path)
       if (ss) {
         // A live reauth/rate-limit pause wins over the hooks read (the loop is
@@ -246,6 +307,11 @@ export class AgentManager extends EventEmitter {
         else if (activity === 'needs-auth') error = 'Provider login expired — re-authenticate to resume.'
         else if (activity === 'rate-limited') error = 'Rate-limited by the provider — auto-resumes when the window clears.'
       }
+    } else if (officeOnline) {
+      // Live in the office (presence WS open) but no local loop we can detect —
+      // reflect the office's own status rather than a false "Stopped". The office
+      // reports 'working' while the character is mid-turn, else it's idle-polling.
+      activity = presence?.status === 'working' ? 'working' : 'idle'
     } else {
       exitCode = this._lastExit.get(path)
       if (typeof exitCode === 'number' && exitCode !== 0) {
@@ -262,6 +328,7 @@ export class AgentManager extends EventEmitter {
       sessionName: settings.sessionName,
       wsUrl: settings.wsUrl,
       running,
+      online: officeOnline,
       activity,
       tasks: { total: todo.total, remaining: todo.remaining, done: todo.done },
       currentTask: todo.currentTask,
