@@ -77,6 +77,15 @@ export interface AgentState {
   error?: string
   /** Last child exit code when the loop stopped (non-zero ⇒ crashed). */
   exitCode?: number | null
+  /** The office character's ENDPOINT/agent slug, parsed from the wsUrl
+   *  `endpoint=<slug>` param — the ref the app uses to fetch its office chat. */
+  officeAgentSlug?: string
+  /** The office SLUG this character belongs to, resolved from the office
+   *  presence poll (undefined until the office has been listed). A hint for the
+   *  chat fetch; the fetch also scans offices when this is absent. */
+  officeSlug?: string
+  /** The numeric-ish office agent id, resolved from the presence poll. */
+  officeAgentId?: string
 }
 
 const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])
@@ -110,7 +119,7 @@ export class AgentManager extends EventEmitter {
    * e.g. an mcp-operate bridge or a loop on a remote VM — instead of falsely
    * painting it "Stopped". Empty when no office is connected (⇒ purely local truth).
    */
-  private _officeOnline = new Map<string, { online: boolean; status?: string }>()
+  private _officeOnline = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string }>()
   private readonly _registryFile = join(app.getPath('userData'), 'agents.json')
 
   /**
@@ -238,10 +247,10 @@ export class AgentManager extends EventEmitter {
    * be matched by whichever it carries. Returns whether anything actually changed
    * (so the caller can skip a redundant renderer refresh).
    */
-  setOfficeOnline(entries: Array<{ slug?: string; id?: string; online: boolean; status?: string }>): boolean {
-    const next = new Map<string, { online: boolean; status?: string }>()
+  setOfficeOnline(entries: Array<{ slug?: string; id?: string; online: boolean; status?: string; officeSlug?: string }>): boolean {
+    const next = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string }>()
     for (const e of entries) {
-      const v = { online: !!e.online, status: e.status }
+      const v = { online: !!e.online, status: e.status, officeSlug: e.officeSlug, agentId: e.id }
       if (e.slug) next.set(String(e.slug).toLowerCase(), v)
       if (e.id) next.set(String(e.id).toLowerCase(), v)
     }
@@ -262,15 +271,18 @@ export class AgentManager extends EventEmitter {
    * embedded in its wsUrl (`…&endpoint=<slug>`) or its settings `agentId`.
    * Undefined when no office is connected or this workspace isn't office-bound.
    */
-  private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string } | undefined {
+  private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string; officeSlug?: string; agentId?: string } | undefined {
     if (this._officeOnline.size === 0) return undefined
-    let slug: string | undefined
-    if (wsUrl) {
-      try { slug = new URL(wsUrl).searchParams.get('endpoint') ?? undefined }
-      catch { const m = /[?&]endpoint=([^&]+)/.exec(wsUrl); slug = m ? decodeURIComponent(m[1]) : undefined }
-    }
+    const slug = this._endpointSlug(wsUrl)
     return (slug ? this._officeOnline.get(slug.toLowerCase()) : undefined)
       ?? (agentId ? this._officeOnline.get(String(agentId).toLowerCase()) : undefined)
+  }
+
+  /** The office character's endpoint/agent slug from a wsUrl `endpoint=<slug>`. */
+  private _endpointSlug(wsUrl?: string): string | undefined {
+    if (!wsUrl) return undefined
+    try { return new URL(wsUrl).searchParams.get('endpoint') ?? undefined }
+    catch { const m = /[?&]endpoint=([^&]+)/.exec(wsUrl); return m ? decodeURIComponent(m[1]) : undefined }
   }
 
   // --- state reading -------------------------------------------------------
@@ -334,7 +346,12 @@ export class AgentManager extends EventEmitter {
       currentTask: todo.currentTask,
       lastOutput: this._latestOutput(path, settings.provider),
       error,
-      exitCode
+      exitCode,
+      // Office chat identity: the endpoint slug is always derivable from the wsUrl;
+      // the resolved office slug + agent id only once the office has been polled.
+      officeAgentSlug: this._endpointSlug(settings.wsUrl) || (settings.agentId || undefined),
+      officeSlug: presence?.officeSlug,
+      officeAgentId: presence?.agentId
     }
   }
 

@@ -117,6 +117,28 @@ body {
 .msgbar textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; line-height: 1.45; }
 .msgbar button { flex-shrink: 0; }
 
+/* Chat tab: an office character's live conversation (read + steer). Fills the
+   panel with a scrolling feed above a pinned composer. */
+.chat-tab { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.chat-feed { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
+.chat-status { margin: auto; color: var(--fg2); font-size: 13px; text-align: center; max-width: 360px; padding: 20px; }
+.chat-status.err { color: var(--red); }
+.chat-row { display: flex; }
+.chat-row.user { justify-content: flex-end; }
+.chat-row.assistant, .chat-row.a2a { justify-content: flex-start; }
+.chat-row.system { justify-content: center; }
+.chat-bubble { max-width: 78%; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 11px; }
+.chat-row.user .chat-bubble { background: var(--accent-dim); border-color: var(--accent); }
+.chat-row.a2a .chat-bubble { border-color: #8957e5; }
+.chat-meta { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; margin-bottom: 3px; }
+.chat-author { font-size: 11px; font-weight: 600; color: var(--fg2); }
+.chat-meta time, .chat-marker time { font-size: 10px; color: var(--gray); flex-shrink: 0; }
+.chat-text { font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+.chat-marker { display: flex; gap: 8px; align-items: baseline; color: var(--fg2); font-size: 11px; font-style: italic; padding: 2px 4px; }
+.chat-composer { flex-shrink: 0; display: flex; gap: 10px; align-items: flex-end; padding-top: 12px; margin-top: 10px; border-top: 1px solid var(--border); }
+.chat-composer textarea { flex: 1; resize: none; min-height: 38px; max-height: 120px; line-height: 1.45; }
+.chat-composer button { flex-shrink: 0; }
+
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
 .card .k { color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }

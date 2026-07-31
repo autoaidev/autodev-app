@@ -97,7 +97,7 @@ let _officePoll: NodeJS.Timeout | null = null
 async function refreshOfficePresence(): Promise<void> {
   try {
     const ags = await office.listAgents()
-    const changed = manager.setOfficeOnline(ags.map((a) => ({ slug: a.slug, id: a.id, online: a.online, status: a.status })))
+    const changed = manager.setOfficeOnline(ags.map((a) => ({ slug: a.slug, id: a.id, online: a.online, status: a.status, officeSlug: a.officeSlug })))
     if (changed) broadcast('agents:changed', null)
   } catch { /* not connected / offline — leave office presence empty */ }
 }
@@ -225,6 +225,7 @@ ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
+ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string) => office.createCharacter(officeId, name))
 ipcMain.handle('office:offices', () => office.offices())
 ipcMain.handle('office:setupUrl', (_e, officeSlug: string, agentId: string) => office.setupUrl(officeSlug, agentId))

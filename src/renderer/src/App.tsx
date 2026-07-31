@@ -19,6 +19,12 @@ interface AgentState {
   lastOutput?: string
   error?: string
   exitCode?: number | null
+  // Office chat identity (surfaced by the main-process presence merge). The
+  // endpoint/agent slug is always known when the workspace is office-bound; the
+  // office slug + numeric agent id resolve once the office has been polled.
+  officeAgentSlug?: string
+  officeSlug?: string
+  officeAgentId?: string
 }
 
 // Human labels + whether the state needs the operator's attention (drives the
@@ -109,7 +115,7 @@ export default function App(): JSX.Element {
   const [openedMakeApp, setOpenedMakeApp] = useState(false)
   // Output-first: live activity is the evidence the agent is working, so it leads
   // instead of an Overview that mostly restates the head/sidebar chrome.
-  const [tab, setTab] = useState<'overview' | 'output' | 'sessions' | 'todo' | 'config'>('output')
+  const [tab, setTab] = useState<'overview' | 'chat' | 'output' | 'sessions' | 'todo' | 'config'>('output')
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
   const [creating, setCreating] = useState(false)
@@ -537,7 +543,7 @@ export default function App(): JSX.Element {
                 // Roving-tabindex tablist needs arrow-key nav (WAI-ARIA): move both
                 // selection AND focus, else the inactive tabIndex=-1 tabs are
                 // unreachable by keyboard.
-                const tabs = ['overview', 'output', 'sessions', 'todo', 'config'] as const
+                const tabs = ['overview', 'chat', 'output', 'sessions', 'todo', 'config'] as const
                 const i = tabs.indexOf(tab)
                 let ni = i
                 if (e.key === 'ArrowRight') ni = (i + 1) % tabs.length
@@ -549,10 +555,11 @@ export default function App(): JSX.Element {
                 setTab(tabs[ni])
                 ;(e.currentTarget.children[ni] as HTMLElement | undefined)?.focus()
               }}>
-              {(['overview', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
+              {(['overview', 'chat', 'output', 'sessions', 'todo', 'config'] as const).map((t) => (
                 <div key={t} role="tab" aria-selected={tab === t} tabIndex={tab === t ? 0 : -1}
                   className={'tab' + (tab === t ? ' active' : '')}
-                  title={t === 'sessions' ? 'Resume a past provider session for this workspace' : undefined}
+                  title={t === 'sessions' ? 'Resume a past provider session for this workspace'
+                    : t === 'chat' ? "This agent's live office conversation — read and message it" : undefined}
                   onClick={() => setTab(t)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab(t) } }}>
                   {t === 'sessions' ? 'Resume' : t[0].toUpperCase() + t.slice(1)}
@@ -562,14 +569,19 @@ export default function App(): JSX.Element {
 
             <div className="panel">
               {tab === 'overview' && <Overview a={current} />}
+              {tab === 'chat' && <ChatTab key={current.path} agent={current} showToast={showToast} />}
               {tab === 'output' && <Output getText={() => logsRef.current.get(current.path) || current.lastOutput || 'No output yet. Start the agent.'} subscribe={subscribeLog} />}
               {tab === 'sessions' && <SessionsTab path={current.path} provider={current.provider} showToast={showToast} />}
               {tab === 'todo' && <TodoTab path={current.path} />}
               {tab === 'config' && <Config a={current} onSaved={refresh} showToast={showToast} />}
             </div>
 
-            <MessageBar key={current.path} path={current.path} running={current.running} showToast={showToast}
-              nudge={nudgePath === current.path && current.tasks.total === 0} onSent={() => setNudgePath(null)} />
+            {/* The Chat tab has its own live-steer composer, so the task-queue bar
+                would be a confusing second input there — hide it on that tab only. */}
+            {tab !== 'chat' && (
+              <MessageBar key={current.path} path={current.path} running={current.running} showToast={showToast}
+                nudge={nudgePath === current.path && current.tasks.total === 0} onSent={() => setNudgePath(null)} />
+            )}
           </>
         )}
       </main>
@@ -589,6 +601,143 @@ export default function App(): JSX.Element {
 
 // Persistent composer at the bottom of the agent detail — sends a message/task
 // to the agent (appended to its TODO.md; the loop picks it up).
+// One normalized row of an office character's conversation (mirrors the main
+// process's OfficeMessage). role drives the bubble side/accent; kind refines it.
+interface ChatMessage { id: string; role: 'user' | 'assistant' | 'a2a' | 'system'; author: string; text: string; kind: string; at: number }
+type ChatResult = { ok: true; agentId: string; agentName: string; messages: ChatMessage[] } | { error: string }
+
+function fmtChatTime(ms: number): string {
+  if (!ms) return ''
+  try { return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) } catch { return '' }
+}
+
+/**
+ * The Chat tab: an office character's live conversation, read + reply, right in
+ * the app. The workspace only knows its endpoint/agent slug locally, so the fetch
+ * (office:messages) resolves the numeric office-agent id server-side and hands it
+ * back — we steer with THAT id. Polls every few seconds so it stays live while the
+ * agent works. Local-only agents (no office link) get a hint, not a crash.
+ */
+function ChatTab({ agent, showToast }: { agent: AgentState; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+  const ref = agent.officeAgentId || agent.officeAgentSlug || ''
+  const officeSlug = agent.officeSlug || ''
+  const [msgs, setMsgs] = useState<ChatMessage[]>([])
+  const [resolvedId, setResolvedId] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const feedRef = useRef<HTMLDivElement>(null)
+  const atBottomRef = useRef(true)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // Track whether the user is pinned to the bottom, so a poll refresh only
+  // auto-scrolls when they haven't scrolled up to read history.
+  const onScroll = (): void => {
+    const el = feedRef.current
+    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+  const scrollToBottom = (): void => {
+    const el = feedRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
+
+  useEffect(() => {
+    if (!ref) { setLoading(false); return }
+    let alive = true
+    const load = async (initial: boolean): Promise<void> => {
+      if (initial) setLoading(true)
+      const r = (await window.api.officeMessages(officeSlug, ref)) as ChatResult
+      if (!alive) return
+      if ('error' in r) {
+        // Keep any messages already shown on a transient poll error.
+        if (initial) setError(r.error)
+      } else {
+        setError('')
+        setResolvedId(r.agentId)
+        setMsgs(r.messages)
+      }
+      if (initial) setLoading(false)
+    }
+    void load(true)
+    const timer = setInterval(() => void load(false), 4000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [ref, officeSlug])
+
+  // Auto-scroll to the newest row when pinned to the bottom.
+  useEffect(() => { if (atBottomRef.current) scrollToBottom() }, [msgs.length])
+
+  const send = async (): Promise<void> => {
+    const t = draft.trim()
+    if (!t || sending) return
+    const targetId = resolvedId || agent.officeAgentId
+    if (!targetId) { showToast('Still linking this agent to its office — try again in a moment.', true); return }
+    setSending(true)
+    const r = (await window.api.officeSteer(targetId, t)) as { ok?: boolean; error?: string }
+    setSending(false)
+    if (r?.error) { showToast(r.error, true); return }
+    setDraft('')
+    atBottomRef.current = true
+    // Optimistically echo the sent message; the next poll reconciles it with the
+    // server's own record (matched away by the dedupe in the feed builder).
+    setMsgs((m) => [...m, { id: `local-${Date.now()}`, role: 'user', author: 'You', text: t, kind: 'steer', at: Date.now() }])
+    taRef.current?.focus()
+  }
+  const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() }
+  }
+
+  // Local-only workspace with no office character — chat needs an office link.
+  if (!ref) {
+    return (
+      <div className="empty" style={{ maxWidth: 420 }}>
+        <div style={{ fontSize: 28, marginBottom: 8 }}>💬</div>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>No office conversation</div>
+        <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+          This is a local agent. Connect it to a Pixel Office character
+          (“{CONNECT_LABEL}”) to read and message its conversation here.
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="chat-tab">
+      <div className="chat-feed" ref={feedRef} onScroll={onScroll} role="log" aria-label="Office conversation" aria-live="polite">
+        {loading && <div className="chat-status">Loading conversation…</div>}
+        {!loading && error && <div className="chat-status err">{error}</div>}
+        {!loading && !error && msgs.length === 0 && (
+          <div className="chat-status">No messages yet. Say hello below — it steers the agent live.</div>
+        )}
+        {msgs.map((m) => (
+          <div key={m.id} className={'chat-row ' + m.role}>
+            {m.role === 'system' ? (
+              <div className="chat-marker"><span>{m.text}</span><time>{fmtChatTime(m.at)}</time></div>
+            ) : (
+              <div className="chat-bubble">
+                <div className="chat-meta"><span className="chat-author">{m.author}</span><time>{fmtChatTime(m.at)}</time></div>
+                <div className="chat-text">{m.text}</div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="chat-composer">
+        <textarea
+          ref={taRef}
+          rows={1}
+          value={draft}
+          aria-label="Message this office agent (steers it live)"
+          placeholder={agent.online ? 'Message the agent…  (Enter to send · Shift+Enter for newline)' : 'Agent is offline — a steer may not be delivered until it reconnects'}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKey}
+        />
+        <button className="primary" disabled={sending || !draft.trim()} onClick={() => void send()}>{sending ? 'Sending…' : '➤ Send'}</button>
+      </div>
+    </div>
+  )
+}
+
 function MessageBar({ path, running, showToast, nudge, onSent }: { path: string; running: boolean; showToast: (m: string, e?: boolean) => void; nudge?: boolean; onSent?: () => void }): JSX.Element {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)

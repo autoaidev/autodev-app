@@ -66,6 +66,21 @@ async function fetchRetry(url: string, init: RequestInit = {}, ms = 12_000, trie
 export interface OfficeAgent {
   office: string; officeSlug: string; id: string; name: string; slug: string; status?: string; online: boolean
 }
+
+/** One row of an agent's in-office conversation, normalized from the office
+ *  message feed AND the agent's narration hook events into a single chat shape. */
+export interface OfficeMessage {
+  id: string
+  /** Who the bubble is attributed to (drives left/right + accent). */
+  role: 'user' | 'assistant' | 'a2a' | 'system'
+  /** Small caption above the bubble ('You', the agent name, '⚡ Steer', …). */
+  author: string
+  text: string
+  /** The source message type / hook eventType, for finer styling. */
+  kind: string
+  /** Epoch ms — the feed is sorted ascending (newest at the bottom). */
+  at: number
+}
 interface Persisted { baseUrl: string; email: string; cookies: [string, string][] }
 
 export const DEFAULT_OFFICE_BASE = 'https://autodev.code.aioffice.works'
@@ -581,6 +596,106 @@ export class PixelOfficeClient {
     try {
       await this.postJson(`/api/agents/${encodeURIComponent(agentId)}/steer`, { text: msg })
       return { ok: true }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
+   * Fetch an office character's conversation for the in-app Chat tab. The local
+   * app only knows the agent's ENDPOINT SLUG (from its wsUrl `endpoint=<slug>`) —
+   * not the numeric office-agent id the message/hook APIs key on — so resolve the
+   * agent (and its office) first, matching `agentRef` against each office agent's
+   * id OR slug. `officeSlug` is an optional hint; when it doesn't resolve we scan
+   * every office the user owns.
+   *
+   * Two server feeds are merged into one chat story, mirroring the web
+   * AgentChatTab: `/api/messages?agentId=` (steers, A2A, status/celebrate bubbles)
+   * and `/api/hooks/events` narration (the agent's own `agent_message`/
+   * `notification` prose + `user_prompt_submit`). Returns the resolved `agentId`
+   * so the Chat composer can steer the right character.
+   */
+  async messages(officeSlug: string, agentRef: string): Promise<{ ok: true; agentId: string; agentName: string; messages: OfficeMessage[] } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const ref = String(agentRef ?? '').toLowerCase()
+    if (!ref) return { error: 'This agent is not linked to an office.' }
+    try {
+      const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
+      if (!offices.length) return { error: 'No offices found for this account.' }
+      // Prefer the hinted office, then fall back to scanning all of them.
+      const ordered = officeSlug
+        ? [...offices].sort((a: any, b: any) =>
+            (String(b.slug).toLowerCase() === officeSlug.toLowerCase() ? 1 : 0) -
+            (String(a.slug).toLowerCase() === officeSlug.toLowerCase() ? 1 : 0))
+        : offices
+      let matched: { officeId: number; agentId: string; agentName: string } | null = null
+      for (const o of ordered) {
+        try {
+          const ags = await this.getJson(`/api/offices/${encodeURIComponent(o.slug)}/agents`)
+          const arr: any[] = Array.isArray(ags?.data) ? ags.data
+            : Array.isArray(ags?.data?.agents) ? ags.data.agents
+            : Array.isArray(ags?.agents) ? ags.agents
+            : Array.isArray(ags) ? ags : []
+          const a = arr.find((x) => String(x.id).toLowerCase() === ref || String(x.slug).toLowerCase() === ref)
+          if (a) { matched = { officeId: o.id, agentId: String(a.id), agentName: String(a.name ?? a.slug ?? 'Agent') }; break }
+        } catch (e) {
+          if ((e as Error)?.message?.includes('expired')) throw e
+          /* skip an office we couldn't list — keep scanning */
+        }
+      }
+      if (!matched) return { error: 'This agent could not be found in any of your offices.' }
+      const { officeId, agentId, agentName } = matched
+      // Both feeds in parallel; either failing degrades gracefully to the other.
+      const [feed, hooks] = await Promise.all([
+        this.getJson(`/api/messages?agentId=${encodeURIComponent(agentId)}`).catch(() => ({ data: [] })),
+        this.getJson(`/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&agent_id=${encodeURIComponent(agentId)}&limit=120`).catch(() => ({ data: [] }))
+      ])
+      const out: OfficeMessage[] = []
+      // 1. Office message feed — steers / A2A / status bubbles.
+      for (const m of (Array.isArray(feed?.data) ? feed.data : [])) {
+        const type = String(m.type ?? 'status')
+        if (type === 'choice') continue // interactive wizard, not a chat line
+        const text = String(m.text ?? '').trim()
+        if (!text) continue
+        const role: OfficeMessage['role'] =
+          (type === 'a2a' || type === 'a2a_instant') ? 'a2a'
+          : (type === 'user' || type === 'user_input' || type === 'steer') ? 'user'
+          : (type === 'status' || type === 'checkin' || type === 'ask') ? 'system'
+          : 'assistant'
+        const author =
+          type === 'a2a_instant' ? '⚡ A2A'
+          : role === 'a2a' ? '📨 A2A'
+          : type === 'steer' ? '⚡ Steer'
+          : role === 'user' ? 'You'
+          : agentName
+        out.push({ id: `m-${m.id}`, role, author, text, kind: type, at: Date.parse(m.createdAt) || 0 })
+      }
+      // 2. Narration hook events — the agent's own prose + user prompts.
+      const NARRATION = new Set(['agent_message', 'notification', 'user_prompt_expansion'])
+      for (const ev of (Array.isArray(hooks?.data) ? hooks.data : [])) {
+        const etype = String(ev.eventType ?? '')
+        const at = Date.parse(ev.createdAt) || 0
+        if (etype === 'user_prompt_submit') {
+          const text = String(ev.message ?? ev.rawPayload?.prompt ?? '').trim()
+          if (text) out.push({ id: `h-${ev.id}`, role: 'user', author: 'You', text, kind: etype, at })
+          continue
+        }
+        if (NARRATION.has(etype)) {
+          const text = String(ev.message ?? ev.reasoning ?? '').trim()
+          if (text) out.push({ id: `h-${ev.id}`, role: 'assistant', author: agentName, text, kind: etype, at })
+        }
+      }
+      // Oldest → newest; a stable id tiebreak keeps same-timestamp rows deterministic.
+      out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+      // Collapse consecutive assistant bubbles with identical text (grok/opencode
+      // resend cumulative narration snapshots) so the feed doesn't stutter.
+      const deduped: OfficeMessage[] = []
+      for (const row of out) {
+        const prev = deduped[deduped.length - 1]
+        if (prev && prev.role === row.role && prev.text === row.text) continue
+        deduped.push(row)
+      }
+      return { ok: true, agentId, agentName, messages: deduped }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
     }
