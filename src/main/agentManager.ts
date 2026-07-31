@@ -2,6 +2,7 @@ import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync } from 'fs'
 import { join, basename, dirname, delimiter as pathDelimiter } from 'path'
+import { homedir } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
 
@@ -613,6 +614,94 @@ export class AgentManager extends EventEmitter {
       const { cmd, baseEnv } = nodeRunner()
       execFile(cmd, [cliJs, ...args], { cwd, env: baseEnv, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
         resolve({ stdout: stdout || '', stderr: stderr || (err ? String(err.message) : ''), code: err ? (err as any).code ?? 1 : 0 })
+      })
+    })
+  }
+
+  // --- Per-agent trace export (TraceX) -------------------------------------
+  // Provider-aware: grok agents export their NATIVE session trace via
+  // `grok trace --local` (a self-contained .tar.gz), because grok owns its own
+  // on-disk session store outside the autodev workspace. Every other provider
+  // reuses the existing CLI `export` (agent backup zip) — that backup already
+  // bundles the provider's captured session trace, so there's no second path to
+  // maintain. copilot-sdk has no resumable on-disk trace (in-memory only), so we
+  // still produce the backup but flag that its trace won't be in there.
+  async exportTrace(path: string, output: string): Promise<{ ok: true; output: string; note?: string } | { error: string }> {
+    const info = this.workspaceInfo(path)
+    if (!info.exists) return { error: 'Not an AutoDev workspace (no .autodev/settings.json).' }
+    const provider = info.provider || ''
+    if (provider.startsWith('grok')) return this._exportGrokTrace(path, provider, output)
+    // Non-grok: reuse the backup export — it captures the session trace.
+    const r = await this.runCli(['export', path, '--output', output])
+    if (r.code !== 0) return { error: r.stderr || 'Backup export failed' }
+    const note = provider === 'copilot-sdk'
+      ? 'copilot-sdk traces are in-memory only — backup captures workspace state but no resumable on-disk trace.'
+      : undefined
+    return { ok: true, output, note }
+  }
+
+  /** Locate the grok binary: PATH first, then $GROK_HOME/bin/grok (default ~/.grok). */
+  private _grokBinary(): string | null {
+    if (runnerOnPath('grok')) return 'grok'
+    const bin = join(this._grokHome(), 'bin', 'grok')
+    return existsSync(bin) ? bin : null
+  }
+
+  private _grokHome(): string {
+    return process.env['GROK_HOME'] || join(process.env['HOME'] || homedir(), '.grok')
+  }
+
+  /**
+   * Resolve the grok SESSION_ID for a workspace. grok-tui persists it to
+   * `.autodev/session-state.json`; grok-cli is stateless (fresh session per run),
+   * so we fall back to grok's own session store:
+   *   $GROK_HOME/sessions/<encodeURIComponent(cwd)>/<uuid>/  — newest wins.
+   * Returns null if the agent has never produced a grok session.
+   */
+  private _resolveGrokSessionId(path: string, provider: string): string | null {
+    const st = this._readJson(join(path, '.autodev', 'session-state.json')) || {}
+    const fromState = st['grok-tui'] || st['grok-cli'] || st[provider]
+    if (typeof fromState === 'string' && fromState.trim()) return fromState.trim()
+    // Grok keys its session dir by the URL-encoded workspace cwd (raw + realpath).
+    const roots = new Set<string>([path])
+    try { roots.add(realpathSync(path)) } catch { /* ignore */ }
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    let best: { id: string; mtime: number } | null = null
+    for (const r of roots) {
+      const dir = join(this._grokHome(), 'sessions', encodeURIComponent(r))
+      if (!existsSync(dir)) continue
+      try {
+        for (const e of readdirSync(dir, { withFileTypes: true })) {
+          if (!e.isDirectory() || !isUuid.test(e.name)) continue
+          let m = 0
+          try { m = statSync(join(dir, e.name)).mtimeMs } catch { /* ignore */ }
+          if (!best || m > best.mtime) best = { id: e.name, mtime: m }
+        }
+      } catch { /* ignore */ }
+    }
+    return best?.id ?? null
+  }
+
+  private _exportGrokTrace(path: string, provider: string, output: string): Promise<{ ok: true; output: string; note?: string } | { error: string }> {
+    return new Promise((resolve) => {
+      const bin = this._grokBinary()
+      if (!bin) return resolve({ error: 'grok CLI not found (looked on PATH and $GROK_HOME/bin/grok).' })
+      const sid = this._resolveGrokSessionId(path, provider)
+      if (!sid) return resolve({ error: 'No grok session for this workspace yet — start the agent once to create a grok session before exporting its trace.' })
+      // grok writes a tarball; normalise the extension the save dialog produced.
+      let out = output
+      if (!/\.(tar\.gz|tgz)$/i.test(out)) out = out.replace(/\.zip$/i, '') + '.tar.gz'
+      execFile(bin, ['trace', '--local', '--json', '-o', out, sid], { cwd: path, env: { ...process.env }, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+        if (err) return resolve({ error: (stderr || (err as Error).message || 'grok trace failed').toString().trim() })
+        // grok --json prints {"session_id","status","local_path"} — trust local_path.
+        let localPath = out
+        try {
+          const line = (stdout || '').trim().split('\n').filter(Boolean).pop() || '{}'
+          const j = JSON.parse(line)
+          if (typeof j.local_path === 'string' && j.local_path) localPath = j.local_path
+        } catch { /* fall back to -o path */ }
+        try { if (!existsSync(localPath) || statSync(localPath).size === 0) return resolve({ error: 'grok reported success but the trace file is missing or empty.' }) } catch { return resolve({ error: 'grok trace file could not be verified.' }) }
+        resolve({ ok: true, output: localPath })
       })
     })
   }

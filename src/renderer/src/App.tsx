@@ -351,6 +351,22 @@ export default function App(): JSX.Element {
     else showToast(`Exported → ${out}`)
   }
 
+  // Provider-aware trace export (TraceX): grok agents emit their native session
+  // trace tarball (`grok trace`); every other provider reuses the backup export,
+  // which already bundles that provider's captured session trace.
+  const exportTrace = async (a: AgentState) => {
+    if (ioBusy) return
+    const isGrok = (a.provider ?? '').startsWith('grok')
+    const base = a.name.replace(/[^\w.-]+/g, '_')
+    const out = await window.api.saveFile(isGrok ? `${base}-trace.tar.gz` : `${base}-trace.zip`)
+    if (!out) return
+    setIoBusy(true); showToast('Exporting trace…')
+    const r = await window.api.exportTrace(a.path, out)
+    setIoBusy(false)
+    if ('error' in r) return showToast(r.error, true)
+    showToast(`Trace exported → ${r.output}${r.note ? ' — ' + r.note : ''}`)
+  }
+
   const importAgent = async () => {
     if (ioBusy) return
     const zip = await window.api.pickFile([{ name: 'Agent backup', extensions: ['zip'] }])
@@ -518,6 +534,7 @@ export default function App(): JSX.Element {
               {!current.wsUrl && <button className="primary" title="Link this agent to a character in your pixel office" onClick={() => setConnectFor(current.path)}>☁ {CONNECT_LABEL}</button>}
               <OverflowMenu items={[
                 { label: ioBusy ? '⬇ Exporting…' : '⬇ Export backup', onClick: () => { if (!ioBusy) exportAgent(current) } },
+                { label: ioBusy ? '🧵 Exporting…' : '🧵 Export trace (TraceX)', onClick: () => { if (!ioBusy) exportTrace(current) } },
                 { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!(await window.api.confirmDialog(`Remove "${current.name}" from the list?`, 'Workspace files are kept.'))) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
               ]} />
             </div>

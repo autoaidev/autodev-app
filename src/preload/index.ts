@@ -14,6 +14,7 @@ const api = {
   agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),
   confirmDialog: (message: string, detail?: string) => ipcRenderer.invoke('dialog:confirm', message, detail),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
+  exportTrace: (path: string, output: string): Promise<{ ok: true; output: string; note?: string } | { error: string }> => ipcRenderer.invoke('agent:exportTrace', path, output),
   cliCheck: () => ipcRenderer.invoke('cli:check'),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
   saveFile: (defaultName: string) => ipcRenderer.invoke('dialog:saveFile', defaultName),
