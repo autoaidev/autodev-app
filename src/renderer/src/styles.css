@@ -23,7 +23,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
   background: var(--bg); color: var(--fg); font-size: 13px;
 }
-.app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+.app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: minmax(0, 1fr); height: 100vh; }
 
 /* Top-level nav bar: brand + the four major-view switchers, separated from the
    agent-creation controls below so navigation doesn't read as "create". */
@@ -93,7 +93,7 @@ body {
 @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .4 } }
 
 /* main */
-.main { display: flex; flex-direction: column; overflow: hidden; }
+.main { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .empty { margin: auto; color: var(--fg2); text-align: center; }
 /* flex-wrap + a shrinkable id block keep the action buttons on-screen: a long
    absolute path used to push Export/Remove past the right edge (unclickable) at
@@ -110,7 +110,7 @@ body {
 /* Keyboard focus indicator for the non-native clickable controls (tabs, agent
    and session rows now expose role=button/tab + tabIndex for keyboard/AT use). */
 .tab:focus-visible, .agent-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.panel { flex: 1; overflow-y: auto; padding: 18px 20px; }
+.panel { flex: 1; overflow-y: auto; padding: 18px 20px; min-height: 0; }
 
 /* Message composer pinned at the bottom of the agent detail */
 .msgbar { flex-shrink: 0; display: flex; gap: 10px; align-items: flex-end; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--bg2); }
