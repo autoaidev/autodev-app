@@ -93,7 +93,11 @@ export const DEFAULT_OFFICE_BASE = 'https://autodev.code.aioffice.works'
  * spawn time (supply-chain + offline + flaky-network hazard). Falls back to
  * `npx` only when no bundled CLI is found (strictly no worse than before).
  */
-function officeMcpServer(key: string, url: string): Record<string, unknown> {
+function officeMcpServer(key: string, url: string, fileBrowser = false): Record<string, unknown> {
+  // The mcp-operate bridge exposes the Files/file-browser capability when passed
+  // `--file-browser` (same flag the Create/Connect flows use), so every agent
+  // wired with fileBrowser on gets the office's file-browser panel.
+  const fb = fileBrowser ? ['--file-browser'] : []
   const cli = resolveCliJs()
   if (cli) {
     const { cmd, baseEnv } = nodeRunner()
@@ -101,9 +105,9 @@ function officeMcpServer(key: string, url: string): Record<string, unknown> {
     // When the app falls back to Electron's own node, the child must be told to
     // run as node (matches AgentManager.start()'s proven prod behaviour).
     if (baseEnv.ELECTRON_RUN_AS_NODE) env.ELECTRON_RUN_AS_NODE = '1'
-    return { type: 'stdio', command: cmd, args: [cli, 'mcp-operate', '--key', key, '--url', url], env }
+    return { type: 'stdio', command: cmd, args: [cli, 'mcp-operate', '--key', key, '--url', url, ...fb], env }
   }
-  return { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url] }
+  return { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url, ...fb] }
 }
 
 /** Write a `.mcp.json` owner-only (0600) — it carries a live office API key. */
@@ -120,12 +124,12 @@ function writeMcpJson(dir: string, key: string, url: string): void {
  * blind overwrite there would clobber the user's own MCP config. Kept 0600 since
  * the merged file still carries the live office API key.
  */
-function mergeMcpJson(dir: string, key: string, url: string, server = 'pixel-office'): void {
+function mergeMcpJson(dir: string, key: string, url: string, server = 'pixel-office', fileBrowser = false): void {
   const file = join(dir, '.mcp.json')
   let root: Record<string, any> = {}
   try { const p = JSON.parse(readFileSync(file, 'utf8')); if (p && typeof p === 'object') root = p } catch { /* none/invalid → start fresh */ }
   if (!root.mcpServers || typeof root.mcpServers !== 'object') root.mcpServers = {}
-  root.mcpServers[server] = officeMcpServer(key, url)
+  root.mcpServers[server] = officeMcpServer(key, url, fileBrowser)
   writeFileSync(file, JSON.stringify(root, null, 2), { mode: 0o600 })
   try { chmodSync(file, 0o600) } catch { /* best effort */ }
 }
@@ -816,7 +820,7 @@ export class PixelOfficeClient {
    * (never overwrites) so entries accumulate, gitignores the key-bearing files,
    * and records `folder` for key-purge on logout.
    */
-  async writeSharedMcp(folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>):
+  async writeSharedMcp(folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>, fileBrowser = false):
     Promise<{ ok: true; folder: string; wired: number; servers: string[]; missing: string[] } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     const dir = String(folder ?? '').trim()
@@ -856,7 +860,7 @@ export class PixelOfficeClient {
         const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
         if (!key) { missing.push(String(ch.name ?? ch.slug ?? ch.id)); continue }
         const server = `pixel-office-${safeSeg(String(ch.slug || ch.id))}`
-        mergeMcpJson(dir, key, url, server)   // accumulate — one entry per character
+        mergeMcpJson(dir, key, url, server, fileBrowser)   // accumulate — one entry per character (+file-browser when on)
         writeScopedMcpTrust(dir, server)      // approve THIS server so it starts
         this.recordProvisioned(dir)           // track for key-purge on logout
         servers.push(server)

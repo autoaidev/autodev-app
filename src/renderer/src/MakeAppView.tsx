@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import OfficeSelector from './OfficeSelector'
+import FileBrowserCheckbox from './FileBrowserCheckbox'
 import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
@@ -76,6 +77,7 @@ export default function MakeAppView(): JSX.Element {
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
   const [folder, setFolder] = useState('')
   const [sharedFolder, setSharedFolder] = useState(false) // Bug 2: one folder, all agents in a single .mcp.json
+  const [fileBrowser, setFileBrowser] = useState(false)   // enable the office file-browser for EVERY spawned agent (both modes)
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
 
@@ -185,7 +187,8 @@ export default function MakeAppView(): JSX.Element {
       const res = (await window.api.officeWriteSharedMcp(
         folder,
         office.slug,
-        edits.map((e) => ({ id: e.id, slug: e.slug, name: e.name }))
+        edits.map((e) => ({ id: e.id, slug: e.slug, name: e.name })),
+        fileBrowser
       )) as { ok?: boolean; wired?: number; missing?: string[]; error?: string }
       setSpawning(false)
       if (res?.error) { setErr(res.error); return }
@@ -204,20 +207,23 @@ export default function MakeAppView(): JSX.Element {
       const r = await window.api.runCli(args)
       if (r.code !== 0) continue
       if (e.model.trim()) await window.api.runCli(['config', 'set', modelKeyFor(e.provider), e.model.trim(), path])
+      // Enable the file browser per-workspace via the settings key (the init-flow
+      // way the Create dialog uses) so each spawned agent gets the Files tab.
+      if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       const added = await window.api.addAgent(path)
       if (!(added as { error?: string })?.error) ok++
     }
     setSpawning(false)
     const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
     setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
-  }, [edits, folder, office, shareMode])
+  }, [edits, folder, office, shareMode, fileBrowser])
 
   const openSetup = useCallback(() => {
     if (!office) return
     window.api.openExternal(`${base.replace(/\/+$/, '')}/office/${office.slug}/setup`)
   }, [base, office])
 
-  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false) }, [])
+  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false); setFileBrowser(false) }, [])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -345,6 +351,13 @@ export default function MakeAppView(): JSX.Element {
                     </span>
                   </label>
                 )}
+                {/* File browser applies to EVERY spawned agent — per-agent mode sets
+                    enableFileBrowser on each workspace; single-folder mode passes
+                    --file-browser to each pixel-office-<agent> mcp-operate entry. */}
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Enable file browser for all agents</div>
+                  <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} disabled={spawning} id="makeapp-file-browser" />
+                </div>
                 <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={spawnLocal}>
                   {spawning
                     ? (shareMode ? 'Wiring…' : 'Spawning…')
