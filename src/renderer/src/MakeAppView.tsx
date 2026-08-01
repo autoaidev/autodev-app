@@ -307,6 +307,14 @@ export default function MakeAppView(): JSX.Element {
               <strong style={{ fontSize: 14 }}>{office ? office.name : 'Local workspaces'}</strong>
               <span className="badge">{edits.length} agents</span>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>— edit names &amp; models below</span>
+              {/* Persistent regenerate: re-runs `make` (same description + team size +
+                  selected office) and REPLACES the roster with a fresh AI team. Kept
+                  next to the badge so it's reachable after the first generation, when
+                  the big "🐣 Generate team" primary is no longer rendered. */}
+              <button style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || !desc.trim()} onClick={make}
+                title="Generate a fresh team from the current description, team size & office">
+                {creating ? (useOffice && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🔄 Regenerate'}
+              </button>
             </div>
             {edits.length === 0 && <div className="empty" style={{ fontSize: 12, padding: 12 }}>{office ? 'No team was generated — you can still set it up in the browser.' : 'No team was generated.'}</div>}
 
