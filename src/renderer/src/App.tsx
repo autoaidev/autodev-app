@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import SessionsBrowser from './SessionsBrowser'
 import PixelOfficeView from './PixelOfficeView'
 import MakeAppView from './MakeAppView'
+import OfficeSelector from './OfficeSelector'
+import FileBrowserCheckbox from './FileBrowserCheckbox'
+import { useOfficeSelection, connectAgentToNewCharacter } from './composables/useOfficeSelection'
 import { extractFlagUrl } from './urlExtract'
 
 type Activity = 'working' | 'idle' | 'stopped' | 'stalled' | 'needs-auth' | 'rate-limited' | 'crashed'
@@ -1260,10 +1263,7 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
             <textarea rows={3} value={value} placeholder={mode === 'setup' ? "https://…/api/cli/setup/…   — or paste:  autodev --setup-url='…'" : 'wss://host/ws?token=…&endpoint=…'} onPaste={onPasteExtract} onChange={(e) => setValue(e.target.value)} />
           </label>
         )}
-        <label className="check" style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '2px 0 10px', cursor: 'pointer' }}>
-          <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} />
-          <span>Enable file browser <span style={{ color: 'var(--fg2,#8b95a7)', fontSize: 12 }}>— browse & edit this agent's files from the office</span></span>
-        </label>
+        <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} id="connect-file-browser" />
         <div className="actions">
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={busy} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
@@ -1281,9 +1281,22 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
   const [provider, setProvider] = useState('claude-tui')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [fileBrowser, setFileBrowser] = useState(false)
+  // Shared "connect to pixel office?" selection (checkbox + office dropdown),
+  // same composable the Spawn-agents view uses. Pick an existing office only here.
+  const officeSel = useOfficeSelection({ defaultUseOffice: false })
   // When the chosen folder is already an AutoDev agent, we must NOT re-init it
   // (that overwrites its settings + office binding) — we connect it instead.
   const [existing, setExisting] = useState<{ provider?: string; sessionName?: string } | null>(null)
+
+  // This dialog picks an EXISTING office only (no ＋New option), so keep the
+  // selection pointed at a real office once the box is checked and the list loads.
+  const { useOffice: selUseOffice, offices: selOffices, selectedOfficeId: selId, setSelectedOfficeId: setSelId } = officeSel
+  useEffect(() => {
+    if (selUseOffice && selOffices.length && !selOffices.some((o) => String(o.id) === selId)) {
+      setSelId(String(selOffices[0].id))
+    }
+  }, [selUseOffice, selOffices, selId, setSelId])
 
   // Detect an existing workspace whenever the path changes (browse or typed).
   const probe = useCallback(async (p: string) => {
@@ -1315,9 +1328,31 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
     const args = ['init', path, '--provider', provider]
     if (name) args.push('--session-name', name)
     const r = await window.api.runCli(args)
-    setBusy(false)
-    if (r.code !== 0) return showToast(r.stderr || 'init failed', true)
+    if (r.code !== 0) { setBusy(false); return showToast(r.stderr || 'init failed', true) }
+    // Enable the file browser at init-time via the settings key (the init-flow
+    // way — works whether or not we also bind to an office below).
+    if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
     await window.api.addAgent(path)
+    // Optionally bind the fresh agent to a pixel office by creating a new
+    // character there and connecting (mirrors ConnectModal's ＋New-character path).
+    const choice = officeSel.resolve()
+    if (choice.kind === 'office') {
+      const charName = name.trim() || path.split('/').filter(Boolean).pop() || 'Agent'
+      const res = await connectAgentToNewCharacter(choice.office, charName, path, fileBrowser)
+      if (!res.ok) {
+        setBusy(false)
+        // The local agent exists and is registered — surface the binding failure
+        // but still hand control back so the user isn't stuck.
+        showToast(res.error || 'Created, but could not connect to the office', true)
+        onCreated(path)
+        return
+      }
+      setBusy(false)
+      showToast(`Created and connected to “${choice.office.name}”`)
+      onCreated(path)
+      return
+    }
+    setBusy(false)
     onCreated(path)
   }
 
@@ -1347,6 +1382,22 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
             <label className="field"><span className="lbl">Session name (optional)</span>
               <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />
             </label>
+            {/* Optionally attach the new agent to a pixel office (shown only while
+                connected). Pick an existing office — a new character is created there. */}
+            <OfficeSelector
+              connected={officeSel.connected}
+              useOffice={officeSel.useOffice}
+              onToggle={officeSel.setUseOffice}
+              offices={officeSel.offices}
+              selectedOfficeId={officeSel.selectedOfficeId}
+              onSelect={officeSel.setSelectedOfficeId}
+              disabled={busy}
+              idPrefix="create"
+              boxed={false}
+              noOfficesNote="No offices yet — create one in the Office view first."
+              uncheckedNote="Leave off to create a purely local agent (not attached to any pixel office)."
+            />
+            <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} disabled={busy} id="create-file-browser" />
           </>
         )}
         <div className="actions">

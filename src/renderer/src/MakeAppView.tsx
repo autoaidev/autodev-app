@@ -1,4 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
+import OfficeSelector from './OfficeSelector'
+import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
 
 interface RosterAgent { name: string; role?: string; emoji: string; color: string }
 /** Per-agent editable fields the user can tweak before spawning. */
@@ -13,9 +15,6 @@ const PROVIDER_GROUPS: Array<{ vendor: string; options: Array<{ id: string; labe
 const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel' }
 const modelKeyFor = (p: string): string => MODEL_KEY[p.split('-')[0]] ?? 'claudeModel'
 const slugify = (s: string, i: number): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || `agent-${i + 1}`
-
-/** Sentinel dropdown value: create a brand-new office from the description (today's default). */
-const NEW_OFFICE = '__new__'
 
 /**
  * Generic team blueprint used when the user opts OUT of a pixel office. Team
@@ -57,7 +56,10 @@ function deriveName(desc: string): string {
  * Reuses the pixel-office connection (prompts login first if not connected).
  */
 export default function MakeAppView(): JSX.Element {
-  const [connected, setConnected] = useState(false)
+  // Shared pixel-office selection state (connection probe, office list, checkbox,
+  // selected office) — same composable the Create dialog uses.
+  const officeSel = useOfficeSelection({ defaultUseOffice: true, defaultSelection: NEW_OFFICE })
+  const { connected, offices, loadOffices, useOffice, selectedOfficeId, setSelectedOfficeId } = officeSel
   const [base, setBase] = useState('https://autodev.code.aioffice.works')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -68,47 +70,31 @@ export default function MakeAppView(): JSX.Element {
   const [count, setCount] = useState(4)
   const [defaultProvider, setDefaultProvider] = useState('claude-tui')
   const [creating, setCreating] = useState(false)
-  // Office targeting: whether to attach to a pixel office at all, the list of the
-  // user's offices, and which one is selected (or NEW_OFFICE = create from desc).
-  const [useOffice, setUseOffice] = useState(true)
-  const [offices, setOffices] = useState<Array<{ slug: string; id: number; name: string }>>([])
-  const [selectedOfficeId, setSelectedOfficeId] = useState<string>(NEW_OFFICE)
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
   const [folder, setFolder] = useState('')
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
 
+  // Seed the login form's base/email from the shared office session (the
+  // composable owns `connected`; this only fills in display defaults).
   useEffect(() => {
     (async () => {
-      const st = (await window.api.officeStatus()) as { connected: boolean; base: string; email?: string }
+      const st = (await window.api.officeStatus()) as { base?: string; email?: string }
       if (st.base) setBase(st.base)
       if (st.email) setEmail(st.email)
-      const ok = st.connected || (await window.api.officeAutoConnect())
-      setConnected(!!ok)
     })()
   }, [])
-
-  /** Load the user's offices (for the target dropdown). Only meaningful when connected. */
-  const loadOffices = useCallback(async () => {
-    try {
-      const list = (await window.api.officeOffices()) as Array<{ slug: string; id: number; name: string }>
-      setOffices(Array.isArray(list) ? list : [])
-    } catch { setOffices([]) }
-  }, [])
-
-  // Populate the office dropdown once we're connected.
-  useEffect(() => { if (connected) void loadOffices() }, [connected, loadOffices])
 
   const connect = useCallback(async () => {
     setBusy(true); setErr('')
     const r = (await window.api.officeLogin(base, email, password)) as { ok?: boolean; error?: string }
     setBusy(false)
     if (r?.error) { setErr(r.error); return }
-    setPassword(''); setConnected(true)
+    setPassword(''); officeSel.setConnected(true)
     const st = (await window.api.officeStatus()) as { base: string }
     if (st.base) setBase(st.base)
-  }, [base, email, password])
+  }, [base, email, password, officeSel])
 
   const make = useCallback(async () => {
     if (!desc.trim()) { setErr('Describe what you want to build first.'); return }
@@ -222,28 +208,19 @@ export default function MakeAppView(): JSX.Element {
 
         {/* Office targeting — only meaningful (and only shown) while connected. Checked:
             generate/attach to a pixel office. Unchecked: local workspaces only. */}
-        {connected && (
-          <div style={{ marginBottom: 16, padding: 12, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <label htmlFor="makeapp-useoffice" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--fg)' }}>
-              <input id="makeapp-useoffice" type="checkbox" checked={useOffice} onChange={(e) => setUseOffice(e.target.checked)} style={{ width: 'auto', margin: 0 }} disabled={creating} />
-              Connect to pixel office
-            </label>
-            {useOffice ? (
-              <div style={{ marginTop: 10 }}>
-                <label className="fld" htmlFor="makeapp-office">Office</label>
-                <select className="fld-input" id="makeapp-office" value={selectedOfficeId}
-                  onChange={(e) => setSelectedOfficeId(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={creating}>
-                  <option value={NEW_OFFICE}>＋ New office (from description)</option>
-                  {offices.map((o) => <option key={o.id} value={String(o.id)}>{o.name}</option>)}
-                </select>
-              </div>
-            ) : (
-              <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-                Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed.
-              </p>
-            )}
-          </div>
-        )}
+        <OfficeSelector
+          connected={connected}
+          useOffice={useOffice}
+          onToggle={officeSel.setUseOffice}
+          offices={offices}
+          selectedOfficeId={selectedOfficeId}
+          onSelect={setSelectedOfficeId}
+          disabled={creating}
+          allowNewOffice
+          newOfficeLabel="＋ New office (from description)"
+          idPrefix="makeapp"
+          uncheckedNote="Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed."
+        />
 
         <label className="fld">What do you want to build?</label>
         <textarea className="fld-input" value={desc} onChange={(e) => setDesc(e.target.value)}
