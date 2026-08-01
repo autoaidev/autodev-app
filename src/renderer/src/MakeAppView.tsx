@@ -80,6 +80,8 @@ export default function MakeAppView(): JSX.Element {
   const [fileBrowser, setFileBrowser] = useState(false)   // enable the office file-browser for EVERY spawned agent (both modes)
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
+  const [wired, setWired] = useState(false)          // shared-folder .mcp.json was written → offer "add to sidebar"
+  const [addingSidebar, setAddingSidebar] = useState(false)
 
   // Seed the login form's base/email from the shared office session (the
   // composable owns `connected`; this only fills in display defaults).
@@ -164,7 +166,7 @@ export default function MakeAppView(): JSX.Element {
 
   const pickFolder = useCallback(async () => {
     const f = await window.api.pickFolder()
-    if (f) setFolder(f)
+    if (f) { setFolder(f); setWired(false) }
   }, [])
 
   // The single-shared-folder toggle only makes sense when the roster agents are
@@ -193,7 +195,8 @@ export default function MakeAppView(): JSX.Element {
       setSpawning(false)
       if (res?.error) { setErr(res.error); return }
       const miss = res?.missing?.length ? ` (${res.missing.length} could not be matched)` : ''
-      setSpawnMsg(`Wired ${res?.wired ?? 0}/${edits.length} agent${edits.length === 1 ? '' : 's'} from “${office.name}” into ${folder.replace(/\/+$/, '')}/.mcp.json${miss}. Open that folder in claude to drive them all — no per-agent workspaces were created.`)
+      setWired(true)
+      setSpawnMsg(`Wired ${res?.wired ?? 0}/${edits.length} agent${edits.length === 1 ? '' : 's'} from “${office.name}” into ${folder.replace(/\/+$/, '')}/.mcp.json${miss}. Add it to the sidebar below to run one loop that drives them all, or open the folder in claude yourself.`)
       return
     }
 
@@ -218,12 +221,35 @@ export default function MakeAppView(): JSX.Element {
     setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
   }, [edits, folder, office, shareMode, fileBrowser])
 
+  // After a shared-folder wire, register that ONE folder as a single startable
+  // workspace in the left sidebar. `autodev init` only writes TODO.md +
+  // .autodev/settings.json + .gitignore — it never touches .mcp.json — so the
+  // already-wired shared .mcp.json (the 6 pixel-office-<slug> servers) is
+  // preserved, and the one loop started here gets all of them as tools to drive
+  // the team. Provider = the top-level Default provider (the operator's model).
+  const addSharedAsAgent = useCallback(async () => {
+    if (!folder || !office) return
+    setAddingSidebar(true); setErr(''); setSpawnMsg('')
+    try {
+      const path = folder.replace(/\/+$/, '')
+      const r = await window.api.runCli(['init', path, '--provider', defaultProvider, '--session-name', office.name])
+      if (r.code !== 0) { setErr(`Could not init the workspace at ${path}.${r.stderr ? ' ' + r.stderr.trim() : ''}`); return }
+      // Re-wire (idempotent merge) so the shared .mcp.json is guaranteed intact
+      // even if init wrote a .gitignore or the folder shifted underneath us.
+      await window.api.officeWriteSharedMcp(path, office.slug, edits!.map((e) => ({ id: e.id, slug: e.slug, name: e.name })), fileBrowser)
+      if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
+      const added = await window.api.addAgent(path)
+      if ((added as { error?: string })?.error) { setErr((added as { error: string }).error); return }
+      setSpawnMsg(`Added “${office.name}” to your sidebar as one workspace at ${path}. Start it there — the single loop drives all ${edits!.length} agents via the shared .mcp.json.`)
+    } finally { setAddingSidebar(false) }
+  }, [folder, office, edits, defaultProvider, fileBrowser])
+
   const openSetup = useCallback(() => {
     if (!office) return
     window.api.openExternal(`${base.replace(/\/+$/, '')}/office/${office.slug}/setup`)
   }, [base, office])
 
-  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false); setFileBrowser(false) }, [])
+  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false) }, [])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -342,7 +368,7 @@ export default function MakeAppView(): JSX.Element {
                     : 'Spawn locally — folder (one workspace per agent is created here)'}
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="fld-input" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
+                  <input className="fld-input" value={folder} onChange={(e) => { setFolder(e.target.value); setWired(false) }} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
                   <button onClick={pickFolder} disabled={spawning}>Browse</button>
                 </div>
                 {/* Bug 2: single-shared-folder mode. Only meaningful when the roster
@@ -350,7 +376,7 @@ export default function MakeAppView(): JSX.Element {
                     wire, so hide it (and fall back to the per-agent path). */}
                 {canShareFolder && (
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 12, cursor: spawning ? 'default' : 'pointer' }}>
-                    <input type="checkbox" checked={sharedFolder} onChange={(e) => setSharedFolder(e.target.checked)} disabled={spawning} style={{ marginTop: 2 }} />
+                    <input type="checkbox" checked={sharedFolder} onChange={(e) => { setSharedFolder(e.target.checked); setWired(false) }} disabled={spawning} style={{ marginTop: 2 }} />
                     <span>
                       <strong>Single shared folder</strong> (all agents in one <code>.mcp.json</code>)
                       <span style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>
@@ -373,6 +399,14 @@ export default function MakeAppView(): JSX.Element {
                       ? `🔌 Wire ${edits.length} agent${edits.length === 1 ? '' : 's'} into shared .mcp.json`
                       : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
                 </button>
+                {/* After a shared wire: register the folder as ONE sidebar workspace
+                    (single loop, driving all agents via the shared .mcp.json). */}
+                {shareMode && wired && (
+                  <button className="primary" style={{ width: '100%', marginTop: 8 }} disabled={addingSidebar} onClick={addSharedAsAgent}
+                    title="Init this folder as one workspace and add it to the agents sidebar so you can Start a single loop that drives the whole team">
+                    {addingSidebar ? 'Adding…' : `➕ Add to sidebar as one agent (drives all ${edits.length})`}
+                  </button>
+                )}
                 {spawnMsg && <div role="status" style={{ color: 'var(--green)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{spawnMsg}</div>}
               </div>
             )}
