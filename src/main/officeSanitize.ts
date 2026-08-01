@@ -74,3 +74,26 @@ export function safeMcpUrl(url: unknown, base: string, fallback: string): string
   } catch { return fallback }
   return url
 }
+
+/**
+ * Validate a WebSocket presence URL supplied by the office server. The ws/wss
+ * analogue of safeMcpUrl: accept the office-supplied URL only when it is ws/wss,
+ * its host matches the connected office base host, and it is transport-secure
+ * (wss, or ws to a loopback host for local dev); otherwise the caller falls back
+ * to the derived default so a malicious response cannot silently repoint the
+ * agent's presence socket at an attacker endpoint or downgrade the office key to
+ * a cleartext ws connection. Host (not origin) is compared because the base is
+ * an http(s) URL while its socket is served over ws(s) on the same host.
+ */
+export function safeWsUrl(url: unknown, base: string, fallback: string): string {
+  if (typeof url !== 'string' || !url) return fallback
+  let u: URL
+  try { u = new URL(url) } catch { return fallback }
+  if (u.protocol !== 'ws:' && u.protocol !== 'wss:') return fallback
+  if (u.protocol === 'ws:' && !isLocalhostHost(u.host)) return fallback
+  try {
+    const b = new URL(base)
+    if (u.host !== b.host) return fallback
+  } catch { return fallback }
+  return url
+}

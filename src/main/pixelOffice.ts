@@ -4,7 +4,7 @@ import { homedir } from 'os'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync, rmSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
-import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from './officeSanitize'
+import { isValidSessionId, safeSeg, safeMcpUrl, safeWsUrl, isSecureBaseUrl } from './officeSanitize'
 import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
 // is only ever used inside function bodies (never at module top level) on both
@@ -951,11 +951,12 @@ export class PixelOfficeClient {
       const wsBase = base.replace(/^http/, 'ws')
       const chSlug = String(ch.slug || creds.slug || slug || ch.id)
       const url = safeMcpUrl(creds.mcpUrl, base, `${base}/api/office-mcp`)
-      // Prefer the office's own authoritative wsUrl (its WS path may be configured);
-      // fall back to the documented `${wsBase}/ws?token=…&endpoint=…` derivation.
-      const wsUrl = (typeof creds.wsUrl === 'string' && /^wss?:\/\//i.test(creds.wsUrl))
-        ? creds.wsUrl
-        : `${wsBase}/ws?token=${key}&endpoint=${chSlug}`
+      // Prefer the office's own authoritative wsUrl (its WS path may be configured),
+      // but only when it's a ws/wss URL whose host matches the connected office base
+      // (mirrors safeMcpUrl); otherwise fall back to the documented
+      // `${wsBase}/ws?token=…&endpoint=…` derivation so a malicious office response
+      // can't repoint the presence socket at an attacker endpoint.
+      const wsUrl = safeWsUrl(creds.wsUrl, base, `${wsBase}/ws?token=${key}&endpoint=${chSlug}`)
       // MERGE-write the presence binding into `.autodev/settings.json` — preserve
       // every existing key (provider, sessionName, …), set only the 4 presence fields.
       const adir = join(dir, '.autodev')

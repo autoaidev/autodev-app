@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from '../src/main/officeSanitize.ts'
+import { isValidSessionId, safeSeg, safeMcpUrl, safeWsUrl, isSecureBaseUrl } from '../src/main/officeSanitize.ts'
 
 test('isValidSessionId accepts UUID-like transcript stems', () => {
   assert.ok(isValidSessionId('9f8c2e1a-0b3d-4c5e-8f9a-1b2c3d4e5f60'))
@@ -97,4 +97,33 @@ test('safeMcpUrl accepts only same-origin http(s), else falls back', () => {
   assert.equal(safeMcpUrl('not a url', base, fb), fb)
   assert.equal(safeMcpUrl('', base, fb), fb)
   assert.equal(safeMcpUrl(undefined, base, fb), fb)
+})
+
+test('safeWsUrl accepts only same-host ws(s), else falls back', () => {
+  const base = 'https://office.example.com'
+  const fb = 'wss://office.example.com/ws?token=k&endpoint=e'
+  // same-host wss honoured (host, not origin — base is http(s), socket is ws(s))
+  assert.equal(safeWsUrl('wss://office.example.com/ws', base, fb), 'wss://office.example.com/ws')
+  assert.equal(safeWsUrl('wss://office.example.com/socket?x=1', base, fb), 'wss://office.example.com/socket?x=1')
+  // off-host rejected
+  assert.equal(safeWsUrl('wss://evil.example.com/ws', base, fb), fb)
+  // non-ws scheme rejected (http(s), file, javascript, garbage, empty, non-string)
+  assert.equal(safeWsUrl('https://office.example.com/ws', base, fb), fb)
+  assert.equal(safeWsUrl('file:///etc/passwd', base, fb), fb)
+  assert.equal(safeWsUrl('javascript:alert(1)', base, fb), fb)
+  assert.equal(safeWsUrl('not a url', base, fb), fb)
+  assert.equal(safeWsUrl('', base, fb), fb)
+  assert.equal(safeWsUrl(undefined, base, fb), fb)
+})
+
+test('safeWsUrl rejects a ws (non-loopback) downgrade but allows loopback dev', () => {
+  const base = 'https://office.example.com'
+  const fb = 'wss://office.example.com/ws?token=k'
+  // same-host but cleartext ws off-loopback must not carry the office key
+  assert.equal(safeWsUrl('ws://office.example.com/ws', base, fb), fb)
+  // a loopback dev office over ws is allowed same-host
+  assert.equal(safeWsUrl('ws://localhost:8000/ws', 'http://localhost:8000', 'ws://localhost:8000/fb'), 'ws://localhost:8000/ws')
+  assert.equal(safeWsUrl('ws://127.0.0.1:8000/ws', 'http://127.0.0.1:8000', 'ws://127.0.0.1:8000/fb'), 'ws://127.0.0.1:8000/ws')
+  // host mismatch on a loopback base still rejected
+  assert.equal(safeWsUrl('ws://localhost:9999/ws', 'http://localhost:8000', 'ws://localhost:8000/fb'), 'ws://localhost:8000/fb')
 })
