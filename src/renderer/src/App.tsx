@@ -328,6 +328,16 @@ export default function App(): JSX.Element {
   }
 
   const toggleChecked = (path: string) => setChecked((s) => { const n = new Set(s); n.has(path) ? n.delete(path) : n.add(path); return n })
+
+  // Select/deselect every (visible) agent in a folder group at once — for the
+  // group header's select-all box. Operates over visibleAgents so it respects the
+  // active search/status filter. If all are already selected, it clears them.
+  const groupPaths = (dir: string): string[] => visibleAgents.filter((a) => parentDir(a.path) === dir).map((a) => a.path)
+  const toggleGroup = (dir: string): void => setChecked((s) => {
+    const n = new Set(s); const ps = groupPaths(dir)
+    if (ps.every((p) => n.has(p))) ps.forEach((p) => n.delete(p)); else ps.forEach((p) => n.add(p))
+    return n
+  })
   // Drop checks for agents that no longer exist (removed/filtered out of registry).
   useEffect(() => {
     setChecked((prev) => {
@@ -518,12 +528,22 @@ export default function App(): JSX.Element {
             const showHead = groupByFolder && (i === 0 || parentDir(visibleAgents[i - 1].path) !== dir)
             return (
             <Fragment key={a.path}>
-              {showHead && (
+              {showHead && (() => {
+                const ps = groupPaths(dir)
+                const sel = ps.filter((p) => checked.has(p)).length
+                const allSel = sel > 0 && sel === ps.length
+                return (
                 <div className="folder-group-head" title={dir}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px 4px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 1 }}>
-                  📁 {folderLabel(dir)} <span className="n" style={{ opacity: .65, fontWeight: 600 }}>{folderCounts.get(dir)}</span>
+                  <input type="checkbox" className="group-check" checked={allSel}
+                    ref={(el) => { if (el) el.indeterminate = sel > 0 && !allSel }}
+                    onChange={() => toggleGroup(dir)}
+                    title={allSel ? `Deselect all in ${folderLabel(dir)}` : `Select all ${ps.length} in ${folderLabel(dir)}`}
+                    aria-label={`Select all agents in ${folderLabel(dir)}`} />
+                  📁 {folderLabel(dir)} <span className="n" style={{ opacity: .65, fontWeight: 600 }}>{sel ? `${sel}/${ps.length}` : ps.length}</span>
                 </div>
-              )}
+                )
+              })()}
               <div role="button" tabIndex={0} aria-pressed={a.path === selected}
                 className={'agent-row' + (a.path === selected ? ' active' : '') + (checked.has(a.path) ? ' checked' : '')}
                 onClick={() => selectAgent(a.path)}
