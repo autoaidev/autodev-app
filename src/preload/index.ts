@@ -51,6 +51,7 @@ const api = {
   officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name),
   officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),
   officeGenerateTeam: (officeId: number, prompt: string, count: number) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count),
+  officeWriteSharedMcp: (folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>) => ipcRenderer.invoke('office:writeSharedMcp', folder, officeSlug, agents),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 

@@ -233,6 +233,7 @@ ipcMain.handle('office:setupUrl', (_e, officeSlug: string, agentId: string) => o
 ipcMain.handle('office:connectSession', (_e, officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => office.connectSession(officeSlug, officeId, cwd, sessionId, name))
 ipcMain.handle('office:createOffice', (_e, name: string, description: string) => office.createOffice(name, description))
 ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, count: number) => office.generateTeam(officeId, prompt, count))
+ipcMain.handle('office:writeSharedMcp', (_e, folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>) => office.writeSharedMcp(folder, officeSlug, agents))
 
 app.whenReady().then(() => {
   createWindow()

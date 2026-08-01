@@ -120,12 +120,12 @@ function writeMcpJson(dir: string, key: string, url: string): void {
  * blind overwrite there would clobber the user's own MCP config. Kept 0600 since
  * the merged file still carries the live office API key.
  */
-function mergeMcpJson(dir: string, key: string, url: string): void {
+function mergeMcpJson(dir: string, key: string, url: string, server = 'pixel-office'): void {
   const file = join(dir, '.mcp.json')
   let root: Record<string, any> = {}
   try { const p = JSON.parse(readFileSync(file, 'utf8')); if (p && typeof p === 'object') root = p } catch { /* none/invalid → start fresh */ }
   if (!root.mcpServers || typeof root.mcpServers !== 'object') root.mcpServers = {}
-  root.mcpServers['pixel-office'] = officeMcpServer(key, url)
+  root.mcpServers[server] = officeMcpServer(key, url)
   writeFileSync(file, JSON.stringify(root, null, 2), { mode: 0o600 })
   try { chmodSync(file, 0o600) } catch { /* best effort */ }
 }
@@ -278,15 +278,21 @@ export class PixelOfficeClient {
       if (existsSync(mcp)) {
         let root: Record<string, any> | null = {}
         try { const p = JSON.parse(readFileSync(mcp, 'utf8')); root = (p && typeof p === 'object') ? p : null } catch { root = null }
-        if (root && root.mcpServers && typeof root.mcpServers === 'object' && root.mcpServers['pixel-office']) {
-          delete root.mcpServers['pixel-office']
-          const onlyOurs = Object.keys(root.mcpServers).length === 0 && Object.keys(root).length === 1
-          if (onlyOurs) {
-            // The file only ever held our key-bearing server — remove it entirely.
-            try { unlinkSync(mcp) } catch { /* */ }
-          } else {
-            writeFileSync(mcp, JSON.stringify(root, null, 2), { mode: 0o600 })
-            try { chmodSync(mcp, 0o600) } catch { /* */ }
+        // Strip every office server WE wrote — the single `pixel-office` from
+        // operate/connectSession AND the per-agent `pixel-office-<slug>` entries the
+        // single-shared-folder spawn merges in — each carries a live office API key.
+        if (root && root.mcpServers && typeof root.mcpServers === 'object') {
+          const ours = Object.keys(root.mcpServers).filter((k) => k === 'pixel-office' || k.startsWith('pixel-office-'))
+          if (ours.length > 0) {
+            for (const k of ours) delete root.mcpServers[k]
+            const onlyOurs = Object.keys(root.mcpServers).length === 0 && Object.keys(root).length === 1
+            if (onlyOurs) {
+              // The file only ever held our key-bearing server(s) — remove it entirely.
+              try { unlinkSync(mcp) } catch { /* */ }
+            } else {
+              writeFileSync(mcp, JSON.stringify(root, null, 2), { mode: 0o600 })
+              try { chmodSync(mcp, 0o600) } catch { /* */ }
+            }
           }
         }
       }
@@ -297,8 +303,9 @@ export class PixelOfficeClient {
         let s: Record<string, any> = {}
         try { const p = JSON.parse(readFileSync(sf, 'utf8')); if (p && typeof p === 'object') s = p; else return } catch { return }
         let changed = false
-        if (Array.isArray(s.enabledMcpjsonServers) && s.enabledMcpjsonServers.includes('pixel-office')) {
-          s.enabledMcpjsonServers = s.enabledMcpjsonServers.filter((x: string) => x !== 'pixel-office'); changed = true
+        if (Array.isArray(s.enabledMcpjsonServers)) {
+          const kept = s.enabledMcpjsonServers.filter((x: string) => x !== 'pixel-office' && !String(x).startsWith('pixel-office-'))
+          if (kept.length !== s.enabledMcpjsonServers.length) { s.enabledMcpjsonServers = kept; changed = true }
         }
         if (changed) { writeFileSync(sf, JSON.stringify(s, null, 2), { mode: 0o600 }); try { chmodSync(sf, 0o600) } catch { /* */ } }
       }
@@ -779,14 +786,85 @@ export class PixelOfficeClient {
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
-  /** AI-generate a complementary team of agents for an office (Kimi via ollama). */
-  async generateTeam(officeId: number, prompt: string, count: number): Promise<{ ok: true; agents: Array<{ name: string; role?: string; emoji: string; color: string }> } | { error: string }> {
+  /** AI-generate a complementary team of agents for an office (Kimi via ollama).
+   *  Each created character comes back with its office `id`/`slug`, which the
+   *  single-shared-folder spawn needs to fetch per-agent MCP credentials. */
+  async generateTeam(officeId: number, prompt: string, count: number): Promise<{ ok: true; agents: Array<{ id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }> } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     try {
       const r = await this.postJson('/api/agents/generate', { officeId, prompt, count })
-      const agents = (r?.data?.agents ?? r?.agents ?? []) as Array<{ name: string; role?: string; emoji: string; color: string }>
+      const raw = (r?.data?.agents ?? r?.agents ?? []) as Array<Record<string, any>>
+      const agents = raw.map((a) => ({
+        id: a.id != null ? String(a.id) : undefined,
+        slug: a.slug != null ? String(a.slug) : undefined,
+        name: String(a.name ?? ''), role: a.role, emoji: a.emoji, color: a.color
+      }))
       return { ok: true, agents }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
+   * SINGLE-SHARED-FOLDER spawn: wire ONE project `folder` to N office characters
+   * via a single `folder/.mcp.json` holding one `pixel-office-<agentSlug>` server
+   * per agent — instead of the default one-workspace-per-agent path. Each server
+   * carries that character's live office-MCP key/URL (fetched from its credentials
+   * endpoint), so a `claude` launched in `folder` can drive every character.
+   *
+   * Characters are already created (the generate-team step made them); `agents`
+   * carries each one's office `id`/`slug`/`name`, resolved against the office's
+   * live roster so a renamed roster box still maps to the right character. Merges
+   * (never overwrites) so entries accumulate, gitignores the key-bearing files,
+   * and records `folder` for key-purge on logout.
+   */
+  async writeSharedMcp(folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>):
+    Promise<{ ok: true; folder: string; wired: number; servers: string[]; missing: string[] } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const dir = String(folder ?? '').trim()
+    if (!dir) return { error: 'Pick a folder to wire the agents into.' }
+    if (!officeSlug) return { error: 'The single-shared-folder mode needs an office.' }
+    if (!Array.isArray(agents) || !agents.length) return { error: 'No agents to wire.' }
+    try {
+      // Resolve the office's live roster once so id/slug/name all map to a character
+      // (a renamed roster box keeps the original id/slug from generate time).
+      let roster: any[] = []
+      try {
+        const ags = await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents`)
+        roster = Array.isArray(ags?.data) ? ags.data
+          : Array.isArray(ags?.data?.agents) ? ags.data.agents
+          : Array.isArray(ags?.agents) ? ags.agents
+          : Array.isArray(ags) ? ags : []
+      } catch (e) {
+        return { error: `Couldn't list the office characters — ${String((e as Error)?.message ?? e)}` }
+      }
+      mkdirSync(dir, { recursive: true })
+      ensureGitignored(dir, ['.mcp.json', '.claude/settings.local.json'])
+      const servers: string[] = []
+      const missing: string[] = []
+      for (const want of agents) {
+        const id = want.id ? String(want.id) : ''
+        const slug = want.slug ? String(want.slug) : ''
+        const nm = want.name ? String(want.name).toLowerCase() : ''
+        const ch = roster.find((x) =>
+          (id && String(x.id) === id) ||
+          (slug && String(x.slug) === slug) ||
+          (nm && String(x.name ?? '').toLowerCase() === nm))
+        if (!ch) { missing.push(want.name || slug || id || '?'); continue }
+        let creds: any
+        try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(String(ch.id))}/credentials`))?.data ?? {} }
+        catch { missing.push(String(ch.name ?? ch.slug ?? ch.id)); continue }
+        const key = creds.apiKey as string | undefined
+        const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
+        if (!key) { missing.push(String(ch.name ?? ch.slug ?? ch.id)); continue }
+        const server = `pixel-office-${safeSeg(String(ch.slug || ch.id))}`
+        mergeMcpJson(dir, key, url, server)   // accumulate — one entry per character
+        writeScopedMcpTrust(dir, server)      // approve THIS server so it starts
+        this.recordProvisioned(dir)           // track for key-purge on logout
+        servers.push(server)
+      }
+      if (!servers.length) return { error: `No agents could be wired${missing.length ? ` (unmatched: ${missing.join(', ')})` : ''}.` }
+      dbg('writeSharedMcp: wired', servers.length, 'server(s) into', dir, missing.length ? `missing=${missing.length}` : '')
+      return { ok: true, folder: dir, wired: servers.length, servers, missing }
+    } catch (e) { dbg('writeSharedMcp error', e); return { error: String((e as Error)?.message ?? e) } }
   }
 
   status(): { connected: boolean; base: string; email?: string } {

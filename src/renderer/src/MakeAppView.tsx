@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback } from 'react'
 import OfficeSelector from './OfficeSelector'
 import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
 
-interface RosterAgent { name: string; role?: string; emoji: string; color: string }
-/** Per-agent editable fields the user can tweak before spawning. */
-interface AgentEdit { name: string; role?: string; emoji: string; color: string; provider: string; model: string }
+interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
+/** Per-agent editable fields the user can tweak before spawning. `id`/`slug` are
+ *  the office character identity (present on the office-backed path) — needed to
+ *  fetch each agent's MCP credentials for the single-shared-folder spawn. */
+interface AgentEdit { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; provider: string; model: string }
 
 const PROVIDER_GROUPS: Array<{ vendor: string; options: Array<{ id: string; label: string }> }> = [
   { vendor: 'Claude', options: [{ id: 'claude-tui', label: 'Claude — interactive' }, { id: 'claude-cli', label: 'Claude — CLI' }] },
@@ -73,6 +75,7 @@ export default function MakeAppView(): JSX.Element {
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
   const [folder, setFolder] = useState('')
+  const [sharedFolder, setSharedFolder] = useState(false) // Bug 2: one folder, all agents in a single .mcp.json
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
 
@@ -129,8 +132,9 @@ export default function MakeAppView(): JSX.Element {
       const gt = (await window.api.officeGenerateTeam(target.id, desc.trim(), count)) as
         { ok?: boolean; agents?: RosterAgent[]; error?: string }
       if (gt?.error) { setErr(gt.error); setEdits([]); setCreating(false); return }
-      // Seed each agent's editable name + model, defaulting the provider.
-      setEdits((gt.agents ?? []).map((a) => ({ name: a.name, role: a.role, emoji: a.emoji, color: a.color, provider: defaultProvider, model: '' })))
+      // Seed each agent's editable name + model, defaulting the provider. Keep the
+      // office character id/slug so single-shared-folder mode can wire each one.
+      setEdits((gt.agents ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, emoji: a.emoji, color: a.color, provider: defaultProvider, model: '' })))
     } catch (e: any) {
       setErr(e?.message || 'Something went wrong.')
     }
@@ -140,16 +144,57 @@ export default function MakeAppView(): JSX.Element {
   const patchEdit = (i: number, p: Partial<AgentEdit>): void =>
     setEdits((prev) => prev ? prev.map((e, k) => (k === i ? { ...e, ...p } : e)) : prev)
 
+  // Bug 1: keep the per-agent boxes in sync with the team-size input AFTER a roster
+  // already exists. Growing APPENDS fresh default rows (same naming/emoji/color/
+  // provider convention defaultRoster uses for those indices); shrinking TRIMS from
+  // the end — either way every already-edited row is preserved. Generating still
+  // (re)creates the roster from scratch. Min 1, max 12 (matches the input bounds).
+  const changeCount = (raw: number): void => {
+    const n = Math.max(1, Math.min(12, raw || 1))
+    setCount(n)
+    setEdits((prev) => {
+      if (!prev || n === prev.length) return prev
+      if (n < prev.length) return prev.slice(0, n) // trim from the end, keep edits
+      const filled = defaultRoster(n, defaultProvider) // canonical rows for every index
+      return [...prev, ...filled.slice(prev.length)]   // append only the NEW indices
+    })
+  }
+
   const pickFolder = useCallback(async () => {
     const f = await window.api.pickFolder()
     if (f) setFolder(f)
   }, [])
 
-  // Spawn each edited agent as a LOCAL autodev workspace under the chosen folder.
+  // The single-shared-folder toggle only makes sense when the roster agents are
+  // office characters (they carry the id/slug + MCP key we wire into .mcp.json).
+  const canShareFolder = !!office
+  const shareMode = sharedFolder && canShareFolder
+
+  // Spawn the edited roster into the chosen folder. Two modes:
+  //  • default (per-agent): one autodev workspace per agent at folder/<slug(name)>.
+  //  • single shared folder: NO per-agent workspaces — instead wire the ONE folder
+  //    to every office character via a single folder/.mcp.json (one
+  //    `pixel-office-<slug>` server each), so a claude launched there drives them all.
   const spawnLocal = useCallback(async () => {
     if (!edits?.length) return
     if (!folder) { setErr('Pick a folder to spawn the agents into first.'); return }
     setSpawning(true); setErr(''); setSpawnMsg('')
+
+    // ── Single shared folder: merge one MCP server per character into folder/.mcp.json. ──
+    if (shareMode && office) {
+      const res = (await window.api.officeWriteSharedMcp(
+        folder,
+        office.slug,
+        edits.map((e) => ({ id: e.id, slug: e.slug, name: e.name }))
+      )) as { ok?: boolean; wired?: number; missing?: string[]; error?: string }
+      setSpawning(false)
+      if (res?.error) { setErr(res.error); return }
+      const miss = res?.missing?.length ? ` (${res.missing.length} could not be matched)` : ''
+      setSpawnMsg(`Wired ${res?.wired ?? 0}/${edits.length} agent${edits.length === 1 ? '' : 's'} from “${office.name}” into ${folder.replace(/\/+$/, '')}/.mcp.json${miss}. Open that folder in claude to drive them all — no per-agent workspaces were created.`)
+      return
+    }
+
+    // ── Default: one autodev workspace per agent. ──
     let ok = 0
     for (let i = 0; i < edits.length; i++) {
       const e = edits[i]
@@ -165,14 +210,14 @@ export default function MakeAppView(): JSX.Element {
     setSpawning(false)
     const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
     setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
-  }, [edits, folder, office])
+  }, [edits, folder, office, shareMode])
 
   const openSetup = useCallback(() => {
     if (!office) return
     window.api.openExternal(`${base.replace(/\/+$/, '')}/office/${office.slug}/setup`)
   }, [base, office])
 
-  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder('') }, [])
+  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false) }, [])
 
   // ── not connected: login form ──
   if (!connected) {
@@ -231,7 +276,7 @@ export default function MakeAppView(): JSX.Element {
           <div>
             <label className="fld">Team size</label>
             <input className="fld-input" type="number" min={1} max={12} value={count}
-              onChange={(e) => setCount(Math.max(1, Math.min(12, parseInt(e.target.value) || 1)))}
+              onChange={(e) => changeCount(parseInt(e.target.value) || 1)}
               style={{ ...inp, width: 90, marginBottom: 0 }} disabled={creating} />
           </div>
           <div style={{ flex: 1 }}>
@@ -277,13 +322,35 @@ export default function MakeAppView(): JSX.Element {
 
             {edits.length > 0 && (
               <div style={{ marginTop: 16, padding: 14, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                <label className="fld">Spawn locally — folder (one workspace per agent is created here)</label>
+                <label className="fld">
+                  {shareMode
+                    ? 'Spawn locally — folder (all agents share ONE .mcp.json here)'
+                    : 'Spawn locally — folder (one workspace per agent is created here)'}
+                </label>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input className="fld-input" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
                   <button onClick={pickFolder} disabled={spawning}>Browse</button>
                 </div>
+                {/* Bug 2: single-shared-folder mode. Only meaningful when the roster
+                    agents are office characters — otherwise there's no office key to
+                    wire, so hide it (and fall back to the per-agent path). */}
+                {canShareFolder && (
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 12, cursor: spawning ? 'default' : 'pointer' }}>
+                    <input type="checkbox" checked={sharedFolder} onChange={(e) => setSharedFolder(e.target.checked)} disabled={spawning} style={{ marginTop: 2 }} />
+                    <span>
+                      <strong>Single shared folder</strong> (all agents in one <code>.mcp.json</code>)
+                      <span style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>
+                        Wires this one folder to every office character via a single <code>.mcp.json</code> — no per-agent workspaces or loops.
+                      </span>
+                    </span>
+                  </label>
+                )}
                 <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={spawnLocal}>
-                  {spawning ? 'Spawning…' : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
+                  {spawning
+                    ? (shareMode ? 'Wiring…' : 'Spawning…')
+                    : shareMode
+                      ? `🔌 Wire ${edits.length} agent${edits.length === 1 ? '' : 's'} into shared .mcp.json`
+                      : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
                 </button>
                 {spawnMsg && <div role="status" style={{ color: 'var(--green)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>{spawnMsg}</div>}
               </div>
