@@ -12,10 +12,18 @@ const livePill: CSSProperties = { background: 'rgba(63,185,80,.15)', borderColor
 const headBar: CSSProperties = { padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, minHeight: 49 }
 
 interface SessionMeta {
-  id: string; file: string; project: string; cwd: string
+  id: string; provider: string; file: string; project: string; cwd: string
   title: string; mtime: number; sizeKb: number; msgs: number; live: boolean
 }
 interface SessionMsg { role: 'user' | 'assistant' | 'tool' | 'system'; text: string; ts?: number }
+
+// Per-provider emoji so session types read as visually distinct at a glance.
+const PROVIDER_EMOJI: Record<string, string> = { claude: '🟣', grok: '⚡', opencode: '🧩', copilot: '🐙' }
+const providerEmoji = (p: string): string => PROVIDER_EMOJI[p] || '💬'
+const PROVIDERS = ['claude', 'grok', 'opencode', 'copilot'] as const
+type Filter = 'all' | (typeof PROVIDERS)[number]
+// Stable per-row key/selection identity — non-claude sessions have no file path.
+const keyOf = (s: SessionMeta): string => `${s.provider}:${s.id}`
 
 function ago(ms: number): string {
   const s = Math.floor((Date.now() - ms) / 1000)
@@ -28,6 +36,7 @@ const base = (p: string): string => p.replace(/\/+$/, '').split('/').filter(Bool
 
 export default function SessionsBrowser({ visible = true }: { visible?: boolean }): JSX.Element {
   const [list, setList] = useState<SessionMeta[]>([])
+  const [filter, setFilter] = useState<Filter>('all')
   const [sel, setSel] = useState<SessionMeta | null>(null)
   const [msgs, setMsgs] = useState<SessionMsg[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,14 +87,16 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
   const openSession = useCallback(async (s: SessionMeta) => {
     // Update the UI immediately (before any await) so the click always feels live.
     const prev = selFile.current
-    selFile.current = s.file
+    // Only claude has a cheap live-tail (a transcript file under ~/.claude); other
+    // providers are read one-shot via the CLI, so there's no file to tail/close.
+    selFile.current = s.provider === 'claude' ? s.file : null
     setTerm(null)
     setSel(s)
     setMsgs([])
     try {
-      if (prev && prev !== s.file) await window.api.sessionClose(prev)
-      setMsgs((await window.api.sessionBacklog(s.file)) as SessionMsg[])
-      await window.api.sessionOpen(s.file)
+      if (prev && prev !== selFile.current) await window.api.sessionClose(prev)
+      setMsgs((await window.api.sessionBacklog({ file: s.file, provider: s.provider, id: s.id, cwd: s.cwd })) as SessionMsg[])
+      if (s.provider === 'claude' && s.file) await window.api.sessionOpen(s.file)
     } catch (e) { console.error('[openSession]', e) }
   }, [])
 
@@ -134,28 +145,50 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
 
   useEffect(() => () => { if (selFile.current) window.api.sessionClose(selFile.current) }, [])
 
+  const shown = filter === 'all' ? list : list.filter((s) => s.provider === filter)
+
   return (
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
       {/* session list */}
       <div style={{ width: 320, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={headBar}>
-          <strong style={{ fontSize: 13 }}>🗂 Claude sessions</strong>
+          <strong style={{ fontSize: 13 }}>🗂 Sessions</strong>
           <span className="badge">{list.length}</span>
           <div style={{ flex: 1 }} />
           <button className="primary" onClick={spawnClaude} title="Spawn a new interactive Claude session in a folder">＋ Spawn Claude</button>
           <button onClick={manualRefresh} disabled={refreshing} title="Rescan sessions" aria-label="Rescan sessions" style={{ padding: '7px 11px' }}>↻</button>
         </div>
+        {/* provider filter — per-family counts; filters the list client-side */}
+        <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+          {(['all', ...PROVIDERS] as Filter[]).map((f) => {
+            const n = f === 'all' ? list.length : list.filter((s) => s.provider === f).length
+            const active = filter === f
+            return (
+              <button key={f} onClick={() => setFilter(f)} title={`Show ${f} sessions`}
+                aria-pressed={active}
+                style={{
+                  fontSize: 11, padding: '3px 9px', borderRadius: 999,
+                  border: '1px solid ' + (active ? 'var(--accent)' : 'var(--border)'),
+                  background: active ? 'var(--accent-dim)' : 'transparent',
+                  color: active ? 'var(--text)' : 'var(--muted)', cursor: 'pointer'
+                }}>
+                {f === 'all' ? 'All' : `${providerEmoji(f)} ${f}`} {n > 0 && <span style={{ opacity: 0.7 }}>{n}</span>}
+              </button>
+            )
+          })}
+        </div>
         <div style={{ overflow: 'auto', flex: 1 }}>
-          {loading && <div className="empty" style={{ padding: 20, fontSize: 12 }}>Scanning ~/.claude…</div>}
-          {!loading && list.length === 0 && <div className="empty" style={{ padding: 20, fontSize: 12 }}>No Claude sessions found on this machine.</div>}
-          {list.map((s) => (
-            <div key={s.file} role="button" tabIndex={0} aria-pressed={sel?.file === s.file}
+          {loading && <div className="empty" style={{ padding: 20, fontSize: 12 }}>Scanning sessions…</div>}
+          {!loading && shown.length === 0 && <div className="empty" style={{ padding: 20, fontSize: 12 }}>{list.length === 0 ? 'No sessions found on this machine.' : `No ${filter} sessions found.`}</div>}
+          {shown.map((s) => (
+            <div key={keyOf(s)} role="button" tabIndex={0} aria-pressed={sel ? keyOf(sel) === keyOf(s) : false}
               onClick={() => openSession(s)}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSession(s) } }}
-              className={'agent-row' + (sel?.file === s.file ? ' active' : '')}
+              className={'agent-row' + (sel && keyOf(sel) === keyOf(s) ? ' active' : '')}
               style={{ display: 'block', padding: '9px 14px', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span className={'dot ' + (s.live ? 'working' : 'stopped')} title={s.live ? 'live' : 'idle'} />
+                <span title={s.provider} style={{ fontSize: 13 }}>{providerEmoji(s.provider)}</span>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.title}</span>
                 {s.live && <span className="badge" style={livePill}>live</span>}
               </div>
@@ -186,11 +219,16 @@ export default function SessionsBrowser({ visible = true }: { visible?: boolean 
           <>
             <div style={headBar}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{sel.title}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span title={sel.provider} style={{ marginRight: 5 }}>{providerEmoji(sel.provider)}</span>{sel.title}
+                </div>
                 <div className="sub" style={{ marginTop: 2 }}>{sel.cwd} · {sel.id.slice(0, 8)}</div>
               </div>
               {sel.live && <span className="badge" style={livePill}>● live</span>}
-              <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ {CONNECT_LABEL}</button>
+              {/* Resume-as-live-agent is claude-specific (it uses `claude --resume`) */}
+              {sel.provider === 'claude'
+                ? <button onClick={openConnect} title="Bind this session to a pixel office and resume it live as an agent">☁ {CONNECT_LABEL}</button>
+                : <button disabled title="Resume live is supported for Claude sessions only" style={{ opacity: 0.5, cursor: 'not-allowed' }}>☁ {CONNECT_LABEL}</button>}
               <button onClick={() => window.api.openPath(sel.cwd)} title="Open workspace folder">📁 Open</button>
             </div>
             {connectOpen && (

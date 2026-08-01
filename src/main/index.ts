@@ -198,9 +198,9 @@ ipcMain.handle('dialog:pickFile', async (_e, filters?: { name: string; extension
 })
 ipcMain.handle('shell:openPath', (_e, p: string) => shell.openPath(p))
 ipcMain.handle('shell:openExternal', (_e, url: string) => openExternalSafe(url))
-// --- Claude sessions (capture: discover + live attach) ---------------------
+// --- Sessions (capture: cross-provider discover + claude live attach) ------
 ipcMain.handle('sessions:discover', () => sessions.discover())
-ipcMain.handle('sessions:backlog', (_e, file: string) => sessions.backlog(file))
+ipcMain.handle('sessions:backlog', (_e, opts: { file?: string; provider?: string; id?: string; cwd?: string }) => sessions.backlog(opts))
 ipcMain.handle('sessions:open', (_e, file: string) => { sessions.open(file); return true })
 ipcMain.handle('sessions:close', (_e, file: string) => { sessions.close(file); return true })
 // --- Interactive PTY panes (spawn: run `claude` in a chosen folder) --------

@@ -23,9 +23,9 @@ const api = {
   onAgentUpdated: (cb: (s: any) => void) => sub('agent:updated', cb),
   onAgentsChanged: (cb: () => void) => sub('agents:changed', cb),
   onAgentLog: (cb: (l: { path: string; line: string }) => void) => sub('agent:log', cb),
-  // Claude sessions — capture existing sessions (discover + live attach)
+  // Sessions — capture existing sessions across providers (discover + read; claude live-tail)
   sessionsDiscover: () => ipcRenderer.invoke('sessions:discover'),
-  sessionBacklog: (file: string) => ipcRenderer.invoke('sessions:backlog', file),
+  sessionBacklog: (opts: { file?: string; provider?: string; id?: string; cwd?: string }) => ipcRenderer.invoke('sessions:backlog', opts),
   sessionOpen: (file: string) => ipcRenderer.invoke('sessions:open', file),
   sessionClose: (file: string) => ipcRenderer.invoke('sessions:close', file),
   onSessionData: (cb: (d: { file: string; msgs: any[] }) => void) => sub('session:data', cb),

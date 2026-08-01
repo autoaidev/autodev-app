@@ -1,8 +1,10 @@
 import { EventEmitter } from 'events'
 import { existsSync, readdirSync, readFileSync, statSync, createReadStream, openSync, readSync, closeSync } from 'fs'
+import { execFile } from 'child_process'
 import { watch, FSWatcher } from 'chokidar'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
+import { resolveCliJs, nodeRunner } from './cli'
 
 /**
  * Discovers and live-streams Claude Code sessions on this machine.
@@ -18,8 +20,9 @@ import { join, resolve, sep } from 'path'
 
 export interface SessionMeta {
   id: string
-  file: string
-  project: string // the encoded ~/.claude/projects folder name
+  provider: string // 'claude' | 'grok' | 'opencode' | 'copilot'
+  file: string // claude: transcript path; other providers: '' (no cheap live-tail)
+  project: string // the encoded ~/.claude/projects folder name (claude only)
   cwd: string // best-effort real workspace path
   title: string
   mtime: number
@@ -166,8 +169,60 @@ export class SessionManager extends EventEmitter {
     return peek
   }
 
-  /** All Claude sessions on this machine (newest first). */
-  discover(): SessionMeta[] {
+  /**
+   * All sessions on this machine across EVERY provider (claude, grok, opencode,
+   * copilot), newest first. Shells the bundled autodev CLI (`sessions --all
+   * --json`) via a system Node ≥22 so the CLI's node:sqlite readers work — the
+   * app's Electron main is Node 20 and can't read grok/opencode's SQLite stores.
+   * On any error, unavailable CLI, or empty result, FALLS BACK to the local
+   * filesystem Claude scan so Claude discovery never regresses on an old/missing
+   * bundled CLI. Polled every 5s, so the CLI call is bounded by a short timeout.
+   */
+  async discover(): Promise<SessionMeta[]> {
+    const viaCli = await this._discoverViaCli()
+    if (viaCli && viaCli.length > 0) return viaCli
+    return this._discoverClaudeFs()
+  }
+
+  /** Run the bundled CLI and map `sessions --all --json` → SessionMeta, or null
+   *  on any failure (missing CLI, non-zero exit, timeout, unparseable output). */
+  private _runCli(args: string[], timeoutMs: number): Promise<string | null> {
+    return new Promise((resolveCli) => {
+      const cliJs = resolveCliJs()
+      if (!cliJs) return resolveCli(null)
+      const { cmd, baseEnv } = nodeRunner()
+      execFile(cmd, [cliJs, ...args], { env: baseEnv, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 }, (err, stdout) => {
+        if (err) return resolveCli(null)
+        resolveCli(stdout || '')
+      })
+    })
+  }
+
+  private async _discoverViaCli(): Promise<SessionMeta[] | null> {
+    const out = await this._runCli(['sessions', '--all', '--json'], 8000)
+    if (out == null) return null
+    let arr: any[]
+    try { arr = JSON.parse(out) } catch { return null }
+    if (!Array.isArray(arr)) return null
+    return arr.map((s) => {
+      const updated = Number(s.updated || 0)
+      return {
+        id: String(s.id),
+        provider: String(s.provider || 'claude'),
+        file: typeof s.file === 'string' ? s.file : '',
+        project: '',
+        cwd: String(s.cwd || ''),
+        title: String(s.name || '(untitled)'),
+        mtime: updated,
+        sizeKb: 0,
+        msgs: Number(s.msgs || 0),
+        live: isLive(updated)
+      } as SessionMeta
+    })
+  }
+
+  /** Filesystem-only Claude discovery — the resilient fallback. */
+  private _discoverClaudeFs(): SessionMeta[] {
     const projects = join(claudeDir(), 'projects')
     if (!existsSync(projects)) return []
     const titles = titleMap()
@@ -189,6 +244,7 @@ export class SessionManager extends EventEmitter {
         const peek = this._peekCached(file, st.size, st.mtimeMs)
         out.push({
           id,
+          provider: 'claude',
           file,
           project: folder,
           cwd: peek.cwd || decodeProject(folder),
@@ -203,10 +259,32 @@ export class SessionManager extends EventEmitter {
     return out.sort((a, b) => b.mtime - a.mtime)
   }
 
-  /** Read the transcript so far (capped) — the backlog for a reader pane. For
-   *  huge transcripts (a long-running session can be 100s of MB) only the tail
-   *  is read so the main process never blocks loading the whole file. */
-  backlog(file: string, limit = 300): SessionMsg[] {
+  /**
+   * Read a session's transcript so far (capped). Claude uses the fast local FS
+   * reader (and seeds the live-tail offset). Every other provider has no cheap
+   * live-tail, so we one-shot the bundled CLI (`session-show`) — the single
+   * source of truth for reading grok/opencode (SQLite) and copilot stores.
+   */
+  async backlog(opts: { file?: string; provider?: string; id?: string; cwd?: string }, limit = 300): Promise<SessionMsg[]> {
+    const provider = opts.provider || 'claude'
+    if (provider === 'claude') {
+      return opts.file ? this._claudeBacklog(opts.file, limit) : []
+    }
+    if (!opts.id) return []
+    const args = ['session-show', opts.id, '--provider', provider, '--json', '--limit', String(limit)]
+    if (opts.cwd) args.push('--cwd', opts.cwd)
+    if (opts.file) args.push('--file', opts.file)
+    const out = await this._runCli(args, 10000)
+    if (out == null) return []
+    try {
+      const arr = JSON.parse(out)
+      return Array.isArray(arr) ? (arr as SessionMsg[]) : []
+    } catch { return [] }
+  }
+
+  /** Claude FS backlog: reads the transcript tail and seeds the tail offset so a
+   *  subsequent open() continues from the right byte. */
+  private _claudeBacklog(file: string, limit = 300): SessionMsg[] {
     if (!underProjects(file) || !existsSync(file)) return []
     const size = safeSize(file)
     const MAX = 2_000_000 // last ~2 MB is plenty for `limit` messages
