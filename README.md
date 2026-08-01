@@ -10,6 +10,13 @@ CLI](https://www.npmjs.com/package/autodev-cli) (the single source of truth for 
 loop/provider logic — nothing is reimplemented here), spawns one agent loop per
 workspace, and surfaces each agent's live state, sessions, and terminal in a window.
 
+## Download & live
+
+- **Desktop AppImage:** <https://autoaidev.com/releases/AutoAIDev-desktop-latest.AppImage>
+- **npm launcher:** <https://www.npmjs.com/package/autodev-app> — `npx autodev-app`
+- **Siblings:** [VS Code extension](https://marketplace.visualstudio.com/items?itemName=AutoAIDev.autoaidev) · [autodev-cli](https://www.npmjs.com/package/autodev-cli) · [Pixel Office](https://app.pixeloffice.org)
+- **Product sites:** [autoaidev.com](https://autoaidev.com) · [pixeloffice.org](https://pixeloffice.org)
+
 > **This repo contains two packages.**
 >
 > | Path | npm name | What it is |
