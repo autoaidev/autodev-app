@@ -14,6 +14,33 @@ const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'op
 const modelKeyFor = (p: string): string => MODEL_KEY[p.split('-')[0]] ?? 'claudeModel'
 const slugify = (s: string, i: number): string => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || `agent-${i + 1}`
 
+/** Sentinel dropdown value: create a brand-new office from the description (today's default). */
+const NEW_OFFICE = '__new__'
+
+/**
+ * Generic team blueprint used when the user opts OUT of a pixel office. Team
+ * generation is an office-backed AI call, so with no office we build a local
+ * default roster instead (documented behavior — see the checkbox comment below).
+ */
+const DEFAULT_ROLES: Array<{ role: string; emoji: string; color: string }> = [
+  { role: 'Product Lead', emoji: '🧭', color: '#6366f1' },
+  { role: 'Frontend Engineer', emoji: '🎨', color: '#0ea5e9' },
+  { role: 'Backend Engineer', emoji: '⚙️', color: '#22c55e' },
+  { role: 'QA Engineer', emoji: '🧪', color: '#f59e0b' },
+  { role: 'DevOps Engineer', emoji: '🚀', color: '#ef4444' },
+  { role: 'Designer', emoji: '✏️', color: '#ec4899' },
+  { role: 'Docs Writer', emoji: '📝', color: '#14b8a6' },
+  { role: 'Data Engineer', emoji: '🗄️', color: '#8b5cf6' }
+]
+function defaultRoster(count: number, provider: string): AgentEdit[] {
+  return Array.from({ length: Math.max(1, count) }, (_, i) => {
+    const r = DEFAULT_ROLES[i % DEFAULT_ROLES.length]
+    const rev = Math.floor(i / DEFAULT_ROLES.length)
+    const name = rev === 0 ? r.role : `${r.role} ${rev + 1}`
+    return { name, role: r.role, emoji: r.emoji, color: r.color, provider, model: '' }
+  })
+}
+
 /** Derive a short, human office name from a free-text description. */
 function deriveName(desc: string): string {
   const clean = desc.replace(/[\r\n]+/g, ' ').trim()
@@ -41,6 +68,11 @@ export default function MakeAppView(): JSX.Element {
   const [count, setCount] = useState(4)
   const [defaultProvider, setDefaultProvider] = useState('claude-tui')
   const [creating, setCreating] = useState(false)
+  // Office targeting: whether to attach to a pixel office at all, the list of the
+  // user's offices, and which one is selected (or NEW_OFFICE = create from desc).
+  const [useOffice, setUseOffice] = useState(true)
+  const [offices, setOffices] = useState<Array<{ slug: string; id: number; name: string }>>([])
+  const [selectedOfficeId, setSelectedOfficeId] = useState<string>(NEW_OFFICE)
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
   const [folder, setFolder] = useState('')
@@ -57,6 +89,17 @@ export default function MakeAppView(): JSX.Element {
     })()
   }, [])
 
+  /** Load the user's offices (for the target dropdown). Only meaningful when connected. */
+  const loadOffices = useCallback(async () => {
+    try {
+      const list = (await window.api.officeOffices()) as Array<{ slug: string; id: number; name: string }>
+      setOffices(Array.isArray(list) ? list : [])
+    } catch { setOffices([]) }
+  }, [])
+
+  // Populate the office dropdown once we're connected.
+  useEffect(() => { if (connected) void loadOffices() }, [connected, loadOffices])
+
   const connect = useCallback(async () => {
     setBusy(true); setErr('')
     const r = (await window.api.officeLogin(base, email, password)) as { ok?: boolean; error?: string }
@@ -71,12 +114,33 @@ export default function MakeAppView(): JSX.Element {
     if (!desc.trim()) { setErr('Describe what you want to build first.'); return }
     setCreating(true); setErr(''); setOffice(null); setEdits(null); setSpawnMsg('')
     try {
-      const name = deriveName(desc)
-      const oc = (await window.api.officeCreateOffice(name, desc.trim())) as
-        { ok?: boolean; office?: { slug: string; id: number; name: string }; error?: string }
-      if (oc?.error || !oc?.office) { setErr(oc?.error || 'Could not create the office.'); setCreating(false); return }
-      setOffice(oc.office)
-      const gt = (await window.api.officeGenerateTeam(oc.office.id, desc.trim(), count)) as
+      // Local-only path (checkbox unchecked): no office, no AI call — build a
+      // generic default roster the user can rename/re-model, then spawn purely
+      // local workspaces (no office character, no wsUrl).
+      if (!useOffice) {
+        setOffice(null)
+        setEdits(defaultRoster(count, defaultProvider))
+        setCreating(false)
+        return
+      }
+
+      // Office-backed path: resolve the TARGET office (existing pick, or a fresh
+      // one created from the description) and generate the team INTO it.
+      let target: { slug: string; id: number; name: string } | undefined
+      if (selectedOfficeId === NEW_OFFICE) {
+        const name = deriveName(desc)
+        const oc = (await window.api.officeCreateOffice(name, desc.trim())) as
+          { ok?: boolean; office?: { slug: string; id: number; name: string }; error?: string }
+        if (oc?.error || !oc?.office) { setErr(oc?.error || 'Could not create the office.'); setCreating(false); return }
+        target = oc.office
+        void loadOffices()               // refresh the list so the new office appears…
+        setSelectedOfficeId(String(target.id)) // …and select it for follow-up runs
+      } else {
+        target = offices.find((o) => String(o.id) === selectedOfficeId)
+        if (!target) { setErr('Pick an office to generate the team into.'); setCreating(false); return }
+      }
+      setOffice(target)
+      const gt = (await window.api.officeGenerateTeam(target.id, desc.trim(), count)) as
         { ok?: boolean; agents?: RosterAgent[]; error?: string }
       if (gt?.error) { setErr(gt.error); setEdits([]); setCreating(false); return }
       // Seed each agent's editable name + model, defaulting the provider.
@@ -85,7 +149,7 @@ export default function MakeAppView(): JSX.Element {
       setErr(e?.message || 'Something went wrong.')
     }
     setCreating(false)
-  }, [desc, count, defaultProvider])
+  }, [desc, count, defaultProvider, useOffice, selectedOfficeId, offices, loadOffices])
 
   const patchEdit = (i: number, p: Partial<AgentEdit>): void =>
     setEdits((prev) => prev ? prev.map((e, k) => (k === i ? { ...e, ...p } : e)) : prev)
@@ -113,8 +177,9 @@ export default function MakeAppView(): JSX.Element {
       if (!(added as { error?: string })?.error) ok++
     }
     setSpawning(false)
-    setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. They're in your sidebar — Start them there.`)
-  }, [edits, folder])
+    const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
+    setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
+  }, [edits, folder, office])
 
   const openSetup = useCallback(() => {
     if (!office) return
@@ -155,6 +220,31 @@ export default function MakeAppView(): JSX.Element {
           Describe your idea, generate a team, tweak each agent's name and model, then spawn them locally or open the office.
         </p>
 
+        {/* Office targeting — only meaningful (and only shown) while connected. Checked:
+            generate/attach to a pixel office. Unchecked: local workspaces only. */}
+        {connected && (
+          <div style={{ marginBottom: 16, padding: 12, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <label htmlFor="makeapp-useoffice" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--fg)' }}>
+              <input id="makeapp-useoffice" type="checkbox" checked={useOffice} onChange={(e) => setUseOffice(e.target.checked)} style={{ width: 'auto', margin: 0 }} disabled={creating} />
+              Connect to pixel office
+            </label>
+            {useOffice ? (
+              <div style={{ marginTop: 10 }}>
+                <label className="fld" htmlFor="makeapp-office">Office</label>
+                <select className="fld-input" id="makeapp-office" value={selectedOfficeId}
+                  onChange={(e) => setSelectedOfficeId(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={creating}>
+                  <option value={NEW_OFFICE}>＋ New office (from description)</option>
+                  {offices.map((o) => <option key={o.id} value={String(o.id)}>{o.name}</option>)}
+                </select>
+              </div>
+            ) : (
+              <p style={{ margin: '8px 0 0', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed.
+              </p>
+            )}
+          </div>
+        )}
+
         <label className="fld">What do you want to build?</label>
         <textarea className="fld-input" value={desc} onChange={(e) => setDesc(e.target.value)}
           placeholder="e.g. A recipe app that suggests meals from ingredients I have at home"
@@ -179,18 +269,18 @@ export default function MakeAppView(): JSX.Element {
 
         {!edits && (
           <button className="primary" style={{ width: '100%', marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
-            {creating ? (office ? 'Assembling team…' : 'Creating office…') : '🐣 Generate team'}
+            {creating ? (useOffice && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🐣 Generate team'}
           </button>
         )}
 
-        {edits && office && (
+        {edits && (
           <div style={{ marginTop: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <strong style={{ fontSize: 14 }}>{office.name}</strong>
+              <strong style={{ fontSize: 14 }}>{office ? office.name : 'Local workspaces'}</strong>
               <span className="badge">{edits.length} agents</span>
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>— edit names &amp; models below</span>
             </div>
-            {edits.length === 0 && <div className="empty" style={{ fontSize: 12, padding: 12 }}>No team was generated — you can still set it up in the browser.</div>}
+            {edits.length === 0 && <div className="empty" style={{ fontSize: 12, padding: 12 }}>{office ? 'No team was generated — you can still set it up in the browser.' : 'No team was generated.'}</div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {edits.map((a, i) => (
@@ -223,8 +313,8 @@ export default function MakeAppView(): JSX.Element {
             )}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button className="primary" style={{ flex: 1 }} onClick={openSetup}>↗ Open in browser</button>
-              <button onClick={reset} title="Start another">＋ New</button>
+              {office && <button className="primary" style={{ flex: 1 }} onClick={openSetup}>↗ Open in browser</button>}
+              <button style={{ flex: office ? '0 0 auto' : 1 }} onClick={reset} title="Start another">＋ New</button>
             </div>
           </div>
         )}
