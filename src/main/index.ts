@@ -164,6 +164,9 @@ ipcMain.handle('agents:list', () => manager.list())
 ipcMain.handle('agents:add', (_e, path: string) => manager.add(path))
 ipcMain.handle('workspace:info', (_e, path: string) => manager.workspaceInfo(path))
 ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); return true })
+// Remove from the list AND delete the workspace folder from disk (guarded to a
+// registered/`.autodev`-bearing path, never a filesystem/home root).
+ipcMain.handle('agents:removeFolder', (_e, path: string) => manager.removeFolder(path))
 ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
 ipcMain.handle('agent:stop', (_e, path: string) => { manager.stop(path); return true })
@@ -234,6 +237,10 @@ ipcMain.handle('office:connectSession', (_e, officeSlug: string, officeId: numbe
 ipcMain.handle('office:createOffice', (_e, name: string, description: string) => office.createOffice(name, description))
 ipcMain.handle('office:generateTeam', (_e, officeId: number, prompt: string, count: number) => office.generateTeam(officeId, prompt, count))
 ipcMain.handle('office:writeSharedMcp', (_e, folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>, fileBrowser?: boolean) => office.writeSharedMcp(folder, officeSlug, agents, !!fileBrowser))
+// Bind an existing workspace to an office character (presence + office-MCP).
+ipcMain.handle('office:bindWorkspace', (_e, cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser?: boolean) => office.bindWorkspaceToOffice(cwd, officeSlug, want, !!fileBrowser))
+// Delete an office character (agent row) from the pixel office.
+ipcMain.handle('office:deleteAgent', (_e, officeSlug: string, agentId: string) => office.deleteOfficeAgent(officeSlug, agentId))
 
 app.whenReady().then(() => {
   createWindow()

@@ -203,6 +203,7 @@ export default function MakeAppView(): JSX.Element {
     // ── Default: one autodev workspace per agent. ──
     let ok = 0
     let started = 0
+    let bound = 0
     for (let i = 0; i < edits.length; i++) {
       const e = edits[i]
       const path = `${folder.replace(/\/+$/, '')}/${slugify(e.name, i)}`
@@ -217,8 +218,15 @@ export default function MakeAppView(): JSX.Element {
       const added = await window.api.addAgent(path)
       if ((added as { error?: string })?.error) continue
       ok++
-      // Spawn & Run: kick off each agent's loop right after it's registered, so
-      // the user doesn't have to Start all of them one by one in the sidebar.
+      // Office-backed spawn: `autodev init` writes NO office binding, so bind each
+      // fresh workspace to its office character (presence + office-MCP) BEFORE we
+      // start the loop, so it comes up already connected. Match by id/slug/name.
+      if (office) {
+        const b = await window.api.officeBindWorkspace(path, office.slug, { id: e.id, slug: e.slug, name: e.name }, fileBrowser) as { ok?: boolean; error?: string }
+        if (b?.ok) bound++
+      }
+      // Spawn & Run: kick off each agent's loop right after it's registered (and
+      // bound), so the user doesn't have to Start all of them one by one.
       if (run) {
         const sr = await window.api.startAgent(path, e.provider) as { error?: string } | undefined
         if (!sr?.error) started++
@@ -226,9 +234,10 @@ export default function MakeAppView(): JSX.Element {
     }
     setSpawning(false)
     const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
+    const connected = office ? `, connected ${bound} to office` : ''
     setSpawnMsg(run
-      ? `Spawned ${ok}/${edits.length} and started ${started} agent${started === 1 ? '' : 's'} into ${folder}. ${where} They're running in your sidebar.`
-      : `Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
+      ? `Spawned ${ok}/${edits.length}${connected}, started ${started} agent${started === 1 ? '' : 's'} into ${folder}. ${where} They're running in your sidebar.`
+      : `Spawned ${ok}/${edits.length}${connected} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
   }, [edits, folder, office, shareMode, fileBrowser])
 
   // After a shared-folder wire, register that ONE folder as a single startable

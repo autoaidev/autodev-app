@@ -147,13 +147,15 @@ export default function App(): JSX.Element {
   const [initPath, setInitPath] = useState<string | null>(null)    // "Add existing folder" chose an un-initialized folder → offer to init it here
   const [nudgePath, setNudgePath] = useState<string | null>(null)  // just-created agent: nudge the first task
   const [connectFor, setConnectFor] = useState<string | null>(null)
+  const [connectOfficeFor, setConnectOfficeFor] = useState<AgentState[] | null>(null)  // "Connect to office" modal targets (single or bulk)
+  const [removeFor, setRemoveFor] = useState<AgentState[] | null>(null)                // remove-with-options modal targets (single or bulk)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const [cliMissing, setCliMissing] = useState(false)
   const [ioBusy, setIoBusy] = useState(false)              // export/import in flight (long zips outlive the toast)
   const [stopping, setStopping] = useState<Set<string>>(new Set())  // agents mid-shutdown
   const [restarting, setRestarting] = useState<Set<string>>(new Set())  // agents mid-restart (stop→start)
   const [checked, setChecked] = useState<Set<string>>(new Set())    // multi-select for bulk actions
-  const [bulkBusy, setBulkBusy] = useState<'start' | 'stop' | 'restart' | 'remove' | null>(null)  // bulk op in flight — disables the bar + spins the active button
+  const [bulkBusy, setBulkBusy] = useState<'start' | 'stop' | 'restart' | null>(null)  // bulk op in flight — disables the bar + spins the active button
   const logsRef = useRef<Map<string, string>>(new Map())
   // Log lines arrive at HIGH frequency — every running agent streams a chunk on each
   // stdout/stderr `data` event (7 loops in an office = many per second). Forcing a
@@ -348,14 +350,13 @@ export default function App(): JSX.Element {
   }, [agents])
   // Bulk lifecycle over the checked subset — the "restart these 4 opencode agents"
   // case that Start-all / Stop-all can't target.
-  const bulk = async (kind: 'start' | 'stop' | 'restart' | 'remove') => {
+  // Non-destructive bulk lifecycle ops. Remove is destructive and routes through
+  // RemoveModal (delete-with-options) instead of here.
+  const bulk = async (kind: 'start' | 'stop' | 'restart') => {
     const paths = [...checked]
     // Ignore re-clicks while a bulk op is already running (feedback-at-button:
     // bulkBusy disables the bar, but guard here too against a stray dispatch).
     if (!paths.length || bulkBusy) return
-    // Stop is non-destructive → no confirm. Remove is, so confirm via the native
-    // main-process dialog (the sandboxed window.confirm is unreliable).
-    if (kind === 'remove' && !(await window.api.confirmDialog(`Remove ${paths.length} selected agent${paths.length === 1 ? '' : 's'} from the list?`, 'Workspace files are kept.'))) return
     setBulkBusy(kind)
     try {
       for (const p of paths) {
@@ -364,7 +365,6 @@ export default function App(): JSX.Element {
         if (kind === 'start' && !a.running) await window.api.startAgent(p)
         else if (kind === 'stop' && a.running) await window.api.stopAgent(p)
         else if (kind === 'restart') { if (a.running) { await window.api.stopAgent(p); await new Promise((r) => setTimeout(r, 600)) } await window.api.startAgent(p) }
-        else if (kind === 'remove') { await window.api.removeAgent(p); if (selected === p) setSelected(null) }
       }
       setChecked(new Set())
       refresh()
@@ -512,7 +512,8 @@ export default function App(): JSX.Element {
             <button title="Start selected" aria-label="Start selected" disabled={!!bulkBusy} onClick={() => bulk('start')}>{bulkBusy === 'start' ? '…' : '▶'}</button>
             <button className="danger" title="Stop selected" aria-label="Stop selected" disabled={!!bulkBusy} onClick={() => bulk('stop')}>{bulkBusy === 'stop' ? '…' : '■'}</button>
             <button title="Restart selected" aria-label="Restart selected" disabled={!!bulkBusy} onClick={() => bulk('restart')}>{bulkBusy === 'restart' ? '…' : '↻'}</button>
-            <button className="danger" title="Remove selected from list" aria-label="Remove selected from list" disabled={!!bulkBusy} onClick={() => bulk('remove')}>{bulkBusy === 'remove' ? '…' : '🗑'}</button>
+            <button title="Connect selected to office" aria-label="Connect selected to office" disabled={!!bulkBusy} onClick={() => { const t = agents.filter((a) => checked.has(a.path)); if (t.length) setConnectOfficeFor(t) }}>☁</button>
+            <button className="danger" title="Remove selected from list" aria-label="Remove selected from list" disabled={!!bulkBusy} onClick={() => { const t = agents.filter((a) => checked.has(a.path)); if (t.length) setRemoveFor(t) }}>🗑</button>
             <button title="Clear selection" aria-label="Clear selection" disabled={!!bulkBusy} onClick={() => setChecked(new Set())}>✕</button>
           </div>
         )}
@@ -636,7 +637,8 @@ export default function App(): JSX.Element {
               <OverflowMenu items={[
                 { label: ioBusy ? '⬇ Exporting…' : '⬇ Export backup', onClick: () => { if (!ioBusy) exportAgent(current) } },
                 { label: ioBusy ? '🧵 Exporting…' : '🧵 Export trace (TraceX)', onClick: () => { if (!ioBusy) exportTrace(current) } },
-                { label: '🗑 Remove from list', danger: true, sep: true, onClick: async () => { if (!(await window.api.confirmDialog(`Remove "${current.name}" from the list?`, 'Workspace files are kept.'))) return; await window.api.removeAgent(current.path); setSelected(null); refresh() } }
+                { label: '☁ Connect to office', sep: true, onClick: () => setConnectOfficeFor([current]) },
+                { label: '🗑 Remove…', danger: true, onClick: () => setRemoveFor([current]) }
               ]} />
             </div>
 
@@ -707,6 +709,8 @@ export default function App(): JSX.Element {
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {initPath && <CreateModal initialPath={initPath} initMode onClose={() => setInitPath(null)} onCreated={(p) => { setInitPath(null); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
+      {connectOfficeFor && <ConnectOfficeModal targets={connectOfficeFor} onClose={() => setConnectOfficeFor(null)} onDone={() => { setConnectOfficeFor(null); setChecked(new Set()); refresh() }} showToast={showToast} />}
+      {removeFor && <RemoveModal targets={removeFor} onClose={() => setRemoveFor(null)} onDone={() => { const removed = removeFor.map((a) => a.path); setRemoveFor(null); setChecked(new Set()); if (selected && removed.includes(selected)) setSelected(null); refresh() }} showToast={showToast} />}
       {/* Persistent live regions (always in DOM) so screen readers announce
           status/error changes; polite for info, assertive for errors. */}
       <div aria-live="polite" aria-atomic="true" role="status" style={srOnly}>{toast && !toast.err ? toast.msg : ''}</div>
@@ -1365,6 +1369,170 @@ function ConnectModal({ path, agent, onClose, onDone, showToast }: { path: strin
         <div className="actions">
           <button onClick={onClose}>Cancel</button>
           <button className="primary" disabled={busy} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Connect one or more already-spawned LOCAL agents to an office. Pick an office;
+ * each target is bound to a character matched BY NAME (bindWorkspaceToOffice writes
+ * the presence binding + office-MCP). A running loop is restarted so it reconnects
+ * as the bound character. Drives both the single-agent menu item and the bulk bar.
+ */
+function ConnectOfficeModal({ targets, onClose, onDone, showToast }: { targets: AgentState[]; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [offices, setOffices] = useState<{ slug: string; id: number; name: string }[]>([])
+  const [officeSlug, setOfficeSlug] = useState('')
+  const [fileBrowser, setFileBrowser] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const trapRef = useFocusTrap<HTMLDivElement>()
+
+  // Reuse the app's existing pixel-office session (same one the Office view uses).
+  useEffect(() => {
+    (async () => {
+      setLoading(true); setErr('')
+      try {
+        const st = (await window.api.officeStatus()) as { connected: boolean }
+        const ok = st.connected || (await window.api.officeAutoConnect())
+        setAuthed(!!ok)
+        if (!ok) { setLoading(false); return }
+        const offs = (await window.api.officeOffices()) as { slug: string; id: number; name: string }[]
+        setOffices(offs)
+        if (offs.length) setOfficeSlug((cur) => cur || offs[0].slug)
+      } catch (e) { setAuthed(false); setErr(String((e as Error)?.message ?? e)) }
+      finally { setLoading(false) }
+    })()
+  }, [])
+
+  const connect = async () => {
+    if (!authed) return showToast('Log in to your pixel office first (Office tab).', true)
+    if (!officeSlug) return showToast('Pick an office first', true)
+    setBusy(true)
+    let bound = 0
+    const missing: string[] = []
+    for (const a of targets) {
+      const b = (await window.api.officeBindWorkspace(a.path, officeSlug, { name: a.name }, fileBrowser)) as { ok?: boolean; error?: string }
+      if (b?.ok) {
+        bound++
+        // A running loop won't pick up the new binding until restarted — bounce it
+        // so the character reconnects live in the office.
+        if (a.running) {
+          await window.api.stopAgent(a.path)
+          await new Promise((r) => setTimeout(r, 700))
+          await window.api.startAgent(a.path, a.provider)
+        }
+      } else { missing.push(a.name) }
+    }
+    setBusy(false)
+    const miss = missing.length ? ` — no office match for: ${missing.join(', ')}` : ''
+    showToast(bound ? `Connected ${bound}/${targets.length} to the office${miss}` : `Couldn't connect any${miss}`, bound === 0)
+    onDone()
+  }
+
+  return (
+    <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
+      <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="connect-office-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="connect-office-title">☁ Connect {targets.length === 1 ? `“${targets[0].name}”` : `${targets.length} agents`} to office</h3>
+        <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
+          Binds {targets.length === 1 ? 'this agent' : 'each selected agent'} to an office character matched <strong>by name</strong>, writing its office presence + MCP wiring. Running agents are restarted so they reconnect.
+        </p>
+        {loading ? (
+          <p style={{ fontSize: 12, color: 'var(--fg2)' }}>Loading your offices…</p>
+        ) : authed === false ? (
+          <p style={{ fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
+            Not logged in to a pixel office. Open the <strong>Office</strong> tab to connect first.
+            {err && <><br /><span style={{ color: 'var(--danger,#ff6b6b)' }}>{err}</span></>}
+          </p>
+        ) : (
+          <>
+            <label className="field"><span className="lbl">Office</span>
+              <select autoFocus value={officeSlug} onChange={(e) => setOfficeSlug(e.target.value)}>
+                {offices.length === 0 && <option value="">(no office)</option>}
+                {offices.map((o) => <option key={o.slug} value={o.slug}>{o.name}</option>)}
+              </select>
+            </label>
+            <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} id="connect-office-file-browser" />
+          </>
+        )}
+        <div className="actions">
+          <button onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={busy || loading || authed === false || !officeSlug} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Remove one or more agents with options: remove from the list (always), and
+ * optionally (both default OFF) delete the workspace folder from disk and/or
+ * delete the linked office character. The checkboxes apply to ALL targets, so one
+ * modal serves both the single-agent menu and the bulk bar. Character deletion is
+ * only offered when at least one target carries resolved office info.
+ */
+function RemoveModal({ targets, onClose, onDone, showToast }: { targets: AgentState[]; onClose: () => void; onDone: () => void; showToast: (m: string, e?: boolean) => void }): JSX.Element {
+  const [delFolder, setDelFolder] = useState(false)
+  const [delChar, setDelChar] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const trapRef = useFocusTrap<HTMLDivElement>()
+  // Character deletion needs the office id + slug the presence poll resolves.
+  const withOffice = targets.filter((a) => a.officeAgentId && a.officeSlug)
+  const canDeleteChar = withOffice.length > 0
+
+  const apply = async () => {
+    setBusy(true)
+    let removed = 0, folders = 0, chars = 0
+    const errors: string[] = []
+    for (const a of targets) {
+      // Delete the office character FIRST — it needs the still-resolved office info.
+      if (delChar && a.officeAgentId && a.officeSlug) {
+        const d = (await window.api.officeDeleteAgent(a.officeSlug, a.officeAgentId)) as { ok?: boolean; error?: string }
+        if (d?.ok) chars++
+        else if (d?.error) errors.push(`${a.name} (character): ${d.error}`)
+      }
+      if (delFolder) {
+        const r = (await window.api.removeAgentFolder(a.path)) as { ok?: boolean; error?: string }
+        if (r?.ok) { folders++; removed++ }
+        else {
+          // Guard refused / rm failed — still take it out of the list.
+          errors.push(`${a.name}: ${r?.error ?? 'folder delete failed'}`)
+          await window.api.removeAgent(a.path); removed++
+        }
+      } else {
+        await window.api.removeAgent(a.path); removed++
+      }
+    }
+    setBusy(false)
+    const parts = [`Removed ${removed}`]
+    if (delFolder) parts.push(`${folders} folder${folders === 1 ? '' : 's'} deleted`)
+    if (delChar) parts.push(`${chars} character${chars === 1 ? '' : 's'} deleted`)
+    showToast(parts.join(' · ') + (errors.length ? ` — ${errors.length} error${errors.length === 1 ? '' : 's'}` : ''), errors.length > 0)
+    onDone()
+  }
+
+  const destructive = delFolder || delChar
+  return (
+    <div className="modal-bg" onClick={onClose} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }}>
+      <div className="modal" ref={trapRef} role="dialog" aria-modal="true" aria-labelledby="remove-modal-title" onClick={(e) => e.stopPropagation()}>
+        <h3 id="remove-modal-title">🗑 Remove {targets.length === 1 ? `“${targets[0].name}”` : `${targets.length} agents`}</h3>
+        <p style={{ marginTop: 0, fontSize: 12, color: 'var(--fg2)', lineHeight: 1.5 }}>
+          {targets.length === 1 ? 'This agent' : 'These agents'} will be removed from the list. By default the workspace files and any office character are kept — check below to also delete them.
+        </p>
+        <label className="field-check" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '8px 0', cursor: 'pointer' }}>
+          <input type="checkbox" checked={delFolder} onChange={(e) => setDelFolder(e.target.checked)} />
+          <span><strong>Delete workspace folder from disk</strong><br /><span style={{ fontSize: 11, color: 'var(--fg2)' }}>Permanently removes the folder{targets.length === 1 ? '' : 's'} and all files. Cannot be undone.</span></span>
+        </label>
+        <label className="field-check" style={{ display: 'flex', gap: 8, alignItems: 'flex-start', margin: '8px 0', cursor: canDeleteChar ? 'pointer' : 'not-allowed', opacity: canDeleteChar ? 1 : 0.5 }}>
+          <input type="checkbox" checked={delChar} disabled={!canDeleteChar} onChange={(e) => setDelChar(e.target.checked)} />
+          <span><strong>Delete character from pixel office</strong><br /><span style={{ fontSize: 11, color: 'var(--fg2)' }}>{canDeleteChar ? `Deletes the linked office character${withOffice.length === targets.length ? '' : ` (${withOffice.length}/${targets.length} linked)`}.` : 'No office-linked character resolved for these agents.'}</span></span>
+        </label>
+        <div className="actions">
+          <button onClick={onClose}>Cancel</button>
+          <button className={destructive ? 'danger' : 'primary'} disabled={busy} onClick={apply}>{busy ? 'Removing…' : destructive ? 'Remove & delete' : 'Remove from list'}</button>
         </div>
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
 import { EventEmitter } from 'events'
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync } from 'fs'
-import { join, basename, dirname, delimiter as pathDelimiter } from 'path'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync, rmSync } from 'fs'
+import { join, basename, dirname, resolve, sep, delimiter as pathDelimiter } from 'path'
 import { homedir } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
@@ -197,6 +197,37 @@ export class AgentManager extends EventEmitter {
     this._unwatch(path)
     this._save()
     this.emit('changed')
+  }
+
+  /**
+   * Remove a workspace from the registry AND delete its folder from disk. Heavily
+   * guarded so a stray/hostile path can never wipe an arbitrary directory:
+   *   - refuses `/`, the home dir, and any shallow (< 2 segment) top-level path;
+   *   - only deletes a path that IS a registered workspace OR plainly looks like
+   *     one (contains a `.autodev` dir).
+   * Unregisters first (which stops the loop + drops watchers), then rms the tree.
+   */
+  removeFolder(path: string): { ok: true } | { error: string } {
+    const p = String(path ?? '').trim()
+    if (!p) return { error: 'No path.' }
+    const resolved = resolve(p)
+    const forbidden = new Set([resolve('/'), resolve(homedir())])
+    if (resolved === '/' || forbidden.has(resolved) || resolved.split(sep).filter(Boolean).length < 2) {
+      return { error: 'Refusing to delete a filesystem or home root.' }
+    }
+    const registered = this._paths.includes(p)
+    const looksLikeWorkspace = existsSync(join(p, '.autodev'))
+    if (!registered && !looksLikeWorkspace) {
+      return { error: 'Refusing to delete a folder that is not a registered AutoDev workspace.' }
+    }
+    // Unregister first so the loop is stopped and watchers are torn down before rm.
+    this.remove(p)
+    try {
+      rmSync(p, { recursive: true, force: true })
+      return { ok: true }
+    } catch (e: any) {
+      return { error: e?.message ?? 'Failed to delete the workspace folder.' }
+    }
   }
 
   // A loop can be running for a workspace WITHOUT this app having spawned it —

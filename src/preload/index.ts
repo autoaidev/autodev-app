@@ -5,6 +5,7 @@ const api = {
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
   workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
   removeAgent: (path: string) => ipcRenderer.invoke('agents:remove', path),
+  removeAgentFolder: (path: string) => ipcRenderer.invoke('agents:removeFolder', path),
   agentState: (path: string) => ipcRenderer.invoke('agent:state', path),
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),
   stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
@@ -52,6 +53,8 @@ const api = {
   officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),
   officeGenerateTeam: (officeId: number, prompt: string, count: number) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count),
   officeWriteSharedMcp: (folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>, fileBrowser?: boolean) => ipcRenderer.invoke('office:writeSharedMcp', folder, officeSlug, agents, fileBrowser),
+  officeBindWorkspace: (cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser?: boolean) => ipcRenderer.invoke('office:bindWorkspace', cwd, officeSlug, want, fileBrowser),
+  officeDeleteAgent: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:deleteAgent', officeSlug, agentId),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 

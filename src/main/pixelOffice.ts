@@ -487,6 +487,36 @@ export class PixelOfficeClient {
     return r
   }
 
+  /** One DELETE attempt with the jar's current CSRF token + cookies. */
+  private async doDelete(path: string): Promise<Response> {
+    const before = this.jar.header()
+    const r = await fetchT(`${this.base}${path}`, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: before }
+    })
+    this.absorbCookies(before, r)
+    return r
+  }
+
+  /** DELETE mirror of postJson: same 419 (stale CSRF) + 401 (session) self-heal. */
+  private async deleteJson(path: string): Promise<any> {
+    let r = await this.doDelete(path)
+    if (r.status === 419) {
+      try {
+        const before = this.jar.header()
+        const cr = await fetchRetry(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json', Cookie: before } })
+        this.absorbCookies(before, cr)
+      } catch { /* keep the original 419 below */ }
+      r = await this.doDelete(path)
+    }
+    if (r.status === 401) {
+      if (await this.reauth()) r = await this.doDelete(path)
+    }
+    if (r.status === 401 || r.status === 419) { this._authed = false; throw new Error('Session expired — reconnect.') }
+    if (!r.ok) throw new Error(`${path} → ${r.status}`)
+    return r.json().catch(() => ({}))
+  }
+
   private async postJson(path: string, body: unknown): Promise<any> {
     let r = await this.doPost(path, body)
     // A Laravel 419 ("Page Expired") is a stale/mismatched XSRF token, NOT a dead
@@ -869,6 +899,98 @@ export class PixelOfficeClient {
       dbg('writeSharedMcp: wired', servers.length, 'server(s) into', dir, missing.length ? `missing=${missing.length}` : '')
       return { ok: true, folder: dir, wired: servers.length, servers, missing }
     } catch (e) { dbg('writeSharedMcp error', e); return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
+   * Bind an EXISTING local workspace `cwd` to an office character — the core
+   * primitive both the Spawn flow (fresh per-agent workspaces) and the
+   * Connect-to-office action (already-spawned agents) build on. A correctly
+   * office-connected agent has BOTH a `.autodev/settings.json` presence binding
+   * (serverBaseUrl / serverApiKey / webhookSlug / wsUrl) AND the `pixel-office`
+   * mcp-operate server in `.mcp.json`; this writes both, MERGING each so no
+   * existing keys/servers are clobbered. The character is matched against the
+   * office roster by id, then slug, then name (lowercased). A loop
+   * started/restarted in `cwd` afterwards comes up already connected.
+   */
+  async bindWorkspaceToOffice(cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser = false):
+    Promise<{ ok: true; slug: string; name: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const dir = String(cwd ?? '').trim()
+    if (!dir) return { error: 'No workspace folder to bind.' }
+    if (!officeSlug) return { error: 'Pick an office to bind to.' }
+    try {
+      // Resolve the office's live roster so id/slug/name all map to a character.
+      let roster: any[] = []
+      try {
+        const ags = await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents`)
+        roster = Array.isArray(ags?.data) ? ags.data
+          : Array.isArray(ags?.data?.agents) ? ags.data.agents
+          : Array.isArray(ags?.agents) ? ags.agents
+          : Array.isArray(ags) ? ags : []
+      } catch (e) {
+        return { error: `Couldn't list the office characters — ${String((e as Error)?.message ?? e)}` }
+      }
+      const id = want.id ? String(want.id) : ''
+      const slug = want.slug ? String(want.slug) : ''
+      const nm = want.name ? String(want.name).toLowerCase() : ''
+      const ch = roster.find((x) =>
+        (id && String(x.id) === id) ||
+        (slug && String(x.slug) === slug) ||
+        (nm && String(x.name ?? '').toLowerCase() === nm))
+      if (!ch) return { error: `No office character matches "${want.name || want.slug || want.id || '?'}"` }
+      let creds: any
+      try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(String(ch.id))}/credentials`))?.data ?? {} }
+      catch (e) { return { error: `Couldn't fetch this character's MCP credentials — ${String((e as Error)?.message ?? e)}` } }
+      const key = creds.apiKey as string | undefined
+      if (!key) return { error: 'No API key returned for that character — it may lack office-MCP access.' }
+      const base = this.base
+      const wsBase = base.replace(/^http/, 'ws')
+      const chSlug = String(ch.slug || creds.slug || slug || ch.id)
+      const url = safeMcpUrl(creds.mcpUrl, base, `${base}/api/office-mcp`)
+      // Prefer the office's own authoritative wsUrl (its WS path may be configured);
+      // fall back to the documented `${wsBase}/ws?token=…&endpoint=…` derivation.
+      const wsUrl = (typeof creds.wsUrl === 'string' && /^wss?:\/\//i.test(creds.wsUrl))
+        ? creds.wsUrl
+        : `${wsBase}/ws?token=${key}&endpoint=${chSlug}`
+      // MERGE-write the presence binding into `.autodev/settings.json` — preserve
+      // every existing key (provider, sessionName, …), set only the 4 presence fields.
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const p = JSON.parse(readFileSync(sfile, 'utf8')); if (p && typeof p === 'object') s = p } catch { /* none/invalid → fresh */ }
+      s.serverBaseUrl = base
+      s.serverApiKey = key
+      s.webhookSlug = chSlug
+      s.wsUrl = wsUrl
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+      // Wire the office-MCP server + scoped trust (mirrors connectSession's real-repo path).
+      ensureGitignored(dir, ['.mcp.json', '.claude/settings.local.json'])
+      mergeMcpJson(dir, key, url, undefined, fileBrowser)
+      writeScopedMcpTrust(dir)
+      this.recordProvisioned(dir)
+      dbg('bindWorkspaceToOffice: bound', chSlug, '→', dir)
+      return { ok: true, slug: chSlug, name: String(ch.name ?? chSlug) }
+    } catch (e) { dbg('bindWorkspaceToOffice error', e); return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
+   * Delete an office character (agent row) from the pixel office. The owner-scoped
+   * route is the flat `DELETE /api/agents/{id}` (AgentController::destroy) — the
+   * office slug is only needed to resolve the id, which the caller already has, so
+   * it's accepted for signature symmetry but not required by the endpoint.
+   */
+  async deleteOfficeAgent(officeSlug: string, agentId: string): Promise<{ ok: true } | { error: string }> {
+    void officeSlug // signature symmetry; the destroy route is not office-scoped
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const id = String(agentId ?? '').trim()
+    if (!id) return { error: 'No office character id to delete.' }
+    try {
+      await this.deleteJson(`/api/agents/${encodeURIComponent(id)}`)
+      dbg('deleteOfficeAgent: deleted', id)
+      return { ok: true }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
   status(): { connected: boolean; base: string; email?: string } {
