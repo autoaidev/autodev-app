@@ -53,18 +53,27 @@ full launcher story (integrity checks, self-hosting, why it's a launcher).
 
 ## What the app does
 
-- **Multi-agent dashboard** — sidebar of agent workspaces with live status, a detail
-  panel, and start/stop controls; one `autodev start` child process per running agent.
-- **Live output** — streams each loop's stdout and hooks-events activity as it runs.
-- **Sessions** — discover existing `claude` / `opencode` sessions and reopen them.
+The window has four top-nav surfaces: **Agents** (🖥, default), **Spawn agents**
+(🐣), **Pixel Office** (☁), and **Sessions** (🗂).
+
+- **Multi-agent dashboard** — sidebar of agent workspaces **grouped by folder** with
+  live status, select-all + bulk actions (start / stop / connect / remove), a detail
+  panel, and per-agent start/stop; one `autodev start` child process per running agent.
+- **Agent detail tabs** — **Overview**, **Chat** (the agent's live office conversation —
+  read and message/steer it), **Output** (streams the loop's stdout + hooks-events
+  activity), **Resume** (past provider sessions for this workspace), **Todo**, and
+  **Config**.
+- **Sessions browser** — discover and reopen existing sessions across every provider:
+  `claude`, `opencode`, `grok`, and `copilot`.
 - **Terminal** — an embedded `xterm` + `node-pty` shell scoped to an agent's folder.
 - **Office integration** — log in to a [pixel-office](https://autodev.code.aioffice.works),
-  list your agents/offices, connect an agent, and operate a character.
-- **Make an app** — create an office and generate a team from a prompt (the
-  describe-→-team funnel), all from the GUI.
-- **Per-agent MCP config** — read/write the agent's MCP file.
+  list your agents/offices, connect an agent to a character (bind its workspace), and
+  operate/steer it.
+- **Spawn agents** — the describe-→-team funnel: create an office, generate a team from
+  a prompt, optionally into a shared `.mcp.json` folder, then **Spawn & Run**.
+- **Per-agent MCP config** — read/write the agent's MCP file from the Config tab.
 - **Create / add / export / import** agents (portable backup ZIPs), **open folder**,
-  and a banner when the bundled CLI can't be found.
+  **Export trace (TraceX)**, and a banner when the bundled CLI can't be found.
 
 Everything that mutates agent state shells out to the `autodev` CLI
 (`init` / `config` / `status` / `sessions` / `connect` / `export` / `import` …).
@@ -135,7 +144,7 @@ npm run test         # node --test test/*.test.mts
 ```
 
 Tests live in [`test/`](test) (cookie jar, fetch-error humanizing, office
-sanitization, session confinement). The launcher has its own suite:
+sanitization, session confinement, URL extraction). The launcher has its own suite:
 `cd npm && npm test`.
 
 ---
@@ -181,6 +190,19 @@ stays in the loop for the irreversible steps. (`--skip-build` reuses the existin
 `dist/`.)
 
 ---
+
+## Good to know
+
+- **Closing the window doesn't stop your agents.** It hides the app to the system
+  tray and keeps running loops alive; the app only truly quits when no agents are
+  running or you choose Quit from the tray/in-app. You'll get OS notifications when an
+  agent needs auth, crashes, stalls, is rate-limited, or finishes.
+- **Node 22+ matters for opencode.** Electron ships Node 20, which lacks `node:sqlite`;
+  without a system Node ≥ 22 on PATH (or `AUTODEV_NODE`), opencode session/export
+  features degrade — claude/copilot are unaffected. See *CLI resolution* above.
+- **A fresh clone can't package yet.** `vendor/` and `out/` are gitignored, so run
+  `npm run bundle:cli && npm run build` (or just `npm run pack` / `npm run dist`, which
+  do both) before packaging.
 
 ## Where this sits in AutoDev
 
