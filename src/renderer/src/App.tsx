@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import SessionsBrowser from './SessionsBrowser'
 import PixelOfficeView from './PixelOfficeView'
 import MakeAppView from './MakeAppView'
@@ -62,6 +62,16 @@ const shortPath = (p?: string): string => {
   const parts = p.replace(/\/+$/, '').split('/').filter(Boolean)
   return parts.slice(-2).join('/') || p
 }
+
+// The containing folder of a workspace (its path minus the last segment) — the
+// grouping key for "group by folder". `folderLabel` shortens it for the header.
+const parentDir = (p?: string): string => {
+  if (!p) return ''
+  const parts = p.replace(/\/+$/, '').split('/').filter(Boolean)
+  parts.pop()
+  return '/' + parts.join('/')
+}
+const folderLabel = (dir: string): string => shortPath(dir) || dir || '(root)'
 
 function ProviderSelect({ value, onChange, id }: { value: string; onChange: (v: string) => void; id?: string }): JSX.Element {
   return (
@@ -131,6 +141,8 @@ export default function App(): JSX.Element {
   const [tab, setTab] = useState<'overview' | 'chat' | 'output' | 'sessions' | 'todo' | 'config'>('output')
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'attention'>('all')
+  const [sortBy, setSortBy] = useState<'folder' | 'name' | 'status' | 'provider'>('folder')
+  const [groupByFolder, setGroupByFolder] = useState(true)
   const [creating, setCreating] = useState(false)
   const [initPath, setInitPath] = useState<string | null>(null)    // "Add existing folder" chose an un-initialized folder → offer to init it here
   const [nudgePath, setNudgePath] = useState<string | null>(null)  // just-created agent: nudge the first task
@@ -215,14 +227,36 @@ export default function App(): JSX.Element {
   const visibleAgents = useMemo(() => {
     const q = filter.trim().toLowerCase()
     const rank = (a: AgentState) => (ATTENTION_STATES.has(a.activity) ? 0 : a.running ? 1 : 2)
+    // Within-group ordering per the chosen Sort. Folder-sort orders by name inside
+    // each folder; the folder itself is the primary key when sorting/grouping by folder.
+    const within = (a: AgentState, b: AgentState): number =>
+      sortBy === 'name' ? a.name.localeCompare(b.name)
+        : sortBy === 'provider' ? (a.provider ?? '').localeCompare(b.provider ?? '') || a.name.localeCompare(b.name)
+          : sortBy === 'status' ? rank(a) - rank(b) || a.name.localeCompare(b.name)
+            : a.name.localeCompare(b.name)
+    // Grouping (or an explicit folder sort) makes the containing folder the primary
+    // key, so agents in the same folder are always contiguous — required for the
+    // group headers, and what the user asked for (sort by folder/subfolder).
+    const folderFirst = groupByFolder || sortBy === 'folder'
     return agents
       .filter((a) =>
-        (!q || a.name.toLowerCase().includes(q) || (a.provider ?? '').toLowerCase().includes(q)) &&
+        (!q || a.name.toLowerCase().includes(q) || (a.provider ?? '').toLowerCase().includes(q)
+          || shortPath(a.path).toLowerCase().includes(q)) &&
         (statusFilter === 'all' ||
           (statusFilter === 'running' && a.running) ||
           (statusFilter === 'attention' && ATTENTION_STATES.has(a.activity))))
-      .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
-  }, [agents, filter, statusFilter])
+      .sort((a, b) => folderFirst
+        ? (parentDir(a.path).localeCompare(parentDir(b.path)) || within(a, b))
+        : within(a, b))
+  }, [agents, filter, statusFilter, sortBy, groupByFolder])
+
+  // Agent count per containing folder, for the group headers (over the visible set
+  // so it respects the active search/status filter).
+  const folderCounts = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const a of visibleAgents) { const d = parentDir(a.path); m.set(d, (m.get(d) ?? 0) + 1) }
+    return m
+  }, [visibleAgents])
 
   const addExisting = async () => {
     const path = await window.api.pickFolder()
@@ -440,6 +474,23 @@ export default function App(): JSX.Element {
                 </button>
               ))}
             </div>
+            <div className="list-sort" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, fontSize: 12, color: 'var(--muted)' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                Sort
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)} aria-label="Sort agents by"
+                  style={{ fontSize: 12, padding: '3px 6px', width: 'auto' }}>
+                  <option value="folder">Folder</option>
+                  <option value="name">Name</option>
+                  <option value="status">Status</option>
+                  <option value="provider">Provider</option>
+                </select>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}
+                title="Group agents under their containing folder">
+                <input type="checkbox" checked={groupByFolder} onChange={(e) => setGroupByFolder(e.target.checked)} />
+                Group by folder
+              </label>
+            </div>
           </div>
         )}
         {checked.size > 0 && (
@@ -458,21 +509,37 @@ export default function App(): JSX.Element {
         <div className="agent-list">
           {agents.length === 0 && <div className="empty" style={{ padding: 24, fontSize: 12 }}>No agents yet.<br />Create or add one.</div>}
           {agents.length > 0 && visibleAgents.length === 0 && <div className="no-match">No agents match.</div>}
-          {visibleAgents.map((a) => (
-            <div key={a.path} role="button" tabIndex={0} aria-pressed={a.path === selected}
-              className={'agent-row' + (a.path === selected ? ' active' : '') + (checked.has(a.path) ? ' checked' : '')}
-              onClick={() => selectAgent(a.path)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAgent(a.path) } }}>
-              <input type="checkbox" className="row-check" checked={checked.has(a.path)} aria-label={`Select ${a.name} for bulk actions`}
-                onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
-              <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
-              <div className="meta">
-                <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={a.online ? 'Online in the office' : 'Bound to an office — currently offline'}>● office</span>}</div>
-                <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
-                <div className="sub folder" title={a.path} style={{ opacity: .7, fontSize: 11 }}>📁 {shortPath(a.path)}</div>
+          {visibleAgents.map((a, i) => {
+            // With "Group by folder" on, print a sticky folder header before the
+            // first agent of each folder (visibleAgents is sorted folder-first, so
+            // same-folder rows are contiguous). The per-row folder line is then
+            // redundant, so it's shown only when NOT grouped.
+            const dir = parentDir(a.path)
+            const showHead = groupByFolder && (i === 0 || parentDir(visibleAgents[i - 1].path) !== dir)
+            return (
+            <Fragment key={a.path}>
+              {showHead && (
+                <div className="folder-group-head" title={dir}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px 4px', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 1 }}>
+                  📁 {folderLabel(dir)} <span className="n" style={{ opacity: .65, fontWeight: 600 }}>{folderCounts.get(dir)}</span>
+                </div>
+              )}
+              <div role="button" tabIndex={0} aria-pressed={a.path === selected}
+                className={'agent-row' + (a.path === selected ? ' active' : '') + (checked.has(a.path) ? ' checked' : '')}
+                onClick={() => selectAgent(a.path)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectAgent(a.path) } }}>
+                <input type="checkbox" className="row-check" checked={checked.has(a.path)} aria-label={`Select ${a.name} for bulk actions`}
+                  onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
+                <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
+                <div className="meta">
+                  <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={a.online ? 'Online in the office' : 'Bound to an office — currently offline'}>● office</span>}</div>
+                  <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
+                  {!groupByFolder && <div className="sub folder" title={a.path} style={{ opacity: .7, fontSize: 11 }}>📁 {shortPath(a.path)}</div>}
+                </div>
               </div>
-            </div>
-          ))}
+            </Fragment>
+            )
+          })}
         </div>
         {/* One consolidated entry point for getting an agent into the list —
             create / add existing / import — instead of three scattered controls. */}
