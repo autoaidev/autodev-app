@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, useCallback } from 'rea
 import SessionsBrowser from './SessionsBrowser'
 import PixelOfficeView from './PixelOfficeView'
 import MakeAppView from './MakeAppView'
+import SettingsView from './SettingsView'
 import OfficeSelector from './OfficeSelector'
 import FileBrowserCheckbox from './FileBrowserCheckbox'
 import { useOfficeSelection, connectAgentToNewCharacter } from './composables/useOfficeSelection'
@@ -127,6 +128,7 @@ export default function App(): JSX.Element {
   const [showSessions, setShowSessions] = useState(false)
   const [showOffice, setShowOffice] = useState(false)
   const [showMakeApp, setShowMakeApp] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   // Once a heavy view (Office / Sessions / Make-app) has been opened we keep it
   // MOUNTED and merely toggle its visibility with CSS `display` — switching tabs or
   // re-clicking a sidebar button must never unmount it, or its child TerminalPane's
@@ -210,14 +212,16 @@ export default function App(): JSX.Element {
   // Make-app) is up — otherwise the click highlights the row but the main area
   // keeps showing the other view: a visible selection change with no result.
   const selectAgent = useCallback((path: string) => {
-    setSelected(path); setShowOffice(false); setShowSessions(false); setShowMakeApp(false)
+    setSelected(path); setShowOffice(false); setShowSessions(false); setShowMakeApp(false); setShowSettings(false)
   }, [])
 
-  // Top-nav: which of the four major surfaces is shown. 'agents' is the default
+  // Top-nav: which of the major surfaces is shown. 'agents' is the default
   // workspace (sidebar list + agent detail); the others are the heavy views.
-  const activeView = showMakeApp ? 'makeapp' : showOffice ? 'office' : showSessions ? 'sessions' : 'agents'
-  const showView = (v: 'agents' | 'makeapp' | 'office' | 'sessions'): void => {
-    setShowMakeApp(v === 'makeapp'); setShowOffice(v === 'office'); setShowSessions(v === 'sessions')
+  // Settings holds no PTY/terminal, so unlike the heavy views it isn't kept
+  // mounted — it renders directly when active.
+  const activeView = showMakeApp ? 'makeapp' : showOffice ? 'office' : showSessions ? 'sessions' : showSettings ? 'settings' : 'agents'
+  const showView = (v: 'agents' | 'makeapp' | 'office' | 'sessions' | 'settings'): void => {
+    setShowMakeApp(v === 'makeapp'); setShowOffice(v === 'office'); setShowSessions(v === 'sessions'); setShowSettings(v === 'settings')
     if (v === 'makeapp') setOpenedMakeApp(true)
     if (v === 'office') setOpenedOffice(true)
     if (v === 'sessions') setOpenedSessions(true)
@@ -451,7 +455,7 @@ export default function App(): JSX.Element {
       <div className="topbar">
         <div className="brand"><span className="logo">◆</span> AutoDev</div>
         <nav className="topnav" role="tablist" aria-label="Main views">
-          {([['agents', '🖥', 'Agents'], ['makeapp', '🐣', 'Spawn agents'], ['office', '☁', 'Pixel Office'], ['sessions', '🗂', 'Sessions']] as const).map(([v, ico, label]) => (
+          {([['agents', '🖥', 'Agents'], ['makeapp', '🐣', 'Spawn agents'], ['office', '☁', 'Pixel Office'], ['sessions', '🗂', 'Sessions'], ['settings', '⚙', 'Settings']] as const).map(([v, ico, label]) => (
             <button key={v} role="tab" aria-selected={activeView === v} className={'topnav-item' + (activeView === v ? ' active' : '')}
               onClick={() => showView(v)} title={label}>{ico} {label}</button>
           ))}
@@ -581,8 +585,10 @@ export default function App(): JSX.Element {
         {openedMakeApp && <div style={{ display: showMakeApp ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><MakeAppView /></div>}
         {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} /></div>}
         {openedSessions && <div style={{ display: showSessions ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><SessionsBrowser visible={showSessions} /></div>}
-        {!showMakeApp && !showOffice && !showSessions && cliMissing && <CliSetup onRecheck={recheckCli} />}
-        {!showMakeApp && !showOffice && !showSessions && !cliMissing && !current && (
+        {/* Settings is lightweight (no PTY) — rendered directly when active, not kept mounted. */}
+        {showSettings && <SettingsView showToast={showToast} />}
+        {!showMakeApp && !showOffice && !showSessions && !showSettings && cliMissing && <CliSetup onRecheck={recheckCli} />}
+        {!showMakeApp && !showOffice && !showSessions && !showSettings && !cliMissing && !current && (
           agents.length === 0 ? (
             <div className="welcome">
               <div className="mark">◆</div>
@@ -605,7 +611,7 @@ export default function App(): JSX.Element {
             </div>
           ) : <div className="empty">Select an agent</div>
         )}
-        {!showMakeApp && !showOffice && !showSessions && !cliMissing && current && (
+        {!showMakeApp && !showOffice && !showSessions && !showSettings && !cliMissing && current && (
           <>
             <div className="detail-head">
               <span className={'dot ' + current.activity} />

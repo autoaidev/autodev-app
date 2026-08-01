@@ -63,7 +63,9 @@ export default function MakeAppView(): JSX.Element {
   // selected office) — same composable the Create dialog uses.
   const officeSel = useOfficeSelection({ defaultUseOffice: true, defaultSelection: NEW_OFFICE })
   const { connected, offices, loadOffices, useOffice, selectedOfficeId, setSelectedOfficeId } = officeSel
-  const [base, setBase] = useState('https://autodev.code.aioffice.works')
+  // Seeded from officeStatus().base on mount (below), which resolves to the
+  // user-configured Settings base when no session is live — so no hardcoded host.
+  const [base, setBase] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -284,7 +286,7 @@ export default function MakeAppView(): JSX.Element {
           <label className="fld" htmlFor="makeapp-password">Password</label>
           <input className="fld-input" id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
           {err && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, margin: '6px 0' }}>{err}</div>}
-          <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password}>{busy ? 'Connecting…' : 'Connect'}</button>
+          <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password || !base.trim()}>{busy ? 'Connecting…' : 'Connect'}</button>
           <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted)' }}>
             New here? <a href="#" onClick={(e) => { e.preventDefault(); if (base.trim()) void window.api.openExternal(base.trim()) }} style={{ color: 'var(--accent)' }}>Open the office</a> to create an account.
           </p>

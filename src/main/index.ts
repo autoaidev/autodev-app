@@ -5,6 +5,7 @@ import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
 import { resolveCliJs } from './cli'
+import * as appSettings from './appSettings'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -143,12 +144,25 @@ function refreshTray(): void {
     { label: n > 0 ? `${n} agent(s) running` : 'No agents running', enabled: false },
     { type: 'separator' },
     { label: 'Show AutoDev', click: () => { mainWindow?.show(); mainWindow?.focus() } },
-    { label: n > 0 ? `Quit — stops ${n} agent${n === 1 ? '' : 's'}` : 'Quit', click: () => { isQuitting = true; app.quit() } }
+    { type: 'separator' },
+    // Always a clearly-labelled quit so the app is quittable even if the tray
+    // icon is hidden by the desktop's icon theme. When agents are running the
+    // label spells out the side effect so it's never a surprise stop.
+    { label: n > 0 ? `Quit AutoDev — stops ${n} agent${n === 1 ? '' : 's'}` : 'Quit AutoDev', click: () => { isQuitting = true; app.quit() } }
   ]))
 }
 function createTray(): void {
   try {
-    const img = nativeImage.createFromPath(join(__dirname, '../../resources/icon.png'))
+    // Resolve a REAL icon in both layouts. Packaged: electron-builder stages
+    // build/icons/32x32.png → <resourcesPath>/icon.png via `extraResources` (the
+    // same root the bundled CLI ships to). Dev: app.getAppPath() is the repo root,
+    // so build/icons/32x32.png resolves there. The old path
+    // (join(__dirname,'../../resources/icon.png')) pointed at a file that exists in
+    // NEITHER layout → always createEmpty() → invisible tray on Linux.
+    const devIcon = join(app.getAppPath(), 'build', 'icons', '32x32.png')
+    const packagedIcon = join(process.resourcesPath ?? '', 'icon.png')
+    let img = nativeImage.createFromPath(packagedIcon)
+    if (img.isEmpty()) img = nativeImage.createFromPath(devIcon)
     tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 18, height: 18 }))
     tray.on('click', () => { if (mainWindow?.isVisible()) mainWindow.focus(); else mainWindow?.show() })
     refreshTray()
@@ -225,6 +239,11 @@ ipcMain.handle('office:autoConnect', async () => {
   return ok
 })
 ipcMain.handle('office:status', () => office.status())
+// --- App preferences (non-secret; userData/app-settings.json) ---------------
+// Read live by office.status(), so a changed base takes effect on the NEXT
+// connect from any login form without a process restart.
+ipcMain.handle('settings:get', () => appSettings.getSettings())
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string }) => appSettings.setOfficeBaseUrl(patch?.officeBaseUrl ?? ''))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))

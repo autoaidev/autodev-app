@@ -6,8 +6,6 @@ interface OfficeAgent {
 }
 interface OpenTerm { id: string; cwd: string; name: string; mcpUrl?: string; agentId: string }
 
-const DEFAULT_BASE = 'https://autodev.code.aioffice.works'
-
 /** True when an error means the session is dead and the user must sign in again. */
 function isAuthError(msg: string): boolean {
   return /expired|reconnect|not connected|unauthenticated|\b401\b|\b419\b/i.test(msg)
@@ -15,7 +13,10 @@ function isAuthError(msg: string): boolean {
 
 export default function PixelOfficeView({ visible = true }: { visible?: boolean }): JSX.Element {
   const [connected, setConnected] = useState(false)
-  const [base, setBase] = useState(DEFAULT_BASE)
+  // Seeded from officeStatus().base (which resolves to the configured Settings
+  // base when no session is live) in the mount effect below — no hardcoded host.
+  const [base, setBase] = useState('')
+  const [basePlaceholder, setBasePlaceholder] = useState('https://…')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -131,6 +132,8 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
 
   useEffect(() => {
     (async () => {
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl?: string }
+      if (cfg.officeBaseUrl) setBasePlaceholder(cfg.officeBaseUrl)
       const st = (await window.api.officeStatus()) as { connected: boolean; base: string; email?: string }
       if (st.base) setBase(st.base); if (st.email) setEmail(st.email)
       const ok = st.connected || (await window.api.officeAutoConnect())
@@ -210,7 +213,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>☁ Connect to your Pixel Office</h2>
           <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted,#8b949e)' }}>A Pixel Office is your team of remote agents. Sign in to list and operate them.</p>
           <label className="fld" htmlFor="office-base">Server URL</label>
-          <input id="office-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder={DEFAULT_BASE} style={inp} />
+          <input id="office-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder={basePlaceholder} style={inp} />
           <label className="fld" htmlFor="office-email">Email</label>
           <input id="office-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
           <label className="fld" htmlFor="office-password">Password</label>

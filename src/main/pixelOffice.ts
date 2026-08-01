@@ -6,6 +6,10 @@ import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
 import { isValidSessionId, safeSeg, safeMcpUrl, isSecureBaseUrl } from './officeSanitize'
 import { humanizeFetchError } from './netError'
+// NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
+// is only ever used inside function bodies (never at module top level) on both
+// sides, so the cycle resolves before either is called.
+import { getOfficeBaseUrl } from './appSettings'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -995,6 +999,9 @@ export class PixelOfficeClient {
 
   status(): { connected: boolean; base: string; email?: string } {
     const c = this.loadConfig()
-    return { connected: this._authed, base: this.base || c?.baseUrl || DEFAULT_OFFICE_BASE, email: this._email || c?.email }
+    // Fallback resolves to the user-configured base (Settings page) when there is
+    // no live/last-logged-in base, so both login forms default to it. `login()`/
+    // `autoConnect()` are untouched — they use the form-supplied / last base.
+    return { connected: this._authed, base: this.base || c?.baseUrl || getOfficeBaseUrl(), email: this._email || c?.email }
   }
 }

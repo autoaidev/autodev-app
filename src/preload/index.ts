@@ -55,6 +55,9 @@ const api = {
   officeWriteSharedMcp: (folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>, fileBrowser?: boolean) => ipcRenderer.invoke('office:writeSharedMcp', folder, officeSlug, agents, fileBrowser),
   officeBindWorkspace: (cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser?: boolean) => ipcRenderer.invoke('office:bindWorkspace', cwd, officeSlug, want, fileBrowser),
   officeDeleteAgent: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:deleteAgent', officeSlug, agentId),
+  // App preferences (non-secret; persisted in userData/app-settings.json)
+  getSettings: (): Promise<{ officeBaseUrl: string }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string }): Promise<{ ok: true; officeBaseUrl: string } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 
