@@ -179,7 +179,7 @@ export default function MakeAppView(): JSX.Element {
   //  • single shared folder: NO per-agent workspaces — instead wire the ONE folder
   //    to every office character via a single folder/.mcp.json (one
   //    `pixel-office-<slug>` server each), so a claude launched there drives them all.
-  const spawnLocal = useCallback(async () => {
+  const spawnLocal = useCallback(async (run = false) => {
     if (!edits?.length) return
     if (!folder) { setErr('Pick a folder to spawn the agents into first.'); return }
     setSpawning(true); setErr(''); setSpawnMsg('')
@@ -202,6 +202,7 @@ export default function MakeAppView(): JSX.Element {
 
     // ── Default: one autodev workspace per agent. ──
     let ok = 0
+    let started = 0
     for (let i = 0; i < edits.length; i++) {
       const e = edits[i]
       const path = `${folder.replace(/\/+$/, '')}/${slugify(e.name, i)}`
@@ -214,11 +215,20 @@ export default function MakeAppView(): JSX.Element {
       // way the Create dialog uses) so each spawned agent gets the Files tab.
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       const added = await window.api.addAgent(path)
-      if (!(added as { error?: string })?.error) ok++
+      if ((added as { error?: string })?.error) continue
+      ok++
+      // Spawn & Run: kick off each agent's loop right after it's registered, so
+      // the user doesn't have to Start all of them one by one in the sidebar.
+      if (run) {
+        const sr = await window.api.startAgent(path, e.provider) as { error?: string } | undefined
+        if (!sr?.error) started++
+      }
     }
     setSpawning(false)
     const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
-    setSpawnMsg(`Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
+    setSpawnMsg(run
+      ? `Spawned ${ok}/${edits.length} and started ${started} agent${started === 1 ? '' : 's'} into ${folder}. ${where} They're running in your sidebar.`
+      : `Spawned ${ok}/${edits.length} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
   }, [edits, folder, office, shareMode, fileBrowser])
 
   // After a shared-folder wire, register that ONE folder as a single startable
@@ -392,13 +402,23 @@ export default function MakeAppView(): JSX.Element {
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>Enable file browser for all agents</div>
                   <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} disabled={spawning} id="makeapp-file-browser" />
                 </div>
-                <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={spawnLocal}>
+                <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={() => spawnLocal(false)}>
                   {spawning
                     ? (shareMode ? 'Wiring…' : 'Spawning…')
                     : shareMode
                       ? `🔌 Wire ${edits.length} agent${edits.length === 1 ? '' : 's'} into shared .mcp.json`
                       : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
                 </button>
+                {/* Per-agent mode only: spawn AND start every loop in one click so
+                    the user doesn't have to Start each agent in the sidebar. Shared
+                    mode has no per-agent loops, so it's not offered there. */}
+                {!shareMode && (
+                  <button className="primary" style={{ width: '100%', marginTop: 8, background: 'var(--green)', borderColor: 'var(--green)' }}
+                    disabled={spawning || !folder} onClick={() => spawnLocal(true)}
+                    title="Spawn each workspace and immediately start its loop">
+                    {spawning ? 'Spawning & starting…' : `🚀 Spawn & Run ${edits.length} agent${edits.length === 1 ? '' : 's'}`}
+                  </button>
+                )}
                 {/* After a shared wire: register the folder as ONE sidebar workspace
                     (single loop, driving all agents via the shared .mcp.json). */}
                 {shareMode && wired && (

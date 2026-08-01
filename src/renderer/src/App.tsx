@@ -53,6 +53,16 @@ const PROVIDER_GROUPS: Array<{ vendor: string; options: Array<{ id: string; labe
 ]
 const PROVIDER_HINT = 'interactive = a terminal you can watch/log into · CLI = headless · SDK = needs an API key'
 
+// Compact workspace label for the sidebar row: the last two path segments
+// (parent/name), e.g. /home/epicmovies/public_html/homm_team/director →
+// "homm_team/director". Enough to tell which agent lives where when several
+// share a parent folder; the full path is the row's title tooltip.
+const shortPath = (p?: string): string => {
+  if (!p) return ''
+  const parts = p.replace(/\/+$/, '').split('/').filter(Boolean)
+  return parts.slice(-2).join('/') || p
+}
+
 function ProviderSelect({ value, onChange, id }: { value: string; onChange: (v: string) => void; id?: string }): JSX.Element {
   return (
     <>
@@ -459,6 +469,7 @@ export default function App(): JSX.Element {
               <div className="meta">
                 <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={a.online ? 'Online in the office' : 'Bound to an office — currently offline'}>● office</span>}</div>
                 <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
+                <div className="sub folder" title={a.path} style={{ opacity: .7, fontSize: 11 }}>📁 {shortPath(a.path)}</div>
               </div>
             </div>
           ))}
