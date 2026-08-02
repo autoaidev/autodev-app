@@ -242,6 +242,22 @@ export class AgentManager extends EventEmitter {
   // so the app reflects reality instead of showing a live agent as "Stopped".
   // Linux-only (no /proc elsewhere) and cached briefly so readState stays cheap.
   private _extPidCache = new Map<string, { pid: number | null; at: number }>()
+  /**
+   * Attach-tail bookkeeping: the output file this app is currently streaming for
+   * an EXTERNAL loop (one it did not spawn) and the byte offset already emitted.
+   * Absence means "not attached" — the next tail seeds the Output pane, then only
+   * appended bytes are streamed. Cleared when the loop stops or becomes our own
+   * child (which streams via its own child.stdout instead).
+   */
+  private _extTail = new Map<string, { file: string; offset: number }>()
+  /**
+   * When stop() SIGINTs an external loop we record it here. A subsequent start()
+   * for the same path within the window is a RESTART: the external loop is still
+   * winding down, so start() force-kills it and waits for it to leave /proc before
+   * re-scanning — otherwise it would see the dying pid and no-op ('alreadyRunning')
+   * instead of taking the workspace over as its own child.
+   */
+  private _extStopping = new Map<string, number>()
   private _externalPid(path: string): number | null {
     if (process.platform !== 'linux') return null
     const now = Date.now()
@@ -387,6 +403,10 @@ export class AgentManager extends EventEmitter {
         activity = 'stopped'
       }
     }
+    // ATTACH: stream an external loop's persisted output into the Output tab. Runs
+    // on the same watch/poll cadence that produced this readState — never a second
+    // poller. No-op for our own child (streams via child.stdout) and stopped agents.
+    this._tailExternal(path, settings.provider, ownProc, running)
     return {
       path,
       name: settings.sessionName || basename(path),
@@ -471,26 +491,97 @@ export class AgentManager extends EventEmitter {
     } catch { return 'working' }
   }
 
-  private _latestOutput(path: string, provider?: string): string | undefined {
+  /**
+   * The CLI's current persisted-output file for a workspace: follow the
+   * `<provider>.latest` pointer to `output/<provider>/<id>.txt`. grok-tui streams
+   * a raw pane capture (`grok-tui/pane.raw`) instead of per-turn output files, so
+   * fall back to that. Undefined until the loop has produced output. Shared by the
+   * snapshot read (_latestOutput) and the live external tail (_tailExternal).
+   */
+  private _resolveOutputFile(path: string, provider?: string): string | undefined {
     if (!provider) return undefined
     try {
-      const base = provider.replace('-sdk', '').replace('-tui', '')
       const ptr = join(path, '.autodev', 'output', `${provider}.latest`)
-      let outFile: string | undefined
       if (existsSync(ptr)) {
         const id = readFileSync(ptr, 'utf8').trim()
         const cand = join(path, '.autodev', 'output', provider, `${id}.txt`)
-        if (existsSync(cand)) outFile = cand
+        if (existsSync(cand)) return cand
       }
-      if (!outFile) return undefined
+      if (provider === 'grok-tui') {
+        const pane = join(path, '.autodev', 'grok-tui', 'pane.raw')
+        if (existsSync(pane)) return pane
+      }
+    } catch { /* ignore */ }
+    return undefined
+  }
+
+  private _stripAnsi(s: string): string { return s.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '') }
+
+  /** Read bytes [start,end) of a file as UTF-8; '' on any error. */
+  private _readSlice(file: string, start: number, end: number): string {
+    const len = end - start
+    if (len <= 0) return ''
+    let fd: number | undefined
+    try {
+      fd = openSync(file, 'r')
+      const buf = Buffer.alloc(len)
+      const n = readSync(fd, buf, 0, len, start)
+      return buf.toString('utf8', 0, n)
+    } catch { return '' }
+    finally { if (fd !== undefined) try { closeSync(fd) } catch { /* ignore */ } }
+  }
+
+  private _latestOutput(path: string, provider?: string): string | undefined {
+    const outFile = this._resolveOutputFile(path, provider)
+    if (!outFile) return undefined
+    try {
       const raw = readFileSync(outFile, 'utf8')
-      const clean = raw.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+      const clean = this._stripAnsi(raw)
       return clean.length > 4000 ? '…' + clean.slice(-4000) : clean
     } catch { return undefined }
   }
 
+  /**
+   * ATTACH: stream an EXTERNAL loop's persisted output into the same 'log' channel
+   * the Output tab renders, so a loop this app did NOT spawn shows live output
+   * instead of a blank pane. Driven from readState (the watch + 5s-poll cadence) —
+   * NOT a second polling loop of its own. No-ops for our own child (it already
+   * streams via child.stdout) and for a stopped agent, dropping the tail state in
+   * both so a later external attach re-seeds. On first attach it seeds the pane
+   * with the tail of the current file, then emits only newly-appended bytes; it
+   * follows the `.latest` pointer to the next turn's file as ids roll over.
+   */
+  private _tailExternal(path: string, provider: string | undefined, ownProc: boolean, running: boolean): void {
+    if (ownProc || !running) { this._extTail.delete(path); return }
+    const file = this._resolveOutputFile(path, provider)
+    if (!file) return
+    let size: number
+    try { size = statSync(file).size } catch { return }
+    const prev = this._extTail.get(path)
+    if (!prev) {
+      // Fresh attach: seed with the tail of the current file so Output isn't blank,
+      // then stream only appends after this point.
+      const SEED = 8 * 1024
+      const from = size > SEED ? size - SEED : 0
+      let seed = this._readSlice(file, from, size)
+      if (from > 0) seed = seed.replace(/^[^\n]*\n/, '') // drop the partial first line
+      const clean = this._stripAnsi(seed)
+      if (clean) this.emit('log', { path, line: clean })
+      this._extTail.set(path, { file, offset: size })
+      return
+    }
+    // A new turn rolled to a different output id, or the file was truncated in
+    // place — restart from its top. Otherwise continue from the last offset.
+    const offset = (prev.file !== file || size < prev.offset) ? 0 : prev.offset
+    if (size > offset) {
+      const clean = this._stripAnsi(this._readSlice(file, offset, size))
+      if (clean) this.emit('log', { path, line: clean })
+    }
+    this._extTail.set(path, { file, offset: size })
+  }
+
   // --- loop control --------------------------------------------------------
-  start(path: string, provider?: string): { ok: true; alreadyRunning?: boolean } | { error: string } {
+  async start(path: string, provider?: string): Promise<{ ok: true; alreadyRunning?: boolean } | { error: string }> {
     // Already running — our own child OR an external loop for this workspace.
     // The external check makes "Start all" a no-op for live agents instead of
     // spawning a duplicate loop that fights the first for the same office slug.
@@ -500,7 +591,20 @@ export class AgentManager extends EventEmitter {
     // stale "not running" would let this spawn a duplicate. `alreadyRunning` lets
     // the UI say so instead of silently no-op'ing.
     this._extPidCache.delete(path)
-    if (this._procs.has(path) || this._externalPid(path) !== null) return { ok: true, alreadyRunning: true }
+    if (this._procs.has(path)) return { ok: true, alreadyRunning: true }
+    // RESTART takeover: the renderer's restart is stop()+start(). stop() SIGINTs the
+    // external loop but it takes a moment to wind its provider down, so at start()
+    // time its pid is often still alive — which would no-op here as 'alreadyRunning'
+    // and never let this app re-own the loop. When we JUST stopped this path, force
+    // the lingering loop dead and wait for it to leave /proc before re-scanning, so
+    // the restart reliably takes over as our own child. (A pid we did NOT just stop
+    // is a genuine live external loop — leave the 'alreadyRunning' guard intact.)
+    if (this._externalPid(path) !== null && this._recentlyStopped(path)) {
+      await this._killExternalAndWait(path)
+    }
+    this._extPidCache.delete(path)
+    if (this._externalPid(path) !== null) return { ok: true, alreadyRunning: true }
+    this._extStopping.delete(path)
     const cliJs = resolveCliJs()
     if (!cliJs) return { error: 'autodev CLI not found. Set AUTODEV_CLI_JS or place autodev-cli beside the app.' }
     const { cmd, baseEnv } = nodeRunner()
@@ -564,11 +668,40 @@ export class AgentManager extends EventEmitter {
     // graceful provider shutdown, SIGKILL as a fallback.
     const pids = this._externalPids(path)
     this._extPidCache.delete(path)
+    // Mark the path so an immediately-following start() (a restart) knows this
+    // external loop is being torn down and force-kills any lingering pid instead
+    // of no-op'ing on it. Cleared once a fresh loop actually spawns.
+    if (pids.length) this._extStopping.set(path, Date.now())
     for (const pid of pids) {
       this.emit('log', { path, line: `\n[stopping external loop pid=${pid}]\n` })
       try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
       setTimeout(() => { try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ } }, 4000).unref()
     }
+  }
+
+  /** True if stop() SIGINTed an external loop for this path in the last 15s. */
+  private _recentlyStopped(path: string): boolean {
+    const t = this._extStopping.get(path)
+    return t !== undefined && Date.now() - t < 15000
+  }
+
+  /**
+   * Force every external loop for a path dead (SIGKILL) and wait — up to 3s,
+   * re-scanning /proc every 50ms — for the pids to disappear, so a restart's
+   * start() re-scan takes over instead of seeing the dying pid. Bypasses the
+   * _externalPid cache on each check so it sees the process actually leave.
+   */
+  private async _killExternalAndWait(path: string): Promise<void> {
+    for (const pid of this._externalPids(path)) {
+      try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+    }
+    const deadline = Date.now() + 3000
+    while (Date.now() < deadline) {
+      this._extPidCache.delete(path)
+      if (this._externalPids(path).length === 0) return
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    this._extPidCache.delete(path)
   }
 
   isRunning(path: string): boolean { return this._procs.has(path) || this._externalPid(path) !== null }
@@ -778,6 +911,8 @@ export class AgentManager extends EventEmitter {
   private _unwatch(path: string): void {
     const w = this._watchers.get(path)
     if (w) { try { w.close() } catch { /* ignore */ } this._watchers.delete(path) }
+    this._extTail.delete(path)
+    this._extStopping.delete(path)
   }
 
   /** How many agent loops are running right now (for the quit-guard + tray). */
@@ -802,5 +937,7 @@ export class AgentManager extends EventEmitter {
     this._procs.clear()
     this._watchers.clear()
     this._extPidCache.clear()
+    this._extTail.clear()
+    this._extStopping.clear()
   }
 }
