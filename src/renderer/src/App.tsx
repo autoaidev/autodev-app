@@ -16,6 +16,9 @@ interface AgentState {
   sessionName?: string
   wsUrl?: string
   running: boolean
+  /** Running via a loop this app didn't start (external CLI / remote VM) — shown
+   *  as "running (external)"; the app won't spawn a duplicate for these. */
+  external?: boolean
   online?: boolean
   activity: Activity
   tasks: { total: number; remaining: number; done: number }
@@ -640,6 +643,7 @@ export default function App(): JSX.Element {
                   ]} />
               )}
               <span className={'status-pill ' + current.activity} title={current.error || ACTIVITY_LABEL[current.activity]}>{ACTIVITY_LABEL[current.activity]}</span>
+              {current.external && <span className="status-pill external" title="Running via a loop this app didn’t start (external CLI or a remote VM). The app won’t start a duplicate.">external</span>}
               <div className="spacer" />
               {current.running
                 ? <button className="danger" disabled={stopping.has(current.path)} onClick={() => stop(current)}>{stopping.has(current.path) ? 'Stopping…' : '■ Stop'}</button>

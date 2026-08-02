@@ -78,6 +78,7 @@ body {
 .status-pill.needs-auth { color: #d2a8ff; border-color: #d2a8ff; }
 .status-pill.rate-limited { color: #58a6ff; border-color: #58a6ff; }
 .status-pill.crashed { color: var(--red); border-color: var(--red); }
+.status-pill.external { color: #58a6ff; border-color: #58a6ff; margin-left: 6px; opacity: 0.85; }
 
 /* Attention banner below the head for problem states. */
 .attention-banner { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); }

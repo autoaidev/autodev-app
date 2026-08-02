@@ -67,6 +67,12 @@ export interface AgentState {
   sessionName?: string
   wsUrl?: string
   running: boolean
+  /** The loop running this workspace was started OUTSIDE this app — an external
+   *  `autodev start` (CLI / another manager) matched by cwd, or (with no local
+   *  loop) a character kept online in the office by a remote VM / mcp-operate
+   *  bridge. The app must not spawn a duplicate or surface a stale local
+   *  'crashed' for these — the live external loop supersedes it. */
+  external?: boolean
   /** Connected as a live character in the pixel office (presence WS open) — true
    *  even when this app can see no LOCAL loop (e.g. an mcp-operate bridge or a
    *  loop running on a remote VM keeps the office character online). */
@@ -326,14 +332,19 @@ export class AgentManager extends EventEmitter {
     // `autodev start` matched by cwd) OR the character is live in the office. The
     // office branch catches agents kept online by something this app can't see
     // locally — an mcp-operate bridge or a loop on a remote VM.
-    const localRunning = ownProc || this._externalPid(path) !== null
+    const externalPid = ownProc ? null : this._externalPid(path)
+    const localRunning = ownProc || externalPid !== null
     const presence = this._officePresence(settings.wsUrl, settings.agentId)
     const officeOnline = !!presence?.online
     const running = localRunning || officeOnline
+    // Running, but NOT by a child of ours: an external CLI loop owns the cwd, or
+    // the character is only kept online remotely. Surface it as external so the UI
+    // shows "running (external)" and we never treat a stale local crash as current.
+    const external = !ownProc && (externalPid !== null || officeOnline)
     let activity: Activity
     let error: string | undefined
     let exitCode: number | null | undefined
-    if (localRunning) {
+    if (ownProc) {
       const ss = this._streamState.get(path)
       if (ss) {
         // A live reauth/rate-limit pause wins over the hooks read (the loop is
@@ -351,6 +362,17 @@ export class AgentManager extends EventEmitter {
         else if (activity === 'needs-auth') error = 'Provider login expired — re-authenticate to resume.'
         else if (activity === 'rate-limited') error = 'Rate-limited by the provider — auto-resumes when the window clears.'
       }
+    } else if (externalPid !== null) {
+      // An external loop (CLI or another manager) owns this workspace and its pid
+      // is ALIVE — so a 'crashed'/'stalled' left in the hooks file by a previous
+      // (our own) loop is STALE and must not show as the current state. Honor only
+      // a live auth/rate pause; otherwise reflect the office's own status, falling
+      // back to the hooks' working/idle signal when the office isn't visible.
+      const hookAct = this._activityFromHooks(path)
+      if (hookAct === 'needs-auth') { activity = 'needs-auth'; error = 'Provider login expired — re-authenticate to resume.' }
+      else if (hookAct === 'rate-limited') { activity = 'rate-limited'; error = 'Rate-limited by the provider — auto-resumes when the window clears.' }
+      else if (officeOnline) activity = presence?.status === 'working' ? 'working' : 'idle'
+      else activity = hookAct === 'working' ? 'working' : 'idle'
     } else if (officeOnline) {
       // Live in the office (presence WS open) but no local loop we can detect —
       // reflect the office's own status rather than a false "Stopped". The office
@@ -379,6 +401,7 @@ export class AgentManager extends EventEmitter {
       lastOutput: this._latestOutput(path, settings.provider),
       error,
       exitCode,
+      external,
       // Office chat identity: the endpoint slug is always derivable from the wsUrl;
       // the resolved office slug + agent id only once the office has been polled.
       officeAgentSlug: this._endpointSlug(settings.wsUrl) || (settings.agentId || undefined),
