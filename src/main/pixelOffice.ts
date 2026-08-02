@@ -87,7 +87,7 @@ export interface OfficeMessage {
 }
 interface Persisted { baseUrl: string; email: string; cookies: [string, string][] }
 
-export const DEFAULT_OFFICE_BASE = 'https://autodev.code.aioffice.works'
+export const DEFAULT_OFFICE_BASE = 'https://app.pixeloffice.org'
 
 /**
  * Build the `.mcp.json` "pixel-office" stdio server entry. Prefer the CLI that
