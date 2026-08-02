@@ -906,6 +906,30 @@ export class PixelOfficeClient {
   }
 
   /**
+   * Create a fresh office character via `POST /api/agents` (mirrors
+   * AgentController::store: server mints the slug + api_key). Used by
+   * bindWorkspaceToOffice when no roster match exists so connect-to-office can
+   * (re)create a deleted/never-created character instead of dead-ending, and by
+   * the sidebar quick-add. Returns the new character's id/slug/apiKey.
+   */
+  async createOfficeAgent(officeSlug: string, name: string):
+    Promise<{ ok: true; id: string; slug: string; apiKey: string; name: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const nm = String(name ?? '').replace(/<[^>]*>/g, '').trim() || 'Agent'
+    if (!officeSlug) return { error: 'Pick an office to create the character in.' }
+    try {
+      const office = (await this.offices()).find((o) => o.slug === officeSlug)
+      if (!office) return { error: `Office "${officeSlug}" not found.` }
+      const res = await this.postJson('/api/agents', {
+        name: nm.slice(0, 20), officeId: office.id, avatarIndex: 0, color: '#00d4ff', emoji: '🎬',
+      })
+      const d = res?.data ?? {}
+      if (!d.id || !d.apiKey) return { error: 'The office did not return a new character id + key.' }
+      return { ok: true, id: String(d.id), slug: String(d.slug ?? ''), apiKey: String(d.apiKey), name: nm }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
    * Bind an EXISTING local workspace `cwd` to an office character — the core
    * primitive both the Spawn flow (fresh per-agent workspaces) and the
    * Connect-to-office action (already-spawned agents) build on. A correctly
@@ -937,14 +961,26 @@ export class PixelOfficeClient {
       const id = want.id ? String(want.id) : ''
       const slug = want.slug ? String(want.slug) : ''
       const nm = want.name ? String(want.name).toLowerCase() : ''
-      const ch = roster.find((x) =>
+      let ch: any = roster.find((x) =>
         (id && String(x.id) === id) ||
         (slug && String(x.slug) === slug) ||
         (nm && String(x.name ?? '').toLowerCase() === nm))
-      if (!ch) return { error: `No office character matches "${want.name || want.slug || want.id || '?'}"` }
-      let creds: any
-      try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(String(ch.id))}/credentials`))?.data ?? {} }
-      catch (e) { return { error: `Couldn't fetch this character's MCP credentials — ${String((e as Error)?.message ?? e)}` } }
+      let creds: any = null
+      if (!ch) {
+        // No character with this id/slug/name in the office (e.g. it was deleted
+        // from the pixel office). Recreate it via the API so connect-to-office is a
+        // true "(re)create + bind" instead of a dead end — the fix for "deleted the
+        // team, now they won't recreate". Requires a name/slug to create it under.
+        if (!want.name && !want.slug) return { error: `No office character matches "${want.id || '?'}"` }
+        const created = await this.createOfficeAgent(officeSlug, want.name || want.slug || '')
+        if ('error' in created) return { error: `Couldn't (re)create a character for "${want.name || want.slug || '?'}" — ${created.error}` }
+        ch = { id: created.id, slug: created.slug, name: created.name }
+        creds = { apiKey: created.apiKey, slug: created.slug }
+      }
+      if (!creds) {
+        try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(String(ch.id))}/credentials`))?.data ?? {} }
+        catch (e) { return { error: `Couldn't fetch this character's MCP credentials — ${String((e as Error)?.message ?? e)}` } }
+      }
       const key = creds.apiKey as string | undefined
       if (!key) return { error: 'No API key returned for that character — it may lack office-MCP access.' }
       const base = this.base

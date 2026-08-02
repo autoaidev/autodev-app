@@ -146,6 +146,9 @@ export default function App(): JSX.Element {
   const [sortBy, setSortBy] = useState<'folder' | 'name' | 'status' | 'provider'>('folder')
   const [groupByFolder, setGroupByFolder] = useState(true)
   const [creating, setCreating] = useState(false)
+  // Sidebar quick-add: create a new agent inside a specific folder group, with the
+  // provider + office preselected from that folder's existing agents.
+  const [quickAdd, setQuickAdd] = useState<{ parent: string; provider?: string; officeSlug?: string } | null>(null)
   const [initPath, setInitPath] = useState<string | null>(null)    // "Add existing folder" chose an un-initialized folder → offer to init it here
   const [nudgePath, setNudgePath] = useState<string | null>(null)  // just-created agent: nudge the first task
   const [connectFor, setConnectFor] = useState<string | null>(null)
@@ -546,6 +549,13 @@ export default function App(): JSX.Element {
                     title={allSel ? `Deselect all in ${folderLabel(dir)}` : `Select all ${ps.length} in ${folderLabel(dir)}`}
                     aria-label={`Select all agents in ${folderLabel(dir)}`} />
                   📁 {folderLabel(dir)} <span className="n" style={{ opacity: .65, fontWeight: 600 }}>{sel ? `${sel}/${ps.length}` : ps.length}</span>
+                  <button className="group-add" style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--muted)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '0 4px', borderRadius: 5 }}
+                    title={`Add an agent in ${folderLabel(dir)}`} aria-label={`Add an agent in ${folderLabel(dir)}`}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const sibs = agents.filter((x) => parentDir(x.path) === dir)
+                      setQuickAdd({ parent: dir, provider: sibs.find((x) => x.provider)?.provider, officeSlug: sibs.find((x) => x.officeSlug)?.officeSlug })
+                    }}>＋</button>
                 </div>
                 )
               })()}
@@ -713,6 +723,8 @@ export default function App(): JSX.Element {
       </main>
 
       {creating && <CreateModal onClose={() => setCreating(false)} onCreated={(p) => { setCreating(false); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
+      {quickAdd && <CreateModal defaultParent={quickAdd.parent} defaultProvider={quickAdd.provider} defaultOfficeSlug={quickAdd.officeSlug}
+        onClose={() => setQuickAdd(null)} onCreated={(p) => { setQuickAdd(null); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {initPath && <CreateModal initialPath={initPath} initMode onClose={() => setInitPath(null)} onCreated={(p) => { setInitPath(null); setNudgePath(p); refresh().then(() => selectAgent(p)) }} showToast={showToast} />}
       {connectFor && <ConnectModal path={connectFor} agent={agents.find((a) => a.path === connectFor)} onClose={() => setConnectFor(null)} onDone={() => { setConnectFor(null); refresh() }} showToast={showToast} />}
       {connectOfficeFor && <ConnectOfficeModal targets={connectOfficeFor} onClose={() => setConnectOfficeFor(null)} onDone={() => { setConnectOfficeFor(null); setChecked(new Set()); refresh() }} showToast={showToast} />}
@@ -1545,18 +1557,21 @@ function RemoveModal({ targets, onClose, onDone, showToast }: { targets: AgentSt
   )
 }
 
-function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: { onClose: () => void; onCreated: (p: string) => void; showToast: (m: string, e?: boolean) => void; initialPath?: string; initMode?: boolean }): JSX.Element {
+function CreateModal({ onClose, onCreated, showToast, initialPath, initMode, defaultParent, defaultProvider, defaultOfficeSlug }: { onClose: () => void; onCreated: (p: string) => void; showToast: (m: string, e?: boolean) => void; initialPath?: string; initMode?: boolean; defaultParent?: string; defaultProvider?: string; defaultOfficeSlug?: string }): JSX.Element {
   // initMode: reached from "Add existing folder" when the chosen folder isn't an
   // AutoDev workspace yet — pre-seed the path and frame the modal as "initialize
   // this folder" instead of a blank "create". Same init path either way.
+  // defaultParent: sidebar quick-add — create a new agent INSIDE that folder group;
+  // the workspace folder is derived from the typed name, and defaultProvider /
+  // defaultOfficeSlug preselect what the folder's existing agents already use.
   const [path, setPath] = useState(initialPath ?? '')
-  const [provider, setProvider] = useState('claude-tui')
+  const [provider, setProvider] = useState(defaultProvider ?? 'claude-tui')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [fileBrowser, setFileBrowser] = useState(false)
   // Shared "connect to pixel office?" selection (checkbox + office dropdown),
   // same composable the Spawn-agents view uses. Pick an existing office only here.
-  const officeSel = useOfficeSelection({ defaultUseOffice: false })
+  const officeSel = useOfficeSelection({ defaultUseOffice: !!defaultOfficeSlug })
   // When the chosen folder is already an AutoDev agent, we must NOT re-init it
   // (that overwrites its settings + office binding) — we connect it instead.
   const [existing, setExisting] = useState<{ provider?: string; sessionName?: string } | null>(null)
@@ -1569,6 +1584,27 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
       setSelId(String(selOffices[0].id))
     }
   }, [selUseOffice, selOffices, selId, setSelId])
+
+  // ── Sidebar quick-add (defaultParent) ──────────────────────────────────────
+  // Derive the workspace folder from the typed name, inside the group's parent
+  // folder — so "add an agent here" just needs a name.
+  useEffect(() => {
+    if (!defaultParent) return
+    const seg = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+    setPath(seg ? `${defaultParent.replace(/\/+$/, '')}/${seg}` : '')
+  }, [name, defaultParent])
+  // Preselect the office the folder's existing agents are bound to (load the list
+  // if it isn't in yet), matching what a same-folder add should default to.
+  useEffect(() => {
+    if (defaultOfficeSlug) void officeSel.loadOffices()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useEffect(() => {
+    if (!defaultOfficeSlug || !officeSel.offices.length) return
+    const match = officeSel.offices.find((o) => o.slug === defaultOfficeSlug)
+    if (match) { officeSel.setUseOffice(true); officeSel.setSelectedOfficeId(String(match.id)) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultOfficeSlug, officeSel.offices])
 
   // Detect an existing workspace whenever the path changes (browse or typed).
   const probe = useCallback(async (p: string) => {
@@ -1638,9 +1674,16 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
             This folder isn't an AutoDev agent yet. Pick a provider to initialize it here.
           </div>
         )}
-        <label className="field"><span className="lbl">Workspace folder</span>
-          <div className="row"><input autoFocus value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
-        </label>
+        {defaultParent ? (
+          <label className="field"><span className="lbl">New agent name</span>
+            <input autoFocus value={name} placeholder="e.g. Sound Designer" onChange={(e) => setName(e.target.value)} />
+            <div className="sub" style={{ marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>Creates in <code>{path || `${defaultParent.replace(/\/+$/, '')}/…`}</code></div>
+          </label>
+        ) : (
+          <label className="field"><span className="lbl">Workspace folder</span>
+            <div className="row"><input autoFocus value={path} placeholder="/path/to/workspace" onChange={(e) => setPath(e.target.value)} /><button onClick={pick}>Browse</button></div>
+          </label>
+        )}
         {existing ? (
           <div className="field" style={{ background: '#0d2a17', border: '1px solid #16653a', borderRadius: 6, padding: '8px 10px', color: '#86efac', fontSize: 12 }}>
             ✓ This folder already has an agent{existing.provider ? ` (${existing.provider}` : ''}{existing.provider && existing.sessionName ? ` · ${existing.sessionName})` : existing.provider ? ')' : ''}.<br />
@@ -1651,9 +1694,11 @@ function CreateModal({ onClose, onCreated, showToast, initialPath, initMode }: {
             <label className="field"><span className="lbl">Provider</span>
               <ProviderSelect value={provider} onChange={setProvider} id="create-provider" />
             </label>
-            <label className="field"><span className="lbl">Session name (optional)</span>
-              <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />
-            </label>
+            {!defaultParent && (
+              <label className="field"><span className="lbl">Session name (optional)</span>
+                <input value={name} placeholder="My Agent" onChange={(e) => setName(e.target.value)} />
+              </label>
+            )}
             {/* Optionally attach the new agent to a pixel office (shown only while
                 connected). Pick an existing office — a new character is created there. */}
             <OfficeSelector
