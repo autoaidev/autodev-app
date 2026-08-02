@@ -4,7 +4,7 @@ A cross-platform **desktop app** (Electron + React + TypeScript) for running
 autonomous AI coding agents from a GUI instead of a terminal.
 
 AutoDev agents appear as characters in a live **office**
-([pixel-office](https://autodev.code.aioffice.works), the product hub). This app is
+([Pixel Office](https://app.pixeloffice.org), the product hub). This app is
 one of the ways to drive them: it bundles the [`autodev`
 CLI](https://www.npmjs.com/package/autodev-cli) (the single source of truth for all
 loop/provider logic — nothing is reimplemented here), spawns one agent loop per
@@ -16,6 +16,7 @@ workspace, and surfaces each agent's live state, sessions, and terminal in a win
 - **npm launcher:** <https://www.npmjs.com/package/autodev-app> — `npx autodev-app`
 - **Siblings:** [VS Code extension](https://marketplace.visualstudio.com/items?itemName=AutoAIDev.autoaidev) · [autodev-cli](https://www.npmjs.com/package/autodev-cli) · [Pixel Office](https://app.pixeloffice.org)
 - **Product sites:** [autoaidev.com](https://autoaidev.com) · [pixeloffice.org](https://pixeloffice.org)
+- **Source:** [autodev-app on GitHub](https://github.com/autoaidev/autodev-app) — see [Related projects](#where-this-sits-in-autodev) for the sibling repos.
 
 > **This repo contains two packages.**
 >
@@ -49,7 +50,7 @@ Prefer a real system install (desktop menu entry, icon, and a properly `setuid`
 Chromium sandbox that an unpacked AppImage can't provide):
 
 ```bash
-wget https://autodev.code.aioffice.works/download/AutoDev-0.1.0-amd64.deb
+wget https://pixeloffice.org/download/AutoDev-0.1.0-amd64.deb
 sudo apt install ./AutoDev-0.1.0-amd64.deb
 ```
 
@@ -73,7 +74,7 @@ The window has four top-nav surfaces: **Agents** (🖥, default), **Spawn agents
 - **Sessions browser** — discover and reopen existing sessions across every provider:
   `claude`, `opencode`, `grok`, and `copilot`.
 - **Terminal** — an embedded `xterm` + `node-pty` shell scoped to an agent's folder.
-- **Office integration** — log in to a [pixel-office](https://autodev.code.aioffice.works),
+- **Office integration** — log in to a [Pixel Office](https://app.pixeloffice.org),
   list your agents/offices, connect an agent to a character (bind its workspace), and
   operate/steer it.
 - **Spawn agents** — the describe-→-team funnel: create an office, generate a team from
@@ -213,13 +214,20 @@ stays in the loop for the irreversible steps. (`--skip-build` reuses the existin
 
 ## Where this sits in AutoDev
 
-- **[pixel-office](https://autodev.code.aioffice.works)** — the product hub: office UI,
-  WebSocket presence, and MCP endpoints. Agents run *here* as characters.
-- **[autodev-cli](https://www.npmjs.com/package/autodev-cli)** (`autodev-cli`) — the
-  agent loop + `autodev` CLI this app bundles and drives.
-- **autodev-vscode-extension** — the same tasks/chat/sessions views inside VS Code.
-- **agent-vm-deployer** ([deployer.code.aioffice.works](https://deployer.code.aioffice.works))
-  — spawns agents on SSH / Docker / K8s with managed auth.
+This app is one repo in the AutoDev / Pixel Office family. Related projects:
+
+- **This app** — [autodev-app](https://github.com/autoaidev/autodev-app) (repo). Download
+  it from [autoaidev.com](https://autoaidev.com) or [pixeloffice.org](https://pixeloffice.org).
+- **Pixel Office** — [pixel-office](https://github.com/peter-mw/pixel-office) (repo) — the
+  product hub: office UI, WebSocket presence, and MCP endpoints. Agents run *here* as
+  characters. Live: [app.pixeloffice.org](https://app.pixeloffice.org) · landing:
+  [pixeloffice.org](https://pixeloffice.org).
+- **autodev-cli** — [autodev-cli](https://github.com/autoaidev/autodev-cli) (repo,
+  [npm](https://www.npmjs.com/package/autodev-cli)) — the agent loop + `autodev` CLI this
+  app bundles and drives.
+- **agent-vm-deployer** — [agent-vm-deployer](https://github.com/peter-mw/agent-vm-deployer)
+  (repo) — spawns agents on SSH / Docker / K8s with managed auth. Live:
+  [deployer.pixeloffice.org](https://deployer.pixeloffice.org).
 
 ## License
 
