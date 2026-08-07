@@ -124,13 +124,13 @@ function officeMcpServer(key: string, url: string, fileBrowser = false): Record<
 function providerCommand(provider?: string): string {
   const p = String(provider ?? '').toLowerCase()
   const exact: Record<string, string> = {
-    'grok-tui': 'grok',
+    'grok-tui': 'grok --always-approve',
     'claude-cli': 'claude',
     'opencode-cli': 'opencode',
     'copilot-cli': 'copilot'
   }
   if (exact[p]) return exact[p]
-  if (p.startsWith('grok')) return 'grok'
+  if (p.startsWith('grok')) return 'grok --always-approve'
   if (p.startsWith('opencode')) return 'opencode'
   if (p.startsWith('copilot')) return 'copilot'
   if (p.startsWith('claude')) return 'claude'
@@ -256,6 +256,29 @@ function markFolderTrusted(cwd: string): void {
   }
   // Persistently contended: give up rather than risk a clobber; the first `claude`
   // launch simply shows the folder-trust prompt once.
+}
+
+/**
+ * Pre-trust an app-owned operate/loop dir in ~/.grok/trusted_folders.toml so a
+ * spawned `grok` skips its "Do you trust the contents of this directory?" gate — the
+ * grok twin of markFolderTrusted (claude). Mirrors the CLI's ensureGrokDirTrusted
+ * (grokTuiProvider.ts) so the interactive Operate launches straight into grok instead
+ * of blocking on the trust prompt. Idempotent — skips if the exact folder is present.
+ */
+function markGrokFolderTrusted(dir: string): void {
+  try {
+    const grokDir = join(homedir(), '.grok')
+    const tf = join(grokDir, 'trusted_folders.toml')
+    const abs = resolve(dir)
+    let text = ''
+    try { text = readFileSync(tf, 'utf8') } catch { /* no file yet */ }
+    const header = `[folders."${abs}"]`
+    if (text.includes(header)) return
+    const nowSec = Math.floor(Date.now() / 1000)
+    const entry = `${text.endsWith('\n') || text === '' ? '' : '\n'}\n${header}\ntrusted = true\ndecided_at = ${nowSec}\n`
+    mkdirSync(grokDir, { recursive: true })
+    appendFileSync(tf, entry, 'utf8')
+  } catch { /* best effort — grok's own trust prompt is the backstop */ }
 }
 
 function writeScopedMcpTrust(dir: string, server = 'pixel-office'): void {
@@ -795,7 +818,8 @@ export class PixelOfficeClient {
       mkdirSync(dir, { recursive: true, mode: 0o700 })
       writeMcpJson(dir, key, url)
       writeMcpTrust(dir) // auto-approve the office-MCP server so it actually starts
-      markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir
+      markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir (claude)
+      markGrokFolderTrusted(dir) // …and for grok — always launch in trust/auto mode
       this.recordProvisioned(dir) // track for key-purge on logout
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
@@ -907,6 +931,7 @@ export class PixelOfficeClient {
         // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
         // repos) so a loop / interactive claude here never blocks on the prompt.
         markFolderTrusted(dir)
+        markGrokFolderTrusted(dir) // grok twin — always launch in trust/auto mode
         out.push({ agentId, agentSlug, name, path: dir, provider, officeSlug })
       }
       dbg('spawnOffice: prepared', out.length, 'loop(s) in', officeSlug)

@@ -50,11 +50,15 @@ const PROVIDER_OPTIONS: Array<{ value: string; label: string }> = [
  *  single-character Operate uses the SAME command as a full office spawn. */
 function providerToCommand(provider?: string): string {
   const p = String(provider ?? '').toLowerCase()
+  // grok launches in trust/auto mode: --always-approve auto-approves tool executions
+  // (the directory-trust gate is pre-seeded in ~/.grok/trusted_folders.toml by the
+  // main process). So operate/spawn never blocks on grok's prompts.
+  const GROK = 'grok --always-approve'
   const exact: Record<string, string> = {
-    'grok-tui': 'grok', 'claude-cli': 'claude', 'opencode-cli': 'opencode', 'copilot-cli': 'copilot'
+    'grok-tui': GROK, 'claude-cli': 'claude', 'opencode-cli': 'opencode', 'copilot-cli': 'copilot'
   }
   if (exact[p]) return exact[p]
-  if (p.startsWith('grok')) return 'grok'
+  if (p.startsWith('grok')) return GROK
   if (p.startsWith('opencode')) return 'opencode'
   if (p.startsWith('copilot')) return 'copilot'
   if (p.startsWith('claude')) return 'claude'
