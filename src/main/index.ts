@@ -1,5 +1,5 @@
 import { app, shell, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage } from 'electron'
-import { join } from 'path'
+import { join, sep } from 'path'
 import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
@@ -247,7 +247,38 @@ ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string }) => appSet
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))
-ipcMain.handle('office:spawnOffice', (_e, officeSlug: string) => office.spawnOffice(officeSlug))
+// Spawn an ENTIRE office as TRACKED autodev-cli LOOPS (not interactive PTYs).
+// pixelOffice.spawnOffice does the office-side prep (BLOCK-IF-ANY-ONLINE, scratch
+// dir + presence/MCP bind + provider) and returns the prepared workspaces; here we
+// register each with AgentManager and start its loop, so they appear in the sidebar
+// grouped under the office, count toward runningCount (Stop all activates), stream
+// to `agent:log`, and survive backgrounding. Idempotent: manager.add skips an
+// already-tracked path and manager.start no-ops an already-running loop.
+ipcMain.handle('office:spawnOffice', async (_e, officeSlug: string, overrides?: Array<{ agentId: string; provider?: string }>) => {
+  const prep = await office.spawnOffice(officeSlug, overrides)
+  if ('error' in prep) return prep
+  for (const a of prep.agents) {
+    const added = manager.add(a.path)
+    if ((added as { error?: string })?.error) continue // bind should have written settings.json; skip if not a workspace
+    await manager.start(a.path, a.provider)
+  }
+  // Reflect the freshly-online characters without waiting for the 8s poll.
+  void refreshOfficePresence()
+  return { ok: true as const, agents: prep.agents }
+})
+// Stop an entire office: stop + untrack + delete the scratch dir of every tracked
+// loop bound to that office (its workspaces all live under the office scratch root).
+// Uses removeFolder so the office-key-bearing scratch dirs don't linger after stop.
+ipcMain.handle('office:stopOffice', async (_e, officeSlug: string) => {
+  const root = office.officeLoopRoot(officeSlug)
+  if (!root) return { error: 'Invalid office identifier.' }
+  const paths = manager.list()
+    .map((s) => s.path)
+    .filter((p) => p === root || p.startsWith(root + sep))
+  for (const p of paths) manager.removeFolder(p)
+  void refreshOfficePresence()
+  return { ok: true as const, stopped: paths.length }
+})
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
 ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string) => office.createCharacter(officeId, name))

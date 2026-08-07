@@ -9,18 +9,41 @@ interface OfficeAgent {
 /** One office grouped from the flat agent list, with its per-office online summary. */
 interface OfficeGroup { slug: string; name: string; agents: OfficeAgent[]; onlineCount: number }
 
-/** Descriptor for each terminal spawnOffice asks us to open (main-process contract). */
-interface SpawnAgent { agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }
+/** Descriptor for each TRACKED LOOP spawnOffice starts (main-process contract).
+ *  `path` is the loop's workspace = the key into the `agent:log` stream buffer. */
+interface SpawnAgent { agentId: string; agentSlug: string; name: string; path: string; provider: string; officeSlug: string }
 type SpawnResult = { ok: true; agents: SpawnAgent[] } | { error: string; online?: string[] }
+/** Provider override per character, forwarded to each loop's `autodev start -p`. */
+interface SpawnOverride { agentId: string; provider: string }
 
 /**
- * Prepare + spawn EVERY character in an office at once. Added by the main-process
- * work (ipc `office:spawnOffice`); typed locally so the renderer builds against the
- * contract's shape without reaching into the preload bridge here.
+ * Prepare + start EVERY character in an office as a TRACKED AgentManager LOOP
+ * (headless, log-streamed — NOT an interactive PTY). Returns the tracked agents so
+ * the renderer can auto-open a read-only live log pane per character. Typed locally
+ * (the preload bridge may not yet carry the overrides arg / the loop return shape).
  */
-function officeSpawnOffice(officeSlug: string): Promise<SpawnResult> {
-  return (window.api as unknown as { officeSpawnOffice: (s: string) => Promise<SpawnResult> }).officeSpawnOffice(officeSlug)
+function officeSpawnOffice(officeSlug: string, overrides?: SpawnOverride[]): Promise<SpawnResult> {
+  return (window.api as unknown as {
+    officeSpawnOffice: (s: string, o?: SpawnOverride[]) => Promise<SpawnResult>
+  }).officeSpawnOffice(officeSlug, overrides)
 }
+
+/** Stop every tracked loop of an office (and drop its scratch). Locally typed —
+ *  `officeStopOffice` may not yet be on the preload `Api` surface. */
+function officeStopOffice(officeSlug: string): Promise<{ ok?: boolean; stopped?: number; error?: string }> {
+  return (window.api as unknown as {
+    officeStopOffice: (s: string) => Promise<{ ok?: boolean; stopped?: number; error?: string }>
+  }).officeStopOffice(officeSlug)
+}
+
+/** Provider override options offered per character (value passed straight to the
+ *  loop's `-p` / the operate CLI). Empty value = use the agent's own provider. */
+const PROVIDER_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'claude', label: 'Claude' },
+  { value: 'grok', label: 'Grok' },
+  { value: 'opencode', label: 'OpenCode' },
+  { value: 'copilot', label: 'Copilot' }
+]
 
 /** Map an office agent's provider (family OR a -cli/-tui/-sdk variant) to the
  *  interactive CLI to launch. Mirrors the main-process providerCommand so a
@@ -59,10 +82,38 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [loadingAgents, setLoadingAgents] = useState(false)
   const [operatingId, setOperatingId] = useState('')       // single ▶ button spinner
   const [spawningOffice, setSpawningOffice] = useState('') // per-office ⚡ Spawn button spinner (officeSlug)
-  // Multi-terminal model: one OpenTerm (its own PTY tab) per operated character.
+  const [stoppingOffice, setStoppingOffice] = useState('') // per-office ⏹ Stop button spinner (officeSlug)
+  // Offices we have spawned as tracked loops this session — so a freshly-spawned
+  // office shows ⏹ Stop immediately, before the 8s office-presence poll flips its
+  // characters to online. Cleared on Stop office / logout.
+  const [spawnedOffices, setSpawnedOffices] = useState<Set<string>>(new Set())
+  // Per-character provider override (rid = officeSlug+id). '' = use agent's own.
+  const [providerOverride, setProviderOverride] = useState<Record<string, string>>({})
+  // Multi-pane model: one OpenTerm per operated (pty) or spawned (log) character.
   const [terms, setTerms] = useState<OpenTerm[]>([])
   const [activeTermId, setActiveTermId] = useState('')     // which tab is visible
-  const [endedIds, setEndedIds] = useState<Set<string>>(new Set()) // terms whose provider exited
+  const [endedIds, setEndedIds] = useState<Set<string>>(new Set()) // pty terms whose provider exited
+
+  // ── Read-only live log stream (reuses the SAME `agent:log` IPC the sidebar uses).
+  // Buffer keyed by workspace path; log panes read it via getLog and re-render only
+  // themselves on each tick, so a log storm never re-renders this whole view.
+  const logsRef = useRef<Map<string, string>>(new Map())
+  const logListeners = useRef<Set<() => void>>(new Set())
+  const subscribeLog = useCallback((cb: () => void) => {
+    logListeners.current.add(cb)
+    return () => { logListeners.current.delete(cb) }
+  }, [])
+  const getLog = useCallback((path: string) => logsRef.current.get(path) || '', [])
+  useEffect(() => {
+    const off = window.api.onAgentLog(({ path, line }) => {
+      const prev = logsRef.current.get(path) || ''
+      let next = prev + line
+      if (next.length > 20000) next = next.slice(next.length - 20000) // cap the buffer
+      logsRef.current.set(path, next)
+      logListeners.current.forEach((cb) => cb())
+    })
+    return () => { off?.() }
+  }, [])
   // Instant-message (steer) composer for the operated office character.
   const [steerText, setSteerText] = useState('')
   const [steerBusy, setSteerBusy] = useState(false)
@@ -204,7 +255,11 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const disconnect = useCallback(async () => {
     await window.api.officeLogout()
     setConnected(false); setAgents([]); setLoaded(false)
+    // Clearing panes only tears down the VIEW. PTY (operate) panes SIGKILL on
+    // unmount; tracked LOOP (log) panes keep running in the background (they live in
+    // AgentManager / the Agents tab) — logging out of the office does not stop them.
     setTerms([]); setActiveTermId(''); setEndedIds(new Set()); setListErr('')
+    setSpawnedOffices(new Set())
   }, [])
 
   // Focus an existing tab, or append+focus a new one, and clear any ended flag.
@@ -233,21 +288,26 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         else setListErr(r?.error || 'Could not prepare the operate workspace')
         return
       }
-      openTerm({ id, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id, command: providerToCommand(a.provider) })
+      const prov = providerOverride[rid] || a.provider
+      openTerm({ id, kind: 'pty', cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id, command: providerToCommand(prov), provider: prov })
       // Reconcile the left-list online dot within one tick rather than waiting up
       // to 8s for the next poll (silent — no "Loading…" flash).
       void pollAgents()
     } finally { setOperatingId('') }
-  }, [terms, endedIds, operatingId, openTerm, pollAgents])
+  }, [terms, endedIds, operatingId, openTerm, pollAgents, providerOverride])
 
-  // Spawn the WHOLE office: one interactive terminal per character, each running
-  // that character's own provider CLI. Refuses (BLOCK-IF-ANY-ONLINE) when any agent
-  // is already connected, naming who is online.
+  // Spawn the WHOLE office as TRACKED LOOPS: each character starts as an
+  // AgentManager loop (headless, log-streamed — NOT a PTY) and auto-opens a
+  // read-only live LOG pane. Refuses (BLOCK-IF-ANY-ONLINE) when any character is
+  // already connected, naming who is online. Provider overrides are forwarded.
   const spawnOffice = useCallback(async (g: OfficeGroup) => {
     if (g.onlineCount > 0 || spawningOffice) return
     setListErr(''); setSpawningOffice(g.slug)
     try {
-      const r = await officeSpawnOffice(g.slug)
+      const overrides: SpawnOverride[] = g.agents.map((a) => ({
+        agentId: a.id, provider: providerOverride[a.officeSlug + a.id] || a.provider || ''
+      }))
+      const r = await officeSpawnOffice(g.slug, overrides)
       if ('error' in r) {
         // Main-process blocks all-or-nothing and hands back who is online.
         const who = r.online && r.online.length ? ` (online: ${r.online.join(', ')})` : ''
@@ -255,11 +315,16 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         else setListErr(r.error + who)
         return
       }
+      // Remember we spawned this office so it shows ⏹ Stop right away (before the
+      // office-presence poll flips characters to online).
+      setSpawnedOffices((prev) => new Set(prev).add(g.slug))
       let firstId = ''
       for (const s of r.agents) {
-        const id = `op-${g.slug}-${s.agentId}`
+        const id = `log-${g.slug}-${s.agentId}`
         if (!firstId) firstId = id
-        openTerm({ id, cwd: s.cwd, mcpUrl: undefined, name: `${s.name} · ${g.name}`, agentId: s.agentId, command: s.command })
+        // Seed the buffer key so the pane renders immediately, then stream via IPC.
+        if (!logsRef.current.has(s.path)) logsRef.current.set(s.path, '')
+        openTerm({ id, kind: 'log', name: `${s.name} · ${g.name}`, agentId: s.agentId, path: s.path, provider: s.provider })
       }
       if (firstId) setActiveTermId(firstId) // focus the first spawned character
       void pollAgents()
@@ -268,7 +333,35 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
       if (isAuthError(msg)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
       else setListErr(msg)
     } finally { setSpawningOffice('') }
-  }, [spawningOffice, openTerm, pollAgents])
+  }, [spawningOffice, openTerm, pollAgents, providerOverride])
+
+  // Stop the WHOLE office: stops every tracked loop (and drops its scratch) via the
+  // main process, then removes this office's read-only log panes from the view.
+  const stopOffice = useCallback(async (g: OfficeGroup) => {
+    if (stoppingOffice) return
+    setListErr(''); setStoppingOffice(g.slug)
+    try {
+      const r = await officeStopOffice(g.slug)
+      if (r?.error) {
+        if (isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        else setListErr(r.error)
+        return
+      }
+      setSpawnedOffices((prev) => { const n = new Set(prev); n.delete(g.slug); return n })
+      // Drop this office's LOG panes (loops are gone); leave any operate PTY panes.
+      const prefix = `log-${g.slug}-`
+      setTerms((prev) => {
+        const next = prev.filter((t) => !(t.kind === 'log' && t.id.startsWith(prefix)))
+        setActiveTermId((cur) => (cur.startsWith(prefix) ? (next[next.length - 1]?.id ?? '') : cur))
+        return next
+      })
+      void pollAgents()
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e)
+      if (isAuthError(msg)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+      else setListErr(msg)
+    } finally { setStoppingOffice('') }
+  }, [stoppingOffice, pollAgents])
 
   // Send an INSTANT message (steer) to the operated office character — live, not a
   // queued TODO task (that is the local-agent composer's job).
@@ -333,7 +426,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <button className="start" onClick={() => setShowNewChar((s) => !s)} aria-expanded={showNewChar} aria-controls="new-char-form" title="Create a new office character">＋ New</button>
           <button onClick={loadAgents} disabled={loadingAgents} title="Refresh office agents" aria-label="Refresh office agents">↻</button>
           <button className="danger" title="Disconnect from office" aria-label="Disconnect from office"
-            onClick={() => { if (terms.length && !window.confirm(`Disconnect will end your ${terms.length} running Operate session(s) and take those characters offline. Continue?`)) return; disconnect() }}>⏻</button>
+            onClick={() => { const ptys = terms.filter((t) => t.kind === 'pty').length; if (ptys && !window.confirm(`Disconnect will end your ${ptys} running Operate session(s) and take those characters offline. Tracked loops keep running. Continue?`)) return; disconnect() }}>⏻</button>
         </div>
         {/* Clarify the direction: this pane runs an OFFICE character locally — the
             reverse of the Agents tab's "Connect to office" (which pushes a local
@@ -389,22 +482,35 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           {/* Grouped BY OFFICE: office header (name + online summary + Spawn office)
               then its characters. Spawn office is BLOCK-IF-ANY-ONLINE. */}
           {grouped.map((g) => {
-            const blocked = g.onlineCount > 0
+            // Running when any character is office-online OR we spawned loops this
+            // session. BLOCK-IF-ANY-ONLINE: Spawn is enabled only when fully offline.
+            const hasRunning = g.onlineCount > 0 || spawnedOffices.has(g.slug)
+            const onlineNames = g.agents.filter((a) => a.online).map((a) => a.name)
             const spinning = spawningOffice === g.slug
+            const stopping = stoppingOffice === g.slug
             return (
               <div key={g.slug}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0d1117', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 1 }}>
                   <strong style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</strong>
                   <span className="badge" style={{ background: g.onlineCount ? '#12351f' : '#21262d', color: g.onlineCount ? '#7ee2a0' : 'var(--muted,#8b949e)' }} title="online / total characters">{g.onlineCount}/{g.agents.length} online</span>
                   <div style={{ flex: 1 }} />
-                  <button
-                    className="start"
-                    onClick={() => spawnOffice(g)}
-                    disabled={blocked || spinning}
-                    title={blocked
-                      ? `Blocked — already online: ${g.agents.filter((a) => a.online).map((a) => a.name).join(', ')}`
-                      : 'Open a live terminal for every character in this office (each with its own provider)'}
-                  >{spinning ? 'spawning…' : '⚡ Spawn office'}</button>
+                  {hasRunning ? (
+                    <button
+                      className="danger"
+                      onClick={() => stopOffice(g)}
+                      disabled={stopping}
+                      title="Stop every tracked loop in this office and drop its scratch workspace"
+                    >{stopping ? 'stopping…' : '⏹ Stop office'}</button>
+                  ) : (
+                    <button
+                      className="start"
+                      onClick={() => spawnOffice(g)}
+                      disabled={hasRunning || spinning}
+                      title={hasRunning
+                        ? `Blocked — already online: ${onlineNames.join(', ')}`
+                        : 'Start every character in this office as a tracked loop (each auto-opens a read-only live log)'}
+                    >{spinning ? 'spawning…' : '⚡ Spawn office'}</button>
+                  )}
                 </div>
                 {g.agents.map((a) => {
                   const rid = a.officeSlug + a.id
@@ -415,9 +521,19 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
                       <span className="dot" style={{ background: a.online ? 'var(--green,#3fb950)' : '#484f58' }} title={a.online ? 'online' : 'offline'} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{providerToCommand(a.provider)}{a.status ? ' · ' + a.status : ''}</div>
+                        <select
+                          value={providerOverride[rid] ?? ''}
+                          onChange={(e) => setProviderOverride((p) => ({ ...p, [rid]: e.target.value }))}
+                          aria-label={`Provider for ${a.name}`}
+                          title="Provider override — used when spawning this character's loop or operating it (Default = its own provider)"
+                          style={{ marginTop: 3, maxWidth: '100%', background: '#0d1117', color: 'var(--muted,#8b949e)', border: '1px solid var(--border,#30363d)', borderRadius: 5, padding: '2px 4px', fontSize: 11 }}
+                        >
+                          <option value="">Default{a.provider ? ` (${a.provider})` : ''}</option>
+                          {PROVIDER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        {a.status && <span style={{ fontSize: 11, color: 'var(--muted,#8b949e)', marginLeft: 6 }}>{a.status}</span>}
                       </div>
-                      <button className="start" onClick={() => operate(a)} disabled={operatingId === rid} title="Run this office character as a live agent on this machine — it comes online in the office and starts working">{operatingId === rid ? 'operating…' : open ? '▸ Focus tab' : '▶ Connect & operate'}</button>
+                      <button className="start" onClick={() => operate(a)} disabled={operatingId === rid} title="Open an interactive terminal to watch/steer this character (uses the provider override)">{operatingId === rid ? 'operating…' : open ? '▸ Focus tab' : '▶ Connect & operate'}</button>
                     </div>
                   )
                 })}
@@ -432,16 +548,18 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           <div className="empty" style={{ margin: 'auto', maxWidth: 440, textAlign: 'center', lineHeight: 1.6 }}>
             <div style={{ fontSize: 22 }}>⚡</div>
             <strong>Run your office characters here</strong><br />
-            Hit <b>⚡ Spawn office</b> to open a live terminal for EVERY character in an
-            office at once (each with its own provider), or <b>▶ Connect &amp; operate</b> a
-            single character. Each opens as a tab above.
+            Hit <b>⚡ Spawn office</b> to start EVERY character as a tracked background
+            loop (each auto-opens a read-only live log tab), or <b>▶ Connect &amp; operate</b>
+            a single character in an interactive terminal to watch/steer it.
             <details style={{ marginTop: 12, fontSize: 11, color: 'var(--muted,#8b949e)', textAlign: 'left' }}>
               <summary style={{ cursor: 'pointer', textAlign: 'center' }}>What happens?</summary>
               <div style={{ marginTop: 6, lineHeight: 1.5 }}>
-                Each terminal runs that character's provider CLI against a scratch
-                workspace wired to its office-MCP. While a session runs, the character
-                shows as MCP-connected (online) in the office. Spawning a whole office is
-                blocked if any of its characters are already online.
+                Spawn starts each character as an AgentManager loop against a scratch
+                workspace bound to its office-MCP — it comes online in the office and
+                appears in the Agents tab, and keeps running in the background even if you
+                close its log tab. Use <b>⏹ Stop office</b> to stop them. Spawning is
+                blocked if any character is already online. Operate instead opens one
+                interactive terminal (that ends when you close it).
               </div>
             </details>
           </div>
@@ -453,6 +571,8 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
               activeId={activeTermId}
               endedIds={endedIds}
               onlineAgentIds={onlineAgentIds}
+              getLog={getLog}
+              subscribeLog={subscribeLog}
               onSelect={setActiveTermId}
               onClose={(id) => {
                 // Removing the term unmounts ONLY that pane -> ptyKill for its PTY.

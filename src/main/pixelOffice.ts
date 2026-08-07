@@ -803,16 +803,58 @@ export class PixelOfficeClient {
   }
 
   /**
-   * Prepare EVERY character in an office for a one-terminal-per-agent launch.
+   * The sanitized scratch ROOT for an office's spawned loops
+   * (`~/.autodev-app/offices/<slug>`), or null when the slug would escape the
+   * sandbox. index.ts uses it to find + stop every tracked loop bound to an
+   * office (stopOffice) — the office scratch dirs all live under this root.
+   */
+  officeLoopRoot(officeSlug: string): string | null {
+    const slug = String(officeSlug ?? '').trim()
+    if (!slug) return null
+    const root = join(homedir(), '.autodev-app', 'offices')
+    const dir = join(root, safeSeg(slug))
+    if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) return null
+    return dir
+  }
+
+  /**
+   * Record a loop's chosen provider in `<dir>/.autodev/settings.json` so
+   * `autodev start` uses it even absent an explicit `-p`, and the sidebar shows
+   * the right provider. bindWorkspaceToOffice merge-writes the same file and
+   * preserves this key; we only touch `provider`. Best-effort.
+   */
+  private writeProvider(dir: string, provider: string): void {
+    try {
+      const p = String(provider ?? '').trim()
+      if (!p) return
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if (s.provider === p) return
+      s.provider = p
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
+   * Prepare EVERY character in an office to run as a TRACKED autodev-cli LOOP.
    * BLOCKS (with no side effects) if ANY character is already online — returns
    * `{ error, online:[names] }` — so we never double-drive a live character.
-   * Otherwise wires each agent's scratch workspace exactly like operate() and
-   * returns an ORDERED launch list (roster/seat order), each descriptor carrying
-   * the resolved per-provider `command` so the renderer opens one terminal per
-   * agent with the right CLI (no provider→command logic needed in the renderer).
+   * Otherwise, per character: creates an app-owned scratch workspace
+   * (`~/.autodev-app/offices/<slug>/<agentSlug>`), BINDS it to the office
+   * character (bindWorkspaceToOffice — presence binding + office-MCP + scoped
+   * trust + file-browser), records the chosen provider (override → the roster
+   * provider), and pre-accepts the folder-trust dialog. Returns the ordered list
+   * of prepared workspaces; the IPC handler in index.ts then registers each with
+   * AgentManager (add) and starts its loop (start(path, provider)). `path` is the
+   * tracked workspace so the renderer can subscribe to each loop's `agent:log`
+   * stream. `overrides` maps an agentId → the provider to launch it with.
    */
-  async spawnOffice(officeSlug: string):
-    Promise<{ ok: true; agents: Array<{ agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }> }
+  async spawnOffice(officeSlug: string, overrides?: Array<{ agentId: string; provider?: string }>):
+    Promise<{ ok: true; agents: Array<{ agentId: string; agentSlug: string; name: string; path: string; provider: string; officeSlug: string }> }
            | { error: string; online?: string[] }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     if (!officeSlug) return { error: 'Pick an office to spawn.' }
@@ -832,33 +874,42 @@ export class PixelOfficeClient {
         return { error: `Can't spawn — ${online.length} character(s) already online: ${online.join(', ')}.`, online }
       }
 
+      // Per-agent provider override (renderer's per-row dropdown). Falls back to
+      // the roster provider when no override is given for that character.
+      const overrideMap = new Map<string, string>()
+      for (const o of overrides ?? []) {
+        if (o && o.agentId && o.provider) overrideMap.set(String(o.agentId), String(o.provider))
+      }
+
       const root = join(homedir(), '.autodev-app', 'offices')
-      const out: Array<{ agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }> = []
+      const out: Array<{ agentId: string; agentSlug: string; name: string; path: string; provider: string; officeSlug: string }> = []
       for (const a of roster) {
         const agentId = String(a.id)
         const agentSlug = String(a.slug || a.id)
         const name = String(a.name ?? agentSlug)
-        const provider = String(a.provider ?? 'claude')
-        // --- mirror operate()'s prep sequence ---
-        let creds: any
-        try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(agentId)}/credentials`))?.data ?? {} }
-        catch (e) { return { error: `Couldn't fetch MCP credentials for "${name}" — ${String((e as Error)?.message ?? e)}` } }
-        const key = creds.apiKey as string | undefined
-        const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
-        if (!key) return { error: `No API key for "${name}" — it may lack office-MCP access.` }
+        const provider = overrideMap.get(agentId) ?? String(a.provider ?? 'claude')
+        // Sanitize each server-controlled path segment and confirm the scratch dir
+        // stays inside the offices sandbox root before any write.
         const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug))
         if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) {
           return { error: `Invalid office/agent identifier for "${name}".` }
         }
         mkdirSync(dir, { recursive: true, mode: 0o700 })
-        writeMcpJson(dir, key, url)
-        writeMcpTrust(dir)
+        // BIND: writes the `.autodev/settings.json` presence binding + merges the
+        // pixel-office mcp-operate server (with file-browser) + scoped trust +
+        // gitignore + recordProvisioned — everything `autodev start` needs to come
+        // up already connected as this character. Self-fetches creds/mcpUrl/wsUrl.
+        const bound = await this.bindWorkspaceToOffice(dir, officeSlug, { id: agentId, slug: agentSlug, name }, true)
+        if ('error' in bound) return { error: `Couldn't bind "${name}" to the office — ${bound.error}` }
+        // Persist the loop's provider (override wins) so `autodev start` uses it.
+        this.writeProvider(dir, provider)
+        // Pre-accept Claude Code's folder-trust dialog for this app-owned scratch
+        // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
+        // repos) so a loop / interactive claude here never blocks on the prompt.
         markFolderTrusted(dir)
-        this.recordProvisioned(dir)
-        // --- end prep mirror ---
-        out.push({ agentId, agentSlug, name, cwd: dir, provider, command: providerCommand(provider) })
+        out.push({ agentId, agentSlug, name, path: dir, provider, officeSlug })
       }
-      dbg('spawnOffice: prepared', out.length, 'agent(s) in', officeSlug)
+      dbg('spawnOffice: prepared', out.length, 'loop(s) in', officeSlug)
       return { ok: true, agents: out }
     } catch (e) {
       if ((e as Error)?.message?.includes('expired')) return { error: 'Session expired — reconnect.' }
