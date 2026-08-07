@@ -127,6 +127,10 @@ function useFocusTrap<T extends HTMLElement>(): React.RefObject<T> {
 
 export default function App(): JSX.Element {
   const [agents, setAgents] = useState<AgentState[]>([])
+  // slug -> display name for office-bound agents, so a row can show WHICH office
+  // (not just "● office"). officeOffices() throws on a dead session, so this stays
+  // empty until a live office session resolves — the chip degrades to slug/blank.
+  const [officeNames, setOfficeNames] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<string | null>(null)
   const [showSessions, setShowSessions] = useState(false)
   const [showOffice, setShowOffice] = useState(false)
@@ -194,6 +198,25 @@ export default function App(): JSX.Element {
     const id = setInterval(() => { window.api.listAgents().then(setAgents) }, 5000)
     return () => clearInterval(id)
   }, [])
+
+  // Resolve office slugs -> names for the sidebar labels. Cheap, cached; re-run when
+  // the set of office-bound slugs changes (new agent connected to a new office).
+  const officeSlugKey = useMemo(
+    () => Array.from(new Set(agents.map((a) => a.officeSlug).filter(Boolean))).sort().join(','),
+    [agents]
+  )
+  useEffect(() => {
+    if (!officeSlugKey) return
+    let alive = true
+    ;(async () => {
+      try {
+        const offs = (await window.api.officeOffices()) as { slug: string; id: number; name: string }[]
+        if (!alive) return
+        setOfficeNames(Object.fromEntries(offs.map((o) => [o.slug, o.name])))
+      } catch { /* dead session / offline — keep the last-known map */ }
+    })()
+    return () => { alive = false }
+  }, [officeSlugKey])
 
   useEffect(() => {
     const offUpd = window.api.onAgentUpdated((s: AgentState) =>
@@ -570,7 +593,7 @@ export default function App(): JSX.Element {
                   onClick={(e) => e.stopPropagation()} onChange={() => toggleChecked(a.path)} />
                 <span className={'dot ' + a.activity} title={a.error || ACTIVITY_LABEL[a.activity]} />
                 <div className="meta">
-                  <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={a.online ? 'Online in the office' : 'Bound to an office — currently offline'}>● office</span>}</div>
+                  <div className="name">{a.name}{ATTENTION_STATES.has(a.activity) && <span className="attn-tag" title={a.error || ACTIVITY_LABEL[a.activity]}>{a.activity === 'needs-auth' ? '🔑' : a.activity === 'rate-limited' ? '⏳' : '⚠'}</span>}{a.wsUrl && (() => { const on = officeNames[a.officeSlug ?? ''] || a.officeSlug || 'office'; return <span className={'office-chip' + (a.online ? ' online' : ' offline')} title={(a.online ? 'Online in ' : 'Bound to ') + on}>● {on}</span> })()}</div>
                   <div className="sub" title={a.running && a.currentTask ? a.currentTask : undefined}>{a.provider ?? 'no provider'} · {ATTENTION_STATES.has(a.activity) ? ACTIVITY_LABEL[a.activity] : a.running && a.currentTask ? a.currentTask : `${a.tasks.remaining} left`}</div>
                   {!groupByFolder && <div className="sub folder" title={a.path} style={{ opacity: .7, fontSize: 11 }}>📁 {shortPath(a.path)}</div>}
                 </div>

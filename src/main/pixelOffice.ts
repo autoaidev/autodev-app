@@ -69,6 +69,10 @@ async function fetchRetry(url: string, init: RequestInit = {}, ms = 12_000, trie
 
 export interface OfficeAgent {
   office: string; officeSlug: string; id: string; name: string; slug: string; status?: string; online: boolean
+  /** Agent's configured provider family or -cli/-tui/-sdk variant (Agent::toApiArray 'provider'). */
+  provider?: string
+  /** Friendly model label if the office knows one yet (Agent::toApiArray 'model'). */
+  model?: string
 }
 
 /** One row of an agent's in-office conversation, normalized from the office
@@ -112,6 +116,25 @@ function officeMcpServer(key: string, url: string, fileBrowser = false): Record<
     return { type: 'stdio', command: cmd, args: [cli, 'mcp-operate', '--key', key, '--url', url, ...fb], env }
   }
   return { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url, ...fb] }
+}
+
+/** Map an office agent's provider (family name OR a -cli/-tui/-sdk variant) to
+ *  the interactive CLI command to launch in its wired scratch cwd. Exact variants
+ *  first, then family-prefix fallbacks; default 'claude'. */
+function providerCommand(provider?: string): string {
+  const p = String(provider ?? '').toLowerCase()
+  const exact: Record<string, string> = {
+    'grok-tui': 'grok',
+    'claude-cli': 'claude',
+    'opencode-cli': 'opencode',
+    'copilot-cli': 'copilot'
+  }
+  if (exact[p]) return exact[p]
+  if (p.startsWith('grok')) return 'grok'
+  if (p.startsWith('opencode')) return 'opencode'
+  if (p.startsWith('copilot')) return 'copilot'
+  if (p.startsWith('claude')) return 'claude'
+  return 'claude' // default
 }
 
 /** Write a `.mcp.json` owner-only (0600) — it carries a live office API key. */
@@ -591,7 +614,7 @@ export class PixelOfficeClient {
           : Array.isArray(ags?.agents) ? ags.agents
           : Array.isArray(ags) ? ags : []
         for (const a of arr) {
-          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online) })
+          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model })
         }
       } catch (e) {
         // A 401 here means the session died mid-list — surface it, don't hide it.
@@ -777,6 +800,70 @@ export class PixelOfficeClient {
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
       return { ok: true, cwd: dir, mcpUrl: url }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
+   * Prepare EVERY character in an office for a one-terminal-per-agent launch.
+   * BLOCKS (with no side effects) if ANY character is already online — returns
+   * `{ error, online:[names] }` — so we never double-drive a live character.
+   * Otherwise wires each agent's scratch workspace exactly like operate() and
+   * returns an ORDERED launch list (roster/seat order), each descriptor carrying
+   * the resolved per-provider `command` so the renderer opens one terminal per
+   * agent with the right CLI (no provider→command logic needed in the renderer).
+   */
+  async spawnOffice(officeSlug: string):
+    Promise<{ ok: true; agents: Array<{ agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }> }
+           | { error: string; online?: string[] }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    if (!officeSlug) return { error: 'Pick an office to spawn.' }
+    try {
+      const ags = await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents`)
+      const roster: any[] = Array.isArray(ags?.data) ? ags.data
+        : Array.isArray(ags?.data?.agents) ? ags.data.agents
+        : Array.isArray(ags?.agents) ? ags.agents
+        : Array.isArray(ags) ? ags : []
+      if (!roster.length) return { error: 'This office has no characters to spawn.' }
+
+      // BLOCK if ANY character is online (same online test listAgents uses).
+      // Checked BEFORE any workspace is written so a blocked call has no side effects.
+      const online = roster.filter((a) => !!(a.isConnected ?? a.online))
+                           .map((a) => String(a.name ?? a.slug ?? a.id))
+      if (online.length) {
+        return { error: `Can't spawn — ${online.length} character(s) already online: ${online.join(', ')}.`, online }
+      }
+
+      const root = join(homedir(), '.autodev-app', 'offices')
+      const out: Array<{ agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }> = []
+      for (const a of roster) {
+        const agentId = String(a.id)
+        const agentSlug = String(a.slug || a.id)
+        const name = String(a.name ?? agentSlug)
+        const provider = String(a.provider ?? 'claude')
+        // --- mirror operate()'s prep sequence ---
+        let creds: any
+        try { creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(agentId)}/credentials`))?.data ?? {} }
+        catch (e) { return { error: `Couldn't fetch MCP credentials for "${name}" — ${String((e as Error)?.message ?? e)}` } }
+        const key = creds.apiKey as string | undefined
+        const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
+        if (!key) return { error: `No API key for "${name}" — it may lack office-MCP access.` }
+        const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug))
+        if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) {
+          return { error: `Invalid office/agent identifier for "${name}".` }
+        }
+        mkdirSync(dir, { recursive: true, mode: 0o700 })
+        writeMcpJson(dir, key, url)
+        writeMcpTrust(dir)
+        markFolderTrusted(dir)
+        this.recordProvisioned(dir)
+        // --- end prep mirror ---
+        out.push({ agentId, agentSlug, name, cwd: dir, provider, command: providerCommand(provider) })
+      }
+      dbg('spawnOffice: prepared', out.length, 'agent(s) in', officeSlug)
+      return { ok: true, agents: out }
+    } catch (e) {
+      if ((e as Error)?.message?.includes('expired')) return { error: 'Session expired — reconnect.' }
+      dbg('spawnOffice error', e); return { error: String((e as Error)?.message ?? e) }
+    }
   }
 
   /** Create a character for a Claude session and wire its folder to the office,

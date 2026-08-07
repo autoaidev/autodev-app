@@ -44,6 +44,10 @@ const api = {
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
   officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug),
+  officeSpawnOffice: (officeSlug: string): Promise<
+    { ok: true; agents: Array<{ agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }> }
+    | { error: string; online?: string[] }
+  > => ipcRenderer.invoke('office:spawnOffice', officeSlug),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
   officeCreateCharacter: (officeId: number, name: string) => ipcRenderer.invoke('office:createCharacter', officeId, name),

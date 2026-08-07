@@ -247,6 +247,7 @@ ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string }) => appSet
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))
+ipcMain.handle('office:spawnOffice', (_e, officeSlug: string) => office.spawnOffice(officeSlug))
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
 ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string) => office.createCharacter(officeId, name))

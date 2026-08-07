@@ -1,10 +1,42 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import TerminalPane from './TerminalPane'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
+import TerminalTabs, { OpenTerm } from './TerminalTabs'
 
 interface OfficeAgent {
   office: string; officeSlug: string; id: string; name: string; slug: string; status?: string; online: boolean
+  provider?: string; model?: string
 }
-interface OpenTerm { id: string; cwd: string; name: string; mcpUrl?: string; agentId: string }
+
+/** One office grouped from the flat agent list, with its per-office online summary. */
+interface OfficeGroup { slug: string; name: string; agents: OfficeAgent[]; onlineCount: number }
+
+/** Descriptor for each terminal spawnOffice asks us to open (main-process contract). */
+interface SpawnAgent { agentId: string; agentSlug: string; name: string; cwd: string; provider: string; command: string }
+type SpawnResult = { ok: true; agents: SpawnAgent[] } | { error: string; online?: string[] }
+
+/**
+ * Prepare + spawn EVERY character in an office at once. Added by the main-process
+ * work (ipc `office:spawnOffice`); typed locally so the renderer builds against the
+ * contract's shape without reaching into the preload bridge here.
+ */
+function officeSpawnOffice(officeSlug: string): Promise<SpawnResult> {
+  return (window.api as unknown as { officeSpawnOffice: (s: string) => Promise<SpawnResult> }).officeSpawnOffice(officeSlug)
+}
+
+/** Map an office agent's provider (family OR a -cli/-tui/-sdk variant) to the
+ *  interactive CLI to launch. Mirrors the main-process providerCommand so a
+ *  single-character Operate uses the SAME command as a full office spawn. */
+function providerToCommand(provider?: string): string {
+  const p = String(provider ?? '').toLowerCase()
+  const exact: Record<string, string> = {
+    'grok-tui': 'grok', 'claude-cli': 'claude', 'opencode-cli': 'opencode', 'copilot-cli': 'copilot'
+  }
+  if (exact[p]) return exact[p]
+  if (p.startsWith('grok')) return 'grok'
+  if (p.startsWith('opencode')) return 'opencode'
+  if (p.startsWith('copilot')) return 'copilot'
+  if (p.startsWith('claude')) return 'claude'
+  return 'claude'
+}
 
 /** True when an error means the session is dead and the user must sign in again. */
 function isAuthError(msg: string): boolean {
@@ -25,9 +57,12 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [agents, setAgents] = useState<OfficeAgent[]>([])
   const [loaded, setLoaded] = useState(false)
   const [loadingAgents, setLoadingAgents] = useState(false)
-  const [operatingId, setOperatingId] = useState('')
-  const [term, setTerm] = useState<OpenTerm | null>(null)
-  const [ended, setEnded] = useState(false) // the operate session's `claude` exited
+  const [operatingId, setOperatingId] = useState('')       // single ▶ button spinner
+  const [spawningOffice, setSpawningOffice] = useState('') // per-office ⚡ Spawn button spinner (officeSlug)
+  // Multi-terminal model: one OpenTerm (its own PTY tab) per operated character.
+  const [terms, setTerms] = useState<OpenTerm[]>([])
+  const [activeTermId, setActiveTermId] = useState('')     // which tab is visible
+  const [endedIds, setEndedIds] = useState<Set<string>>(new Set()) // terms whose provider exited
   // Instant-message (steer) composer for the operated office character.
   const [steerText, setSteerText] = useState('')
   const [steerBusy, setSteerBusy] = useState(false)
@@ -40,10 +75,26 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   const [showNewChar, setShowNewChar] = useState(false)  // create-character form collapsed by default
   const [createMsg, setCreateMsg] = useState('')
   const inFlight = useRef(false)
-  // Mirror `term` into a ref so the background poll can tell whether a live PTY is
-  // running WITHOUT re-creating (and re-scheduling) itself on every open/close.
-  const termRef = useRef<OpenTerm | null>(null)
-  useEffect(() => { termRef.current = term }, [term])
+  // Mirror `terms` into a ref so the background poll can tell whether ANY live PTY
+  // is running WITHOUT re-creating (and re-scheduling) itself on every open/close.
+  const termsRef = useRef<OpenTerm[]>([])
+  useEffect(() => { termsRef.current = terms }, [terms])
+
+  // Fold the flat agent list into offices (agents already carry office/officeSlug —
+  // pure client-side derive, no backend change) with a per-office online summary.
+  const grouped = useMemo<OfficeGroup[]>(() => {
+    const m = new Map<string, OfficeGroup>()
+    for (const a of agents) {
+      let g = m.get(a.officeSlug)
+      if (!g) { g = { slug: a.officeSlug, name: a.office, agents: [], onlineCount: 0 }; m.set(a.officeSlug, g) }
+      g.agents.push(a)
+      if (a.online) g.onlineCount++
+    }
+    return [...m.values()]
+  }, [agents])
+
+  // Agent ids currently online — feeds the per-tab live badge in TerminalTabs.
+  const onlineAgentIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents])
 
   const EXPIRED = 'Your office session expired — please sign in again.'
 
@@ -74,7 +125,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         } catch { /* fall through to login */ }
         // Don't tear down a live operate/resume PTY (see pollAgents): it holds its
         // own office key. Show a soft hint instead of bouncing to the login form.
-        if (termRef.current) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); setLoadingAgents(false); return }
+        if (termsRef.current.length) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); setLoadingAgents(false); return }
         setConnected(false); setLoaded(false); setErr(EXPIRED)
       } else {
         setListErr(msg)
@@ -111,7 +162,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         // list-refresh auth bounce must NEVER swap the view to the login form and
         // unmount (SIGKILL) that live session. Surface a soft reconnect hint and
         // leave the terminal running; the user can ↻/Reconnect deliberately.
-        if (termRef.current) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); return }
+        if (termsRef.current.length) { setListErr('Office session needs reconnect — your running session is unaffected (use ↻ or ⏻ Disconnect).'); return }
         setConnected(false); setLoaded(false); setErr(EXPIRED)
       }
     }
@@ -151,12 +202,26 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
   }, [base, email, password, loadAgents])
 
   const disconnect = useCallback(async () => {
-    await window.api.officeLogout(); setConnected(false); setAgents([]); setLoaded(false); setTerm(null); setListErr('')
+    await window.api.officeLogout()
+    setConnected(false); setAgents([]); setLoaded(false)
+    setTerms([]); setActiveTermId(''); setEndedIds(new Set()); setListErr('')
   }, [])
 
+  // Focus an existing tab, or append+focus a new one, and clear any ended flag.
+  const openTerm = useCallback((t: OpenTerm) => {
+    setTerms((prev) => prev.some((x) => x.id === t.id) ? prev : [...prev, t])
+    setActiveTermId(t.id)
+    setEndedIds((prev) => { const n = new Set(prev); n.delete(t.id); return n })
+  }, [])
+
+  // Operate a SINGLE character — deterministic per-agent id means re-operate just
+  // re-focuses the existing tab instead of duplicating it.
   const operate = useCallback(async (a: OfficeAgent) => {
     const rid = a.officeSlug + a.id
-    if (operatingId) return // guard against duplicate in-flight operate calls
+    const id = `op-${a.officeSlug}-${a.id}`
+    // If a live (non-ended) tab already exists for this agent, just focus it.
+    if (terms.some((t) => t.id === id) && !endedIds.has(id)) { setActiveTermId(id); return }
+    if (operatingId === rid) return // duplicate click guard for this same agent
     setListErr(''); setOperatingId(rid)
     try {
       const r = (await window.api.officeOperate(a.officeSlug, a.id, a.slug)) as { ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }
@@ -168,18 +233,47 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
         else setListErr(r?.error || 'Could not prepare the operate workspace')
         return
       }
-      setEnded(false)
-      setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id })
+      openTerm({ id, cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id, command: providerToCommand(a.provider) })
       // Reconcile the left-list online dot within one tick rather than waiting up
       // to 8s for the next poll (silent — no "Loading…" flash).
       void pollAgents()
     } finally { setOperatingId('') }
-  }, [operatingId, pollAgents])
+  }, [terms, endedIds, operatingId, openTerm, pollAgents])
+
+  // Spawn the WHOLE office: one interactive terminal per character, each running
+  // that character's own provider CLI. Refuses (BLOCK-IF-ANY-ONLINE) when any agent
+  // is already connected, naming who is online.
+  const spawnOffice = useCallback(async (g: OfficeGroup) => {
+    if (g.onlineCount > 0 || spawningOffice) return
+    setListErr(''); setSpawningOffice(g.slug)
+    try {
+      const r = await officeSpawnOffice(g.slug)
+      if ('error' in r) {
+        // Main-process blocks all-or-nothing and hands back who is online.
+        const who = r.online && r.online.length ? ` (online: ${r.online.join(', ')})` : ''
+        if (isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        else setListErr(r.error + who)
+        return
+      }
+      let firstId = ''
+      for (const s of r.agents) {
+        const id = `op-${g.slug}-${s.agentId}`
+        if (!firstId) firstId = id
+        openTerm({ id, cwd: s.cwd, mcpUrl: undefined, name: `${s.name} · ${g.name}`, agentId: s.agentId, command: s.command })
+      }
+      if (firstId) setActiveTermId(firstId) // focus the first spawned character
+      void pollAgents()
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e)
+      if (isAuthError(msg)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+      else setListErr(msg)
+    } finally { setSpawningOffice('') }
+  }, [spawningOffice, openTerm, pollAgents])
 
   // Send an INSTANT message (steer) to the operated office character — live, not a
   // queued TODO task (that is the local-agent composer's job).
   const sendSteer = useCallback(async () => {
-    const t = termRef.current
+    const t = termsRef.current.find((x) => x.id === activeTermId)
     const text = steerText.trim()
     if (!t || !text || steerBusy) return
     setSteerBusy(true); setSteerMsg('')
@@ -189,7 +283,7 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
       else setSteerMsg(r?.error || 'Could not deliver — is the character online?')
     } catch (e) { setSteerMsg(String((e as Error)?.message ?? e)) }
     finally { setSteerBusy(false) }
-  }, [steerText, steerBusy])
+  }, [steerText, steerBusy, activeTermId])
 
   // Spawn a new office character from the app (the in-app "+ Agent"), then refresh
   // the list so the user can Operate it right away.
@@ -233,13 +327,13 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
     <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
       <div style={{ width: 320, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <strong style={{ fontSize: 13 }}>☁ Office agents</strong>
-          <span className="badge">{agents.length}</span>
+          <strong style={{ fontSize: 13 }}>☁ Offices</strong>
+          <span className="badge" title={`${grouped.length} office(s) · ${agents.length} character(s)`}>{grouped.length}·{agents.length}</span>
           <div style={{ flex: 1 }} />
           <button className="start" onClick={() => setShowNewChar((s) => !s)} aria-expanded={showNewChar} aria-controls="new-char-form" title="Create a new office character">＋ New</button>
           <button onClick={loadAgents} disabled={loadingAgents} title="Refresh office agents" aria-label="Refresh office agents">↻</button>
           <button className="danger" title="Disconnect from office" aria-label="Disconnect from office"
-            onClick={() => { if (term && !window.confirm(`Disconnect will end your running Operate session for "${term.name}" and take the character offline. Continue?`)) return; disconnect() }}>⏻</button>
+            onClick={() => { if (terms.length && !window.confirm(`Disconnect will end your ${terms.length} running Operate session(s) and take those characters offline. Continue?`)) return; disconnect() }}>⏻</button>
         </div>
         {/* Clarify the direction: this pane runs an OFFICE character locally — the
             reverse of the Agents tab's "Connect to office" (which pushes a local
@@ -292,79 +386,110 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
           {!loadingAgents && !listErr && loaded && agents.length === 0 && (
             <div className="empty" style={{ padding: 20, fontSize: 12 }}>No agents in your offices yet.</div>
           )}
-          {agents.map((a) => (
-            <div key={a.officeSlug + a.id} style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="dot" style={{ background: a.online ? 'var(--green,#3fb950)' : '#484f58' }} title={a.online ? 'online' : 'offline'} />
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
-                <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{a.office}{a.status ? ' · ' + a.status : ''}</div>
+          {/* Grouped BY OFFICE: office header (name + online summary + Spawn office)
+              then its characters. Spawn office is BLOCK-IF-ANY-ONLINE. */}
+          {grouped.map((g) => {
+            const blocked = g.onlineCount > 0
+            const spinning = spawningOffice === g.slug
+            return (
+              <div key={g.slug}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#0d1117', borderBottom: '1px solid var(--border)', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <strong style={{ fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{g.name}</strong>
+                  <span className="badge" style={{ background: g.onlineCount ? '#12351f' : '#21262d', color: g.onlineCount ? '#7ee2a0' : 'var(--muted,#8b949e)' }} title="online / total characters">{g.onlineCount}/{g.agents.length} online</span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    className="start"
+                    onClick={() => spawnOffice(g)}
+                    disabled={blocked || spinning}
+                    title={blocked
+                      ? `Blocked — already online: ${g.agents.filter((a) => a.online).map((a) => a.name).join(', ')}`
+                      : 'Open a live terminal for every character in this office (each with its own provider)'}
+                  >{spinning ? 'spawning…' : '⚡ Spawn office'}</button>
+                </div>
+                {g.agents.map((a) => {
+                  const rid = a.officeSlug + a.id
+                  const tid = `op-${a.officeSlug}-${a.id}`
+                  const open = terms.some((t) => t.id === tid)
+                  return (
+                    <div key={rid} style={{ padding: '8px 12px 8px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="dot" style={{ background: a.online ? 'var(--green,#3fb950)' : '#484f58' }} title={a.online ? 'online' : 'offline'} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted,#8b949e)' }}>{providerToCommand(a.provider)}{a.status ? ' · ' + a.status : ''}</div>
+                      </div>
+                      <button className="start" onClick={() => operate(a)} disabled={operatingId === rid} title="Run this office character as a live agent on this machine — it comes online in the office and starts working">{operatingId === rid ? 'operating…' : open ? '▸ Focus tab' : '▶ Connect & operate'}</button>
+                    </div>
+                  )
+                })}
               </div>
-              <button className="start" onClick={() => operate(a)} disabled={operatingId === a.officeSlug + a.id} title="Run this office character as a live agent on this machine — it comes online in the office and starts working">{operatingId === a.officeSlug + a.id ? 'operating…' : '▶ Connect & operate'}</button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </div>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-        {!term && (
-          <div className="empty" style={{ margin: 'auto', maxWidth: 420, textAlign: 'center', lineHeight: 1.6 }}>
-            <div style={{ fontSize: 22 }}>▶</div>
-            <strong>Run an office character here</strong><br />
-            Run one of your office characters as a live agent on this machine — it
-            comes online in the office and starts working. Pick one on the left and
-            hit <b>▶ Connect &amp; operate</b>.
+        {terms.length === 0 && (
+          <div className="empty" style={{ margin: 'auto', maxWidth: 440, textAlign: 'center', lineHeight: 1.6 }}>
+            <div style={{ fontSize: 22 }}>⚡</div>
+            <strong>Run your office characters here</strong><br />
+            Hit <b>⚡ Spawn office</b> to open a live terminal for EVERY character in an
+            office at once (each with its own provider), or <b>▶ Connect &amp; operate</b> a
+            single character. Each opens as a tab above.
             <details style={{ marginTop: 12, fontSize: 11, color: 'var(--muted,#8b949e)', textAlign: 'left' }}>
               <summary style={{ cursor: 'pointer', textAlign: 'center' }}>What happens?</summary>
               <div style={{ marginTop: 6, lineHeight: 1.5 }}>
-                Opens a local Claude terminal against a scratch workspace wired to that
-                character's office-MCP. While the session runs, the character shows as
-                MCP-connected (online) in the office.
+                Each terminal runs that character's provider CLI against a scratch
+                workspace wired to its office-MCP. While a session runs, the character
+                shows as MCP-connected (online) in the office. Spawning a whole office is
+                blocked if any of its characters are already online.
               </div>
             </details>
           </div>
         )}
-        {term && (
+        {terms.length > 0 && (
           <>
-            <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              {ended
-                ? <span className="badge" style={{ background: '#3b0d0d', color: '#fecaca' }}>■ session ended — reopen</span>
-                // Drive the badge from the character's REAL online state (pollAgents
-                // keeps `agents` fresh), not merely "a PTY is open": until the office
-                // MCP actually registers the character, show "connecting…".
-                : agents.find((a) => a.id === term.agentId)?.online
-                  ? <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>
-                  : <span className="badge" style={{ background: '#3a2f0a', color: '#f2cc60' }}>◐ connecting…</span>}
-              <div style={{ fontSize: 12, fontWeight: 600 }}>{term.name}</div>
-              <div style={{ flex: 1 }} />
-              <button className="danger" title="End session"
-                onClick={() => { if (!window.confirm(`End the Operate session for "${term.name}"? The character goes offline.`)) return; setTerm(null) }}>■ Close</button>
-              <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted,#8b949e)', fontFamily: 'monospace' }}>
-                {term.cwd}{term.mcpUrl ? '  →  ' + term.mcpUrl : ''}
-              </div>
-            </div>
-            <div style={{ flex: 1, minHeight: 0, background: '#0d1117' }}>
-              <TerminalPane key={term.id} id={term.id} cwd={term.cwd} command="claude" keepShell={false} onExit={() => { setEnded(true); void pollAgents() }} />
-            </div>
-            {/* Instant-message composer — steers this office character LIVE over its
-                WS (POST /api/agents/{id}/steer), unlike the local-agent composer
+            <TerminalTabs
+              terms={terms}
+              activeId={activeTermId}
+              endedIds={endedIds}
+              onlineAgentIds={onlineAgentIds}
+              onSelect={setActiveTermId}
+              onClose={(id) => {
+                // Removing the term unmounts ONLY that pane -> ptyKill for its PTY.
+                setTerms((prev) => {
+                  const next = prev.filter((t) => t.id !== id)
+                  setActiveTermId((cur) => (cur === id ? (next[next.length - 1]?.id ?? '') : cur))
+                  return next
+                })
+                setEndedIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+              }}
+              onExit={(id) => { setEndedIds((prev) => new Set(prev).add(id)); void pollAgents() }}
+            />
+            {/* Instant-message composer — steers the ACTIVE tab's character LIVE over
+                its WS (POST /api/agents/{id}/steer), unlike the local-agent composer
                 which only queues a TODO task. */}
-            <form
-              onSubmit={(e) => { e.preventDefault(); void sendSteer() }}
-              style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', borderTop: '1px solid var(--border)' }}
-            >
-              <span title="Instant message — steers this character live (mid-turn if supported)" style={{ fontSize: 13 }}>⚡</span>
-              <input
-                value={steerText}
-                onChange={(e) => { setSteerText(e.target.value); if (steerMsg) setSteerMsg('') }}
-                placeholder={`Instant-message ${term.name.split(' · ')[0]} now…  (Enter to send)`}
-                aria-label="Instant message to this office character"
-                disabled={steerBusy}
-                className="fld-input"
-                style={{ flex: 1, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '7px 10px', fontSize: 13 }}
-              />
-              {steerMsg && <span style={{ fontSize: 11, color: steerMsg.startsWith('⚡') ? 'var(--green,#3fb950)' : '#f85149', whiteSpace: 'nowrap' }}>{steerMsg}</span>}
-              <button className="start" type="submit" disabled={steerBusy || !steerText.trim()}>{steerBusy ? '…' : '⚡ Send'}</button>
-            </form>
+            {(() => {
+              const active = terms.find((t) => t.id === activeTermId)
+              return (
+                <form
+                  onSubmit={(e) => { e.preventDefault(); void sendSteer() }}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '8px 12px', borderTop: '1px solid var(--border)' }}
+                >
+                  <span title="Instant message — steers this character live (mid-turn if supported)" style={{ fontSize: 13 }}>⚡</span>
+                  <input
+                    value={steerText}
+                    onChange={(e) => { setSteerText(e.target.value); if (steerMsg) setSteerMsg('') }}
+                    placeholder={active ? `Instant-message ${active.name.split(' · ')[0]} now…  (Enter to send)` : 'Select a tab to message…'}
+                    aria-label="Instant message to this office character"
+                    disabled={steerBusy || !active}
+                    className="fld-input"
+                    style={{ flex: 1, background: '#0d1117', color: 'var(--fg,#e6edf3)', border: '1px solid var(--border,#30363d)', borderRadius: 6, padding: '7px 10px', fontSize: 13 }}
+                  />
+                  {steerMsg && <span style={{ fontSize: 11, color: steerMsg.startsWith('⚡') ? 'var(--green,#3fb950)' : '#f85149', whiteSpace: 'nowrap' }}>{steerMsg}</span>}
+                  <button className="start" type="submit" disabled={steerBusy || !active || !steerText.trim()}>{steerBusy ? '…' : '⚡ Send'}</button>
+                </form>
+              )
+            })()}
           </>
         )}
       </div>
