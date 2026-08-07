@@ -359,6 +359,10 @@ export default function App(): JSX.Element {
     // nothing stops" bug.
     showToast(`Stopping ${running.length}…`)
     for (const a of running) await window.api.stopAgent(a.path)
+    // Also end any interactive Operate PTYs living in the Pixel Office view — they
+    // aren't AgentManager agents, so stopping loops alone left them running (the
+    // "clicked Stop all but claude is still active" bug).
+    window.dispatchEvent(new Event('office:stop-all'))
     refresh()
   }
 
@@ -619,7 +623,11 @@ export default function App(): JSX.Element {
         {/* Heavy views stay mounted once opened (see openedX above) and only hide via
             `display`, so a live Operate/Resume terminal survives tab switches. */}
         {openedMakeApp && <div style={{ display: showMakeApp ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><MakeAppView /></div>}
-        {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} /></div>}
+        {openedOffice && <div style={{ display: showOffice ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><PixelOfficeView visible={showOffice} onOpenAgentsTab={(officeSlug, agentSlug) => {
+          showView('agents')
+          const m = agents.find((a) => a.officeSlug === officeSlug && (a.officeAgentSlug === agentSlug || a.path.endsWith('/' + agentSlug)))
+          if (m) setSelected(m.path)
+        }} /></div>}
         {openedSessions && <div style={{ display: showSessions ? 'flex' : 'none', flexDirection: 'column', flex: 1, minHeight: 0 }}><SessionsBrowser visible={showSessions} /></div>}
         {/* Settings is lightweight (no PTY) — rendered directly when active, not kept mounted. */}
         {showSettings && <SettingsView showToast={showToast} />}

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events'
 import * as pty from 'node-pty'
+import { augmentPath } from './spawnEnv'
 
 /**
  * Spawns interactive PTYs (one per pane) so the renderer can run a real terminal
@@ -36,7 +37,7 @@ export class PtyManager extends EventEmitter {
         cols: opts.cols || 80,
         rows: opts.rows || 24,
         cwd: opts.cwd,
-        env: { ...process.env, TERM: 'xterm-256color' }
+        env: { ...process.env, TERM: 'xterm-256color', PATH: augmentPath(process.env.PATH) }
       })
       p.onData((data) => this.emit('data', { id, data }))
       p.onExit(({ exitCode }) => {

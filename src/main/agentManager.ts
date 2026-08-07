@@ -1,4 +1,5 @@
 import { spawn, execFile, ChildProcess } from 'child_process'
+import { augmentPath } from './spawnEnv'
 import { EventEmitter } from 'events'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync, rmSync } from 'fs'
 import { join, basename, dirname, resolve, sep, delimiter as pathDelimiter } from 'path'
@@ -617,7 +618,7 @@ export class AgentManager extends EventEmitter {
     // dies, so closing/crashing the app never leaves a stale loop (+ its provider
     // subprocess) running. disposeAll() still SIGKILLs them on a clean quit; this
     // is the backstop for force-quit / crash where disposeAll can't run.
-    const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, AUTODEV_EXIT_WITH_PARENT: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, AUTODEV_EXIT_WITH_PARENT: '1', PATH: augmentPath((baseEnv as Record<string, string>).PATH ?? process.env.PATH) }, stdio: ['ignore', 'pipe', 'pipe'] })
     this._procs.set(path, child)
     const onData = (buf: Buffer) => {
       const s = buf.toString('utf8')

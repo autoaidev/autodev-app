@@ -84,7 +84,14 @@ function createWindow(): void {
 
 // --- push manager events to the renderer ----------------------------------
 function broadcast(channel: string, payload: unknown): void {
-  mainWindow?.webContents.send(channel, payload)
+  // Guard the window AND its webContents against destruction: on quit (esp. while a
+  // PTY is still streaming, e.g. closing the app mid-spawn) a `pty:data` event can
+  // arrive after the webContents is gone → `send` throws "Object has been destroyed"
+  // as an uncaught main-process exception. Drop the frame instead.
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  const wc = mainWindow.webContents
+  if (!wc || wc.isDestroyed()) return
+  try { wc.send(channel, payload) } catch { /* window tearing down */ }
 }
 
 // --- pixel-office presence → local agent list ------------------------------

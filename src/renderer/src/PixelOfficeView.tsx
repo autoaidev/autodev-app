@@ -66,7 +66,7 @@ function isAuthError(msg: string): boolean {
   return /expired|reconnect|not connected|unauthenticated|\b401\b|\b419\b/i.test(msg)
 }
 
-export default function PixelOfficeView({ visible = true }: { visible?: boolean }): JSX.Element {
+export default function PixelOfficeView({ visible = true, onOpenAgentsTab }: { visible?: boolean; onOpenAgentsTab?: (officeSlug?: string, agentSlug?: string) => void }): JSX.Element {
   const [connected, setConnected] = useState(false)
   // Seeded from officeStatus().base (which resolves to the configured Settings
   // base when no session is live) in the mount effect below — no hardcoded host.
@@ -261,6 +261,25 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
     setTerms([]); setActiveTermId(''); setEndedIds(new Set()); setListErr('')
     setSpawnedOffices(new Set())
   }, [])
+
+  // Close ONLY the interactive Operate PTY panes (their PTYs SIGKILL on unmount) —
+  // without logging out of the office or touching tracked loop/log panes. The sidebar
+  // "Stop all" dispatches 'office:stop-all' here so stopping everything also ends
+  // operate sessions (fixes "clicked Stop all but claude is still active").
+  const closeOperatePtys = useCallback(() => {
+    setTerms((prev) => {
+      const removed = prev.filter((t) => t.kind === 'pty').map((t) => t.id)
+      if (!removed.length) return prev
+      const next = prev.filter((t) => t.kind !== 'pty')
+      setActiveTermId((cur) => (removed.includes(cur) ? (next[0]?.id ?? '') : cur))
+      return next
+    })
+  }, [])
+  useEffect(() => {
+    const h = (): void => closeOperatePtys()
+    window.addEventListener('office:stop-all', h)
+    return () => window.removeEventListener('office:stop-all', h)
+  }, [closeOperatePtys])
 
   // Focus an existing tab, or append+focus a new one, and clear any ended flag.
   const openTerm = useCallback((t: OpenTerm) => {
@@ -520,7 +539,11 @@ export default function PixelOfficeView({ visible = true }: { visible?: boolean 
                     <div key={rid} style={{ padding: '8px 12px 8px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span className="dot" style={{ background: a.online ? 'var(--green,#3fb950)' : '#484f58' }} title={a.online ? 'online' : 'offline'} />
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.name}</div>
+                        <div
+                          onClick={() => onOpenAgentsTab?.(a.officeSlug, a.slug)}
+                          title="Open this character in the Agents tab"
+                          style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: 'pointer' }}
+                        >{a.name}</div>
                         <select
                           value={providerOverride[rid] ?? ''}
                           onChange={(e) => setProviderOverride((p) => ({ ...p, [rid]: e.target.value }))}
