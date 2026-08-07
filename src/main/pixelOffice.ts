@@ -118,6 +118,22 @@ function officeMcpServer(key: string, url: string, fileBrowser = false): Record<
   return { type: 'stdio', command: 'npx', args: ['-y', 'autodev-cli', 'mcp-operate', '--key', key, '--url', url, ...fb] }
 }
 
+/** Normalize an office provider to a VALID `autodev start -p <id>` provider id.
+ *  The pixel-office stores the FAMILY name ("grok" / "claude"), but the CLI only
+ *  accepts the full id ("grok-tui" / "claude-cli") — passing the bare family gives
+ *  `Unknown provider "grok"` and the loop exits code=1 immediately. This is what
+ *  every spawned loop hit. Maps family → the -tui/-cli id; passes a full id through. */
+function toAutodevProvider(provider?: string): string {
+  const p = String(provider ?? '').toLowerCase()
+  const VALID = new Set(['claude-cli', 'claude-tui', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-cli', 'grok-tui'])
+  if (VALID.has(p)) return p
+  if (p.startsWith('grok')) return 'grok-tui'
+  if (p.startsWith('claude')) return 'claude-cli'
+  if (p.startsWith('opencode')) return 'opencode-cli'
+  if (p.startsWith('copilot')) return 'copilot-cli'
+  return 'claude-cli'
+}
+
 /** Map an office agent's provider (family name OR a -cli/-tui/-sdk variant) to
  *  the interactive CLI command to launch in its wired scratch cwd. Exact variants
  *  first, then family-prefix fallbacks; default 'claude'. */
@@ -911,7 +927,9 @@ export class PixelOfficeClient {
         const agentId = String(a.id)
         const agentSlug = String(a.slug || a.id)
         const name = String(a.name ?? agentSlug)
-        const provider = overrideMap.get(agentId) ?? String(a.provider ?? 'claude')
+        // Normalize the office provider ("grok"/"claude") to the CLI's -p id
+        // ("grok-tui"/"claude-cli") — the loop rejects the bare family name.
+        const provider = toAutodevProvider(overrideMap.get(agentId) ?? String(a.provider ?? 'claude'))
         // Sanitize each server-controlled path segment and confirm the scratch dir
         // stays inside the offices sandbox root before any write.
         const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug))
