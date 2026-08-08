@@ -1,30 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '@renderer/ui'
+import { useOfficeMessages, steer } from '@renderer/services/officeService'
+import type { ChatMessage } from '../office/officeTypes'
 import './ChatTab.css'
 
 /**
  * ChatTab (redesign screen 2f — the agent detail "Chat" sub-tab).
  *
  * The office-conversation surface for ONE agent: a live message stream + a
- * composer that steers the agent instantly. Backed by the real office API —
- * `officeMessages` (polled) reads the character's conversation and `officeSteer`
- * sends a live instant-message (NOT a queued TODO task, which is `sendAgentMessage`).
+ * composer that steers the agent instantly. Backed by services/officeService —
+ * `useOfficeMessages(officeSlug, ref, { active })` reads the character's
+ * conversation (ONE poll SHARED with OfficeView for the same character) and
+ * `steer(agentId, text)` sends a live instant-message (NOT a queued TODO task).
+ *
+ * The service now owns the poll cadence, the empty-poll / auth-expiry keep-alive
+ * guards, the "keep the last transcript on a transient error" behaviour, and the
+ * optimistic echo (steer() reconciles into every open conversation for that agent).
+ * ChatTab only resolves the office link off AgentState, gates the shared poll by
+ * on-screen visibility, and owns its own at-bottom-safe scroll + composer.
  *
  * Chat only exists for an office-bound agent; a plain local workspace shows a
  * clean empty state pointing at "Connect to office".
  */
-
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant' | 'a2a' | 'system'
-  author: string
-  text: string
-  kind: string
-  at: number
-}
-type ChatResult =
-  | { ok: true; agentId: string; agentName: string; messages: ChatMessage[] }
-  | { error: string }
 
 // Only the office-link fields we need off AgentState (fetched via agentState()).
 interface AgentLite {
@@ -38,7 +35,7 @@ interface AgentLite {
 
 const SLASH_COMMANDS = ['/task', '/pause', '/context', '/switch grok→claude']
 
-function fmtTime(ms: number): string {
+function fmtTime(ms: string | number | undefined): string {
   if (!ms) return ''
   const d = new Date(ms)
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -53,24 +50,20 @@ function initials(name: string): string {
 
 export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const [agent, setAgent] = useState<AgentLite | null>(null)
-  const [msgs, setMsgs] = useState<ChatMessage[]>([])
-  const [resolvedId, setResolvedId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState('')
 
   const rootRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const atBottomRef = useRef(true)
   const taRef = useRef<HTMLTextAreaElement>(null)
-  const loadedKeyRef = useRef('')
 
   // Is this chat actually on-screen? The parent (AgentDetail) keeps the Chat sub-tab
-  // MOUNTED but display:none when another sub-tab/agent is selected, so we self-detect
+  // MOUNTED but display:none when another sub-tab is selected, so we self-detect
   // visibility (offsetParent goes null under a display:none ancestor; IO fires on the
-  // toggle) and pause the 4s poll while hidden — no reason to fetch a conversation
-  // nobody is looking at.
+  // toggle) and pass it to the shared poll as `active` — the service keeps the last
+  // transcript and stops polling on OUR behalf when nobody visible is watching.
   const [onScreen, setOnScreen] = useState(true)
   useEffect(() => {
     const el = rootRef.current
@@ -83,10 +76,13 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     return () => { io.disconnect(); document.removeEventListener('visibilitychange', compute) }
   }, [])
 
-  // Clear the half-typed message when the agent changes — ChatTab is kept mounted
-  // (not keyed) for keep-alive, so without this a draft would carry to the next
-  // selected agent and be sent to the wrong one.
-  useEffect(() => { setDraft('') }, [agentPath])
+  // Clear the half-typed message (and any stale send error) when the agent changes.
+  // AgentDetail keys ChatTab by agent.path so it remounts fresh, but this stays as
+  // defense in depth so a draft can never carry to the wrong agent.
+  useEffect(() => {
+    setDraft('')
+    setSendError('')
+  }, [agentPath])
 
   // Resolve the office link off AgentState, then keep it fresh on updates.
   useEffect(() => {
@@ -106,6 +102,13 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const ref = agent?.officeAgentId || agent?.officeAgentSlug || ''
   const officeSlug = agent?.officeSlug || ''
 
+  // The shared conversation stream — ONE poll per (office, character), SHARED with
+  // OfficeView. `active: onScreen` pauses OUR contribution while hidden (the service
+  // keeps the last transcript). An empty `ref` yields an inert empty snapshot.
+  const { messages, loading, error, resolvedAgentId } = useOfficeMessages(officeSlug, ref, {
+    active: onScreen
+  })
+
   const onScroll = (): void => {
     const el = feedRef.current
     if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -115,79 +118,39 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     if (el) el.scrollTop = el.scrollHeight
   }
 
-  // Poll the character's conversation while an office link exists.
-  useEffect(() => {
-    if (agent === null) return // still resolving AgentState
-    if (!ref) {
-      setLoading(false)
-      return
-    }
-    let alive = true
-    const load = async (initial: boolean): Promise<void> => {
-      if (initial) setLoading(true)
-      const r = (await window.api.officeMessages(officeSlug, ref)) as ChatResult
-      if (!alive) return
-      if ('error' in r) {
-        if (initial) setError(r.error) // keep prior messages on a transient poll error
-      } else {
-        setError('')
-        setResolvedId(r.agentId)
-        setMsgs(r.messages)
-      }
-      if (initial) setLoading(false)
-    }
-    // Fetch with the spinner only the first time this office link is shown; a
-    // visibility flip (hidden→shown) does a silent refresh instead of re-flashing
-    // "Loading…". Skip fetching entirely when the tab is going hidden.
-    const key = officeSlug + '|' + ref
-    const firstForLink = loadedKeyRef.current !== key
-    loadedKeyRef.current = key
-    if (firstForLink || onScreen) void load(firstForLink)
-    if (!onScreen) return () => { alive = false } // hidden: keep the last transcript, no poll
-    const timer = setInterval(() => void load(false), 4000)
-    return () => {
-      alive = false
-      clearInterval(timer)
-    }
-    // Depend on the stable primitives that actually drive the fetch — NOT the
-    // `agent` object identity. Every onAgentUpdated push is a new object; keying
-    // the effect off it would re-run the fetch and flash "Loading…" on each poll.
-    // `onScreen` pauses/resumes the 4s poll as the sub-tab is hidden/shown.
-  }, [ref, officeSlug, agent !== null, onScreen])
-
   // Auto-scroll to newest only when the reader is pinned to the bottom.
   useEffect(() => {
     if (atBottomRef.current) scrollToBottom()
-  }, [msgs.length])
+  }, [messages.length])
 
   const send = useCallback(async (): Promise<void> => {
     const t = draft.trim()
     if (!t || sending) return
-    // Never let a stale resolvedId steer the wrong agent: trust resolvedId only when it
-    // matches THIS agent's officeAgentId (or when the agent has no id and was resolved by
-    // slug). Otherwise fall back to the current agent's officeAgentId. (ChatTab is also
-    // keyed per agent by the parent, so resolvedId resets on switch — this is defense in depth.)
+    // Never let a stale resolved id steer the wrong agent: trust the service's
+    // resolvedAgentId only when it matches THIS agent's officeAgentId (or when the
+    // agent has no id and was resolved by slug). Otherwise fall back to the current
+    // agent's officeAgentId. (ChatTab is also keyed per agent by the parent, so the
+    // resolved id resets on switch — this is defense in depth.)
     const targetId =
-      resolvedId && (!agent?.officeAgentId || resolvedId === agent.officeAgentId)
-        ? resolvedId
+      resolvedAgentId && (!agent?.officeAgentId || resolvedAgentId === agent.officeAgentId)
+        ? resolvedAgentId
         : agent?.officeAgentId
     if (!targetId) return // link not resolved yet
     setSending(true)
-    const r = (await window.api.officeSteer(targetId, t)) as { ok?: boolean; error?: string }
+    setSendError('')
+    const r = await steer(targetId, t)
     setSending(false)
-    if (r?.error) {
-      setError(r.error)
+    if ('error' in r) {
+      setSendError(r.error)
       return
     }
+    // Optimistic echo + reconcile is owned by the service: steer() pushes a `you`
+    // message into every open conversation for this agent, and the next shared poll
+    // reconciles it against the server record — no local message list to maintain.
     setDraft('')
     atBottomRef.current = true
-    // Optimistic echo; the next poll reconciles against the server record.
-    setMsgs((m) => [
-      ...m,
-      { id: `local-${Date.now()}`, role: 'user', author: 'You', text: t, kind: 'steer', at: Date.now() }
-    ])
     taRef.current?.focus()
-  }, [draft, sending, resolvedId, agent])
+  }, [draft, sending, resolvedAgentId, agent])
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,6 +180,10 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     )
   }
 
+  // The composer error is a send failure; the feed error is the service's initial
+  // load error. Show whichever is present (both are transient, at-bottom-safe).
+  const shownError = sendError || error
+
   return (
     <div className="dv-chat" ref={rootRef}>
       <div
@@ -228,15 +195,15 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
         aria-live="polite"
       >
         {(loading || agent === null) && <div className="dv-chat__status">Loading conversation…</div>}
-        {!loading && agent !== null && error && (
-          <div className="dv-chat__status is-err">{error}</div>
+        {!loading && agent !== null && shownError && (
+          <div className="dv-chat__status is-err">{shownError}</div>
         )}
-        {!loading && agent !== null && !error && msgs.length === 0 && (
+        {!loading && agent !== null && !shownError && messages.length === 0 && (
           <div className="dv-chat__status">
             No messages yet. Say hello below — it steers the agent live.
           </div>
         )}
-        {msgs.map((m) => {
+        {messages.map((m: ChatMessage) => {
           if (m.role === 'system') {
             return (
               <div key={m.id} className="dv-chat__marker">
