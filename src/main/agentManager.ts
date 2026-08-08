@@ -28,11 +28,22 @@ export interface McpServerStatus {
 }
 
 /** True if a bare runner (no path separators) resolves on PATH, or an explicit
- *  path exists. Synchronous PATH scan — no subprocess, no side effects. */
+ *  path exists. Synchronous PATH scan — no subprocess, no side effects.
+ *
+ *  Two adjustments so the check reflects what AGENTS actually see, not the app's
+ *  bare GUI-launch PATH:
+ *   - `autodev`: the app BUNDLES the CLI (resources/autodev-cli) and runs every
+ *     loop through it, so the pixel-office MCP runner is always available even
+ *     when `autodev` was never `npm i -g`'d onto the system PATH. A packaged app
+ *     launched from a desktop icon has a minimal PATH and would otherwise report
+ *     the office MCP as "missing runner" while it demonstrably works.
+ *   - scan the AUGMENTED PATH (adds ~/.grok/bin, ~/.local/bin) — the same PATH the
+ *     loop is spawned with — so `grok` and user-local installs resolve too. */
 function runnerOnPath(cmd: string): boolean {
   if (!cmd) return false
   if (cmd.includes('/') || cmd.includes('\\')) { try { return existsSync(cmd) } catch { return false } }
-  const dirs = (process.env.PATH || '').split(pathDelimiter).filter(Boolean)
+  if (cmd === 'autodev' && resolveCliJs()) return true
+  const dirs = augmentPath(process.env.PATH).split(pathDelimiter).filter(Boolean)
   const exts = process.platform === 'win32' ? (process.env.PATHEXT || '.EXE;.CMD;.BAT').split(';') : ['']
   for (const d of dirs) {
     for (const ext of exts) {
