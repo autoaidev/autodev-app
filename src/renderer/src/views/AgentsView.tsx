@@ -3,6 +3,7 @@ import { AppShell, ContextMenu, ContextMenuEntry } from '@renderer/ui'
 import { AgentRail, AgentAction, BulkAction } from '@renderer/components/agent/AgentRail'
 import { AgentDetail, DetailTab } from '@renderer/components/agent/AgentDetail'
 import { Inspector } from '@renderer/components/agent/Inspector'
+import { useAgentTasks } from '@renderer/components/agent/useAgentTasks'
 import { AgentState, ATTENTION_STATES } from '@renderer/services/model'
 import { useAgents, getAgents, actions } from '@renderer/services/agentStore'
 import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
@@ -95,6 +96,26 @@ export function AgentsView(): React.JSX.Element {
   const displayAgent = current ?? lastAgentRef.current
   const running = agents.filter((a) => a.running).length
   const needsYou = agents.filter((a) => ATTENTION_STATES.has(a.activity)).length
+
+  // ONE reconciled task truth for the shown agent, fed to BOTH the AgentDetail
+  // header ("N/M done") and the Inspector TODO.md panel ("N / M") so the two
+  // counters can never disagree (R8).
+  const todo = useAgentTasks(displayAgent)
+
+  // The shell's "N need you" pill (top bar) is clickable — bring the first agent
+  // that needs attention into focus so the tally isn't a dead-end (R5).
+  React.useEffect(() => {
+    const onFocusAttention = (): void => {
+      const hit = getAgents().find((a) => ATTENTION_STATES.has(a.activity))
+      if (hit) {
+        setSelected(hit.path)
+        setDetailTab('activity')
+      }
+      navTo('agents')
+    }
+    window.addEventListener('redesign:focus-attention', onFocusAttention)
+    return () => window.removeEventListener('redesign:focus-attention', onFocusAttention)
+  }, [])
 
   /* ------------------------------------------------------------- lifecycle */
 
@@ -223,6 +244,7 @@ export function AgentsView(): React.JSX.Element {
             <AgentDetail
               agent={displayAgent}
               livePaths={agents.map((a) => a.path)}
+              taskCount={{ done: todo.done, total: todo.total }}
               tab={detailTab}
               onTabChange={setDetailTab}
               onStart={() => void actions.start(displayAgent.path)}
@@ -254,6 +276,7 @@ export function AgentsView(): React.JSX.Element {
         {current && (
           <Inspector
             agent={current}
+            todo={todo}
             onEditSetup={() => setConfigPath(current.path)}
             onEditMcp={() => setMcpPath(current.path)}
             onWatch={() => setDetailTab('terminal')}

@@ -3,10 +3,13 @@ import { Icon, StatusDot } from '@renderer/ui'
 import {
   AgentState,
   STATE_LABEL,
+  agentHeadline,
+  agentSlugId,
   anyRunning,
   dotStatus,
   fleetOffice,
   isAttention,
+  stripTaskHash,
   tasksFraction,
   tasksLabel,
   washTone
@@ -259,7 +262,9 @@ function FleetRow({
     >
       <Checkbox checked={selected} onChange={onToggleSelect} label={`Select ${agent.name}`} />
 
-      {/* AGENT: name + dim mono meta (provider · id) */}
+      {/* AGENT: canonical human headline (agentHeadline) + dim mono slug-hash meta,
+          applied identically here and in the Agents rail so the list never mixes
+          human names with slug-hash folder ids. */}
       <div style={{ minWidth: 0 }}>
         <div
           style={{
@@ -271,23 +276,22 @@ function FleetRow({
             overflow: 'hidden',
             textOverflow: 'ellipsis'
           }}
+          title={agent.name}
         >
-          {agent.name}
+          {agentHeadline(agent)}
         </div>
-        {agent.provider && (
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--fs-micro)',
-              color: 'var(--tx-ghost)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}
-          >
-            {agent.provider}
-          </div>
-        )}
+        <div
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--fs-micro)',
+            color: 'var(--tx-ghost)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {agent.provider ? `${agent.provider} · ${agentSlugId(agent)}` : agentSlugId(agent)}
+        </div>
       </div>
 
       {/* OFFICE — same subfolder/slug derivation as the Agents rail; only "—"
@@ -320,9 +324,13 @@ function FleetRow({
           textOverflow: 'ellipsis',
           minWidth: 0
         }}
-        title={agent.currentTask || undefined}
+        title={agent.currentTask ? stripTaskHash(agent.currentTask) : undefined}
       >
-        {agent.currentTask || (agent.tasks.total === 0 ? 'TODO empty' : 'no active task')}
+        {agent.currentTask
+          ? stripTaskHash(agent.currentTask)
+          : agent.tasks.total === 0
+            ? 'TODO empty'
+            : 'no active task'}
       </span>
 
       {/* TASKS */}

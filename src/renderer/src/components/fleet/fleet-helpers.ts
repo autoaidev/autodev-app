@@ -24,7 +24,10 @@ export {
   officeLabel,
   tasksLabel,
   tasksFraction,
-  formatElapsed
+  formatElapsed,
+  stripTaskHash,
+  agentHeadline,
+  agentSlugId
 } from '@renderer/services/model'
 
 /* --------------------------- fleet-only derivations ------------------------- */

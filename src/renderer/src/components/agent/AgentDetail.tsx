@@ -1,6 +1,15 @@
 import React from 'react'
 import { SegmentedTabs, Button, Pill, StatusDot, Icon } from '@renderer/ui'
-import { AgentState, providerShort, agentIdHash, pillVariantFor, stateLabelForAgent } from '@renderer/services/model'
+import {
+  AgentState,
+  providerShort,
+  agentIdHash,
+  pillVariantFor,
+  stateLabelForAgent,
+  isAttention,
+  attentionTitle,
+  attentionSummary
+} from '@renderer/services/model'
 import { useOfficeConnection } from '@renderer/services/officeService'
 import { navTo } from '@renderer/nav'
 import { ActivityStream } from './ActivityStream'
@@ -91,10 +100,14 @@ function PathChip({ agent, onOpen }: { agent: AgentState; onOpen: () => void }):
 }
 
 function StatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
+  // An attention state gets its demanding label ("INTERRUPTED" / "NEEDS AUTH") in
+  // the state colour, never the calm "STOPPED" a retrying/interrupted run used to
+  // show — so the header can't read complete while the agent needs you (R4).
+  const attn = attentionTitle(agent)
   return (
     <Pill variant={pillVariantFor(agent.activity)} mono selected>
       <StatusDot status={agent.activity} size={6} />
-      {stateLabelForAgent(agent)}
+      {attn ?? stateLabelForAgent(agent)}
     </Pill>
   )
 }
@@ -110,6 +123,12 @@ export interface AgentDetailProps {
    * down a live PTY.
    */
   livePaths?: string[]
+  /**
+   * The reconciled "done / total" from useAgentTasks — the SAME value the Inspector
+   * TODO.md panel shows, so the two counters can never disagree (R8). Falls back to
+   * `agent.tasks` when not provided (standalone use).
+   */
+  taskCount?: { done: number; total: number }
   tab: DetailTab
   onTabChange: (t: DetailTab) => void
   onStart: () => void
@@ -123,6 +142,7 @@ export interface AgentDetailProps {
 export function AgentDetail({
   agent,
   livePaths,
+  taskCount,
   tab,
   onTabChange,
   onStart,
@@ -135,6 +155,11 @@ export function AgentDetail({
   const [follow, setFollow] = React.useState(true)
   const [raw, setRaw] = React.useState(false)
   const [draft, setDraft] = React.useState('')
+  // A per-agent dismiss for the (non-blocking) office-disconnected notice (R7).
+  const [officeNoticeDismissed, setOfficeNoticeDismissed] = React.useState<string | null>(null)
+
+  const count = taskCount ?? { done: agent.tasks.done, total: agent.tasks.total }
+  const attnSummary = isAttention(agent) ? attentionSummary(agent) : null
 
   // Reconcile the office indicator with the ONE live session truth (R4 + R6): the
   // header must never claim "office connected" while the office session is expired
@@ -213,7 +238,7 @@ export function AgentDetail({
           <StatusPill agent={agent} />
           {/* TODO(redesign): AgentState has no task-elapsed timestamp — showing task progress instead of "14m in task". */}
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
-            {agent.tasks.done}/{agent.tasks.total} done
+            {count.done}/{count.total} done
           </span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             {agent.running ? (
@@ -243,17 +268,34 @@ export function AgentDetail({
           </span>
           {officeLinked &&
             (officeExpired ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <StatusDot status="needs-you" size={5} />
-                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)' }}>office session expired</span>
-                <button
-                  type="button"
-                  onClick={() => navTo('office')}
-                  style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--fs-tiny)' }}
-                >
-                  Reconnect
-                </button>
-              </span>
+              // Non-blocking (R7): the local loop keeps running while the Pixel Office
+              // link is down, so this is a dim, dismissible note — not an orange error.
+              // Reconnect only matters for watching/steering with teammates.
+              officeNoticeDismissed === agent.path ? null : (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <StatusDot status="idle" size={5} />
+                  <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
+                    Pixel Office disconnected — local agent still runs
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => navTo('office')}
+                    title="Reconnect to watch and steer with teammates"
+                    style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--fs-tiny)' }}
+                  >
+                    Reconnect
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOfficeNoticeDismissed(agent.path)}
+                    aria-label="Dismiss office notice"
+                    title="Dismiss"
+                    style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-ghost)', fontSize: 'var(--fs-tiny)', lineHeight: 1 }}
+                  >
+                    ✕
+                  </button>
+                </span>
+              )
             ) : agent.online ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status="running" size={5} />
@@ -267,6 +309,48 @@ export function AgentDetail({
             ))}
         </div>
       </div>
+
+      {/* Attention banner (R5): when the run failed / needs the operator, say WHAT
+          went wrong right in the main pane — with the actions to resolve it — instead
+          of leaving the idle "waiting for output" empty state as a dead-end. */}
+      {attnSummary && (
+        <div
+          role="alert"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            padding: '11px 18px',
+            background: 'var(--st-needsyou-wash)',
+            borderBottom: '1px solid var(--st-needsyou-bd)'
+          }}
+        >
+          <StatusDot status="needs-you" size={6} />
+          <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: 'var(--st-needsyou)', fontWeight: 600 }}>
+            {attnSummary}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Button size="sm" variant="primary" onClick={onRestart}>
+              <Icon name="restart" size={11} color="var(--tx-onaccent)" /> Retry
+            </Button>
+            {!agent.running && (
+              <Button size="sm" onClick={onStart}>
+                <Icon name="play" size={10} /> Start
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                onTabChange('activity')
+                setRaw(true)
+              }}
+            >
+              View log
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* sub-tab bar */}
       <div style={{ padding: '0 18px', borderBottom: '1px solid var(--bd-2)' }}>

@@ -98,9 +98,23 @@ export function RunPill({
       {needsYou != null && needsYou > 0 && (
         <>
           <span style={{ color: 'var(--st-idle)' }}>·</span>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-desc)', fontWeight: 500, color: 'var(--st-needsyou)' }}>
+          {/* Clickable (R5): jump to the first agent that needs attention so the
+              tally isn't a dead-end. AgentsView listens for this and selects it. */}
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('redesign:focus-attention'))}
+            title="Show the agents that need you"
+            style={{
+              all: 'unset',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-desc)',
+              fontWeight: 500,
+              color: 'var(--st-needsyou)'
+            }}
+          >
             {needsYou} need you
-          </span>
+          </button>
         </>
       )}
     </div>

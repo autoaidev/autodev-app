@@ -1,7 +1,9 @@
 import React from 'react'
 import { Button, StatusDot, Pill } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
+import { isAttention, attentionSummary } from '@renderer/services/model'
 import { useOfficeConnection } from '@renderer/services/officeService'
+import type { TodoItem, AgentTasks } from './useAgentTasks'
 
 /**
  * Inspector — the fixed 308px right panel of the Agent-detail screen (2a). Three
@@ -22,22 +24,6 @@ const MODEL_KEY: Record<string, string> = {
 }
 function modelKeyFor(provider?: string): string {
   return MODEL_KEY[(provider || '').split('-')[0]] ?? 'claudeModel'
-}
-
-interface TodoItem {
-  state: 'done' | 'active' | 'pending'
-  text: string
-}
-
-function parseTodo(raw: string): TodoItem[] {
-  const out: TodoItem[] = []
-  for (const line of raw.split('\n')) {
-    const m = line.match(/^\s*(?:[-*]\s*)?\[([ xX~])\]\s+(.*\S)\s*$/)
-    if (!m) continue
-    const flag = m[1].toLowerCase()
-    out.push({ state: flag === 'x' ? 'done' : flag === '~' ? 'active' : 'pending', text: m[2] })
-  }
-  return out
 }
 
 interface SessionMeta {
@@ -119,46 +105,20 @@ const TODO_GLYPH: Record<TodoItem['state'], { glyph: string; color: string }> = 
   done: { glyph: '✓', color: 'var(--st-running)' }
 }
 
-function TodoSection({ agent }: { agent: AgentState }): React.JSX.Element {
-  const [items, setItems] = React.useState<TodoItem[] | null>(null)
+function TodoSection({ agent, todo }: { agent: AgentState; todo: AgentTasks }): React.JSX.Element {
   // Optimistic local check overlay: there is no API to toggle a single TODO item
   // (sendAgentMessage only APPENDS). Clicks toggle the visual only.
   // TODO(redesign): expose a per-item TODO toggle in the CLI to persist this.
   const [localDone, setLocalDone] = React.useState<Set<number>>(new Set())
+  React.useEffect(() => setLocalDone(new Set()), [agent.path])
 
-  React.useEffect(() => {
-    setItems(null)
-    setLocalDone(new Set())
-    let live = true
-    window.api
-      .runCli(['status', agent.path, '--all'])
-      .then((r: { stdout?: string; stderr?: string }) => {
-        if (!live) return
-        setItems(parseTodo((r.stdout || r.stderr || '').replace(/\x1b\[[0-9;]*m/g, '')))
-      })
-      .catch(() => live && setItems([]))
-    return () => {
-      live = false
-    }
-  }, [agent.path])
-
+  // The header count and the body derive from ONE reconciled truth (useAgentTasks),
+  // shared with the AgentDetail header so the two counters can never disagree.
+  const { items, loaded, done, total, ratio, remaining, inProgress, emptyDone } = todo
   const list = items ?? []
-  const loaded = items !== null
-  // The header count and the body MUST derive from one reconciled truth so the
-  // panel can never show a nonzero "remaining" above a "No tasks" body. The parsed
-  // TODO.md `list` is the source of truth for what is actionable; `agent.tasks` is
-  // the summary. When the parse yields tasks, they agree (the pending items are the
-  // remaining count). When the parse is EMPTY we reconcile:
-  //   • agent running with remaining work → a task is in progress but tracked
-  //     outside TODO.md; surface it as an in-progress row (header keeps done/total).
-  //   • otherwise → collapse total→done so remaining reads 0, and say either
-  //     "All tasks complete" (done>0) or "No tasks in TODO.md" (nothing ever queued).
-  const inProgress = loaded && list.length === 0 && agent.running && agent.tasks.remaining > 0
-  const emptyDone = loaded && list.length === 0 && !inProgress
-  const done = agent.tasks.done
-  const total = emptyDone ? done : agent.tasks.total || list.length
-  const ratio = total > 0 ? done / total : 0
-  const remaining = agent.tasks.remaining
+  // An interrupted / retry-exhausted / needs-you run must never read as calmly
+  // "All tasks complete" — surface the attention reason instead (R4).
+  const attention = isAttention(agent) ? attentionSummary(agent) : null
 
   return (
     <div style={{ padding: '13px 15px 11px', borderBottom: '1px solid var(--bd-2)' }}>
@@ -174,10 +134,20 @@ function TodoSection({ agent }: { agent: AgentState }): React.JSX.Element {
       >
         TODO.md
       </SectionLabel>
-      <ProgressBar ratio={ratio} />
+      <ProgressBar ratio={ratio} tone={attention ? 'idle' : 'accent'} />
       <div style={{ marginTop: 10 }}>
-        {items === null && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
-        {inProgress && (
+        {!loaded && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
+        {loaded && attention && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '5px 6px' }}>
+            <span style={{ flex: 'none', width: 11, color: 'var(--st-needsyou)', fontSize: 'var(--fs-mono-code)', lineHeight: '17px' }}>
+              !
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', lineHeight: 1.4, color: 'var(--st-needsyou)', fontWeight: 600 }}>
+              {attention}
+            </span>
+          </div>
+        )}
+        {!attention && inProgress && (
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '5px 6px' }}>
             <span style={{ flex: 'none', width: 11, color: 'var(--accent)', fontSize: 'var(--fs-mono-code)', lineHeight: '17px' }}>
               ◑
@@ -187,7 +157,7 @@ function TodoSection({ agent }: { agent: AgentState }): React.JSX.Element {
             </span>
           </div>
         )}
-        {emptyDone && (
+        {!attention && emptyDone && (
           <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
             {done > 0 ? 'All tasks complete.' : 'No tasks in TODO.md.'}
           </div>
@@ -340,7 +310,9 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
   const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
   const officeExpired = officeLinked && officeConn.ready && !!officeConn.authError
   const office: React.ReactNode = officeExpired ? (
-    <span style={{ color: 'var(--st-needsyou)' }}>session expired</span>
+    // Non-blocking (R7): the local loop keeps running; this is a dim status, not an
+    // alarm. Reconnect only matters for watching/steering with teammates.
+    <span style={{ color: 'var(--tx-dim)' }}>disconnected · local runs</span>
   ) : agent.officeSlug ? (
     agent.online ? agent.officeSlug : `${agent.officeSlug} · offline`
   ) : agent.wsUrl || agent.officeAgentSlug ? (
@@ -380,13 +352,15 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
 
 export interface InspectorProps {
   agent: AgentState
+  /** the ONE reconciled task truth (shared with the AgentDetail header) */
+  todo: AgentTasks
   onEditSetup: () => void
   onEditMcp: () => void
   /** jump the center pane to the Terminal tab (Watch live) */
   onWatch: () => void
 }
 
-export function Inspector({ agent, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
+export function Inspector({ agent, todo, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
   return (
     <div
       style={{
@@ -400,7 +374,7 @@ export function Inspector({ agent, onEditSetup, onEditMcp, onWatch }: InspectorP
         borderLeft: '1px solid var(--bd-nav)'
       }}
     >
-      <TodoSection agent={agent} />
+      <TodoSection agent={agent} todo={todo} />
       <SessionSection agent={agent} onWatch={onWatch} />
       <SetupSection agent={agent} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />
     </div>

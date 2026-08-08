@@ -322,6 +322,22 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         loading={office.loading}
         error={office.authError}
         basePlaceholder={office.baseUrlPlaceholder}
+        footer={
+          <p style={{ margin: 0, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
+            New here?{' '}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault()
+                if (base.trim()) void window.api.openExternal(base.trim())
+              }}
+              style={{ color: 'var(--accent)' }}
+            >
+              Open the office
+            </a>{' '}
+            to create an account.
+          </p>
+        }
       />
     )
   }

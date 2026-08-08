@@ -1,6 +1,6 @@
 import React from 'react'
 import { StatusDot, DotStatus, Icon } from '@renderer/ui'
-import { rowMeta, isDim } from '@renderer/services/model'
+import { rowMeta, isDim, agentHeadline } from '@renderer/services/model'
 import type { AgentState, MetaTone } from '@renderer/services/model'
 
 /**
@@ -139,7 +139,7 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
           }}
           title={agent.path}
         >
-          {agent.name}
+          {agentHeadline(agent)}
         </div>
         {meta.text && (
           <div

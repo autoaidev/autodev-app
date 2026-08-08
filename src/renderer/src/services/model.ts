@@ -209,7 +209,7 @@ export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: bo
 
 /** Strip a leading "[7ef6ecb4…] " id token from a task title so the row shows
  *  only human text (the id already lives in the mono session-id line/header). */
-function stripTaskHash(task: string): string {
+export function stripTaskHash(task: string): string {
   return task.replace(/^\s*\[[0-9a-f]{6,}\W*\]\s*/i, '').trim() || task
 }
 
@@ -224,6 +224,75 @@ export function providerFamily(provider?: string): string {
 /** Short provider label, e.g. "claude-tui" → "claude" (falls back to "local"). */
 export function providerShort(p?: string): string {
   return (p || '').split('-')[0] || 'local'
+}
+
+/**
+ * A single canonical, human-readable headline for an agent, used by BOTH the Fleet
+ * table and the Agents rail so the two never mix identity schemes (a human
+ * "Casting Director" sitting next to a slug-hash "art-director-9f68d" or a bare
+ * lowercase "director"). Names that are already human — they contain a space or an
+ * uppercase letter — are kept verbatim; a bare slug / slug-hash is stripped of its
+ * trailing id hash and Title-Cased. The raw slug-hash still lives on the dim mono
+ * meta line (agentSlugId), never as the headline.
+ */
+export function agentHeadline(a: AgentState): string {
+  const stripped = a.name.replace(/[-_](?=[0-9a-f]*\d)[0-9a-f]{4,12}$/i, '').trim()
+  const src = (a.officeAgentSlug || stripped || a.name || '').trim()
+  if (!src) return a.name
+  if (/\s/.test(src) || /[A-Z]/.test(src)) return src
+  return officeLabel(src)
+}
+
+/** The raw slug-hash folder id (basename of the workspace path) — the machine id
+ *  shown as dim mono meta beneath the human headline, never inline in a sentence. */
+export function agentSlugId(a: AgentState): string {
+  return a.path.replace(/\/+$/, '').split('/').filter(Boolean).pop() || a.name
+}
+
+/**
+ * Short attention badge label for the agent-detail header pill. It reads as a
+ * demand for the operator ("INTERRUPTED" / "NEEDS AUTH"), never a calm "STOPPED" —
+ * so a retrying/interrupted agent can't look complete. null when the agent isn't
+ * in an attention state (the caller falls back to the normal state label).
+ */
+export function attentionTitle(a: AgentState): string | null {
+  switch (a.activity) {
+    case 'needs-auth':
+      return 'NEEDS AUTH'
+    case 'rate-limited':
+      return 'RATE LIMIT'
+    case 'stalled':
+      return 'STALLED'
+    case 'crashed':
+      return a.exitCode === 130 || a.exitCode === 143 ? 'INTERRUPTED' : 'TIMED OUT'
+    default:
+      return null
+  }
+}
+
+/**
+ * A full-sentence attention summary for the main pane / inspector — WHAT went wrong
+ * (and, implicitly, that it needs the operator). null when not in an attention
+ * state, so callers can fall back to "All tasks complete." only when it's true.
+ */
+export function attentionSummary(a: AgentState): string | null {
+  const who = a.name
+  switch (a.activity) {
+    case 'needs-auth':
+      return `${who} needs you to re-authenticate before it can continue.`
+    case 'rate-limited':
+      return a.error || `${who} is rate-limited and waiting to retry.`
+    case 'stalled':
+      return a.error ? `${who} stalled: ${a.error}` : `${who} stalled with no output.`
+    case 'crashed': {
+      const interrupted = a.exitCode === 130 || a.exitCode === 143
+      const base = interrupted ? `${who} was interrupted` : `${who} ${describeExit(a.exitCode) || 'stopped unexpectedly'}`
+      const retry = a.tasks.total > 0 ? ' — retries exhausted (2/2)' : ''
+      return base + retry + '.'
+    }
+    default:
+      return null
+  }
 }
 
 /** The trailing hash of a workspace basename, e.g. balance-analyst-d271e → d271e. */
