@@ -1,0 +1,128 @@
+/*
+ * TerminalTab (redesign 2f — Terminal sub-tab). An interactive PTY pane for one
+ * agent's workspace, wrapped in the mockup's tmux-info-bar chrome. Tokens only.
+ */
+.dv-term {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-app);
+  font-family: var(--font-sans);
+}
+
+/* ---- tmux info bar ---- */
+.dv-term__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--bd-nav);
+  background: var(--bg-topbar);
+  white-space: nowrap;
+}
+.dv-term__bar-glyph { color: var(--tx-4); display: inline-flex; }
+.dv-term__bar-name {
+  font-family: var(--font-mono);
+  font-size: var(--fs-mono-code);
+  color: var(--tx-3);
+}
+.dv-term__bar-sep { color: var(--st-idle); }
+.dv-term__bar-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  color: var(--tx-dim);
+}
+.dv-term__chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  letter-spacing: var(--ls-state);
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid transparent;
+}
+.dv-term__chip.is-readonly {
+  color: var(--st-needsyou);
+  background: var(--st-needsyou-soft);
+  border-color: var(--st-needsyou-bd);
+}
+.dv-term__chip.is-live {
+  color: var(--st-running);
+  background: var(--st-running-soft);
+  border-color: var(--st-running-bd);
+}
+
+/* ---- terminal body ---- */
+.dv-term__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-app);
+}
+.dv-term__body > * { position: absolute; inset: 0; }
+
+/* read-only placeholder shown before Take over (no true read-only tap into a
+   running loop's tmux exists via the PTY api — see the TODO in the component) */
+.dv-term__ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.dv-term__ph-glyph { color: var(--tx-dim); }
+.dv-term__ph-title {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-selected);
+  color: var(--tx-2);
+}
+.dv-term__ph-body {
+  max-width: 420px;
+  font-size: var(--fs-meta);
+  line-height: 1.55;
+  color: var(--tx-4);
+}
+
+/* ---- footer dock ---- */
+.dv-term__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--bd-nav);
+  background: var(--bg-topbar);
+}
+.dv-term__takeover {
+  flex: 1;
+  text-align: left;
+  padding: 7px 12px;
+  border-radius: var(--r-input);
+  background: var(--bg-input);
+  border: 1px solid var(--bd-1);
+  color: var(--tx-faint);
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  cursor: text;
+}
+.dv-term__takeover:hover { border-color: var(--bd-accent); }
+.dv-term__foot-hint {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  color: var(--tx-dim);
+}
+.dv-term__foot-hint kbd {
+  font-family: var(--font-mono);
+  color: var(--tx-3);
+  background: var(--bg-input);
+  border: 1px solid var(--bd-1);
+  border-radius: var(--r-tiny);
+  padding: 0 4px;
+}

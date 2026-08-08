@@ -1,0 +1,203 @@
+/*
+ * ChatTab (redesign 2f — Chat sub-tab). Office-conversation surface for one agent:
+ * a scrolling message stream of ChatBubbles + a slash-chip row + composer.
+ * Tokens only (theme.css); no hardcoded hex.
+ */
+.dv-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg-0);
+  font-family: var(--font-sans);
+}
+
+/* ---- message stream ---- */
+.dv-chat__feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dv-chat__status {
+  margin: auto;
+  max-width: 360px;
+  text-align: center;
+  color: var(--tx-4);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+}
+.dv-chat__status.is-err { color: var(--st-error-bright); }
+
+/* empty state (local agent, no office link) */
+.dv-chat__empty {
+  margin: auto;
+  max-width: 420px;
+  text-align: center;
+  padding: 24px;
+}
+.dv-chat__empty-glyph { font-size: 26px; margin-bottom: 10px; }
+.dv-chat__empty-title {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-selected);
+  color: var(--tx-hi);
+  margin-bottom: 6px;
+}
+.dv-chat__empty-body {
+  font-size: var(--fs-meta);
+  line-height: 1.55;
+  color: var(--tx-4);
+}
+
+/* ---- a system marker (task divider style) ---- */
+.dv-chat__marker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 2px 0;
+  color: var(--tx-ghost);
+}
+.dv-chat__marker::before,
+.dv-chat__marker::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--bd-2);
+}
+.dv-chat__marker span {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  letter-spacing: var(--ls-state);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.dv-chat__marker time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  color: var(--tx-gutter);
+}
+
+/* ---- a chat row = avatar + bubble ---- */
+.dv-chat__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  max-width: 82%;
+}
+.dv-chat__row.is-own {
+  flex-direction: row-reverse;
+  align-self: flex-end;
+}
+
+.dv-chat__avatar {
+  flex: 0 0 auto;
+  width: var(--sz-avatar);
+  height: var(--sz-avatar);
+  border-radius: var(--r-chip);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-bold);
+  letter-spacing: .02em;
+}
+.dv-chat__avatar.av-agent { background: var(--role-blue-av-bg); color: var(--accent-ink); }
+.dv-chat__avatar.av-you { background: var(--role-violet-av-bg); color: var(--role-violet-2); }
+.dv-chat__avatar.av-a2a { background: var(--role-violet-av-bg); color: var(--role-violet); }
+
+.dv-chat__bubble {
+  background: var(--bg-panel);
+  border: 1px solid var(--bd-nav);
+  border-radius: var(--r-card);
+  border-top-left-radius: 2px;
+  padding: 8px 11px;
+  min-width: 0;
+}
+.dv-chat__row.is-own .dv-chat__bubble {
+  background: var(--bg-accent-soft);
+  border-color: var(--bd-panel-sel);
+  border-top-left-radius: var(--r-card);
+  border-top-right-radius: 2px;
+}
+
+.dv-chat__bmeta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+.dv-chat__row.is-own .dv-chat__bmeta { flex-direction: row-reverse; }
+.dv-chat__author {
+  font-size: var(--fs-desc);
+  font-weight: var(--fw-selected);
+  color: var(--accent-ink);
+}
+.dv-chat__author.au-you { color: var(--role-violet-2); }
+.dv-chat__author.au-a2a { color: var(--role-violet); }
+.dv-chat__bmeta time {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  color: var(--tx-ghost);
+}
+.dv-chat__text {
+  font-size: var(--fs-meta);
+  line-height: 1.55;
+  color: var(--tx-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dv-chat__row.is-own .dv-chat__text { color: var(--accent-ink2); }
+
+/* ---- slash-command chip row ---- */
+.dv-chat__slash {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+.dv-chat__chip {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  color: var(--tx-3);
+  background: var(--bg-input);
+  border: 1px solid var(--bd-1);
+  border-radius: var(--r-pill);
+  padding: 3px 9px;
+  cursor: pointer;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+.dv-chat__chip:hover {
+  color: var(--accent-ink);
+  border-color: var(--bd-accent);
+  background: var(--bg-accent-soft);
+}
+
+/* ---- composer dock ---- */
+.dv-chat__composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 8px 12px 12px;
+  padding: 9px 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--bd-1);
+  border-radius: var(--r-card);
+}
+.dv-chat__composer textarea {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--tx-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  max-height: 120px;
+}
+.dv-chat__composer textarea::placeholder { color: var(--tx-faint); }

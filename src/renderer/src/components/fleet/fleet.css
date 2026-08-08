@@ -1,0 +1,64 @@
+/*
+ * Fleet (2b) — co-located hover/focus affordances only.
+ * All colours reference the design tokens in ui/theme.css — no hardcoded hex.
+ */
+
+.fleet-row {
+  transition: background 0.1s ease;
+}
+.fleet-row:hover {
+  background: var(--bg-selected);
+}
+/* selected + attention washes keep priority over hover */
+.fleet-row.is-selected {
+  background: var(--bg-selected);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.fleet-row.wash-amber {
+  background: var(--st-needsyou-wash);
+}
+.fleet-row.wash-amber:hover {
+  background: var(--st-needsyou-soft);
+}
+.fleet-row.wash-red {
+  background: var(--st-error-wash);
+}
+.fleet-row.wash-red:hover {
+  background: var(--st-error-soft);
+}
+
+.fleet-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  color: var(--accent);
+  font-weight: 600;
+  transition: color 0.1s ease;
+}
+.fleet-linkbtn:hover {
+  color: var(--tx-hi);
+}
+
+.fleet-morebtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sz-row-btn);
+  height: var(--sz-row-btn);
+  border-radius: var(--r-tiny);
+  background: transparent;
+  border: 1px solid var(--bd-track);
+  color: var(--tx-dim);
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+.fleet-morebtn:hover {
+  background: var(--bg-input);
+  color: var(--tx-2);
+}
+
+.fleet-verbbtn:hover {
+  background: var(--bg-selected);
+}

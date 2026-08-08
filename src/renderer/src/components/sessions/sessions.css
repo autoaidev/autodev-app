@@ -1,0 +1,164 @@
+/*
+ * 2d Sessions — screen-local styling that inline tokens can't express (hover,
+ * selection rail, mono tool-line blocks, typing dots). Every colour is a design
+ * token from theme.css; no hardcoded hex.
+ */
+
+.sv-root {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-0);
+  color: var(--tx-1);
+  font-family: var(--font-sans);
+}
+
+/* ---- session list (352) ---- */
+.sv-list {
+  width: var(--w-sessions-list);
+  flex: none;
+  border-right: 1px solid var(--bd-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sidebar);
+}
+.sv-list-head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--bd-2);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sv-list-scroll { flex: 1; overflow: auto; padding: 4px 8px 12px; }
+
+.sv-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 8px 6px;
+  font-size: var(--fs-section);
+  font-weight: 700;
+  letter-spacing: var(--ls-section);
+  color: var(--tx-4);
+  text-transform: uppercase;
+}
+.sv-section .sv-count { font-family: var(--font-mono); font-weight: 500; color: var(--tx-ghost); letter-spacing: 0; }
+
+/* ---- a session row ---- */
+.sv-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--r-button);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+}
+.sv-row:hover { background: var(--bg-input); }
+.sv-row.sel { background: var(--bg-selected); box-shadow: inset 2px 0 0 var(--accent); }
+.sv-row.sel:hover { background: var(--bg-selected); }
+.sv-row-top { display: flex; align-items: center; gap: 9px; }
+.sv-row-title {
+  flex: 1; min-width: 0;
+  font-size: var(--fs-body); font-weight: 600; color: var(--tx-hi);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sv-row.idle .sv-row-title { color: var(--tx-2); font-weight: 400; }
+.sv-row-meta {
+  margin-left: 15px; margin-top: 3px;
+  font-family: var(--font-mono); font-size: var(--fs-tiny); color: var(--tx-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- fold group ("31 runs of same poller") ---- */
+.sv-fold {
+  width: 100%; text-align: left;
+  margin: 2px 0 2px;
+  padding: 8px 10px;
+  border: 1px dashed var(--bd-1);
+  border-radius: var(--r-button);
+  background: var(--bg-2);
+  cursor: pointer;
+  display: flex; align-items: center; gap: 9px;
+}
+.sv-fold:hover { border-color: var(--bd-track); }
+.sv-fold-label { flex: 1; min-width: 0; font-size: var(--fs-meta); color: var(--tx-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-fold-link { font-size: var(--fs-desc); color: var(--accent); font-weight: 600; }
+.sv-fold-children { padding-left: 10px; border-left: 1px solid var(--bd-2); margin-left: 8px; }
+
+/* ---- transcript pane ---- */
+.sv-pane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg-0); }
+.sv-pane-head {
+  padding: 12px 18px; border-bottom: 1px solid var(--bd-2);
+  display: flex; align-items: flex-start; gap: 10px;
+}
+.sv-pane-title { display: flex; align-items: center; gap: 9px; }
+.sv-pane-title h2 { margin: 0; font-size: var(--fs-session-title); font-weight: 700; color: var(--tx-hi); letter-spacing: var(--ls-tight); }
+.sv-pane-sub { margin-top: 4px; font-family: var(--font-mono); font-size: var(--fs-tiny); color: var(--tx-dim); }
+
+.sv-transcript { flex: 1; overflow: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* chat bubble */
+.sv-msg { display: flex; gap: 9px; max-width: 82%; }
+.sv-msg.user { align-self: flex-end; flex-direction: row-reverse; }
+.sv-av {
+  width: var(--sz-avatar); height: var(--sz-avatar); flex: none;
+  border-radius: var(--r-chip);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 700;
+}
+.sv-av.asst { background: var(--role-blue-av-bg); color: var(--accent-ink); }
+.sv-av.user { background: var(--role-violet-av-bg); color: var(--role-violet-2); }
+.sv-av.sys { background: var(--bg-chip-idle); color: var(--tx-4); }
+.sv-bubble {
+  border-radius: var(--r-card);
+  padding: 8px 11px;
+  font-size: var(--fs-meta); line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word;
+  background: var(--bg-panel); border: 1px solid var(--bd-nav); color: var(--tx-1);
+  border-top-left-radius: 2px;
+}
+.sv-msg.user .sv-bubble {
+  background: var(--bg-selected); border-color: var(--bd-panel-sel); color: var(--accent-ink2);
+  border-top-left-radius: var(--r-card); border-top-right-radius: 2px;
+}
+.sv-msg.sys .sv-bubble { background: transparent; border: 1px dashed var(--bd-1); color: var(--tx-4); }
+.sv-msg-author { font-size: var(--fs-tiny); font-weight: 600; text-transform: uppercase; letter-spacing: var(--ls-state); color: var(--tx-4); margin-bottom: 4px; }
+
+/* mono tool-line block inside / beneath a bubble */
+.sv-toolblock {
+  margin-top: 6px;
+  font-family: var(--font-mono); font-size: var(--fs-mono-code); line-height: 1.7;
+  background: var(--bg-panel-alt); border: 1px solid var(--bd-card);
+  border-radius: var(--r-chip); padding: 6px 9px; color: var(--tx-dim);
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* typing indicator */
+.sv-typing { display: inline-flex; gap: 4px; align-items: center; padding: 4px 2px; }
+.sv-typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--tx-4); animation: sv-pulse 1.2s infinite ease-in-out; }
+.sv-typing i:nth-child(2) { animation-delay: .2s; }
+.sv-typing i:nth-child(3) { animation-delay: .4s; }
+@keyframes sv-pulse { 0%, 60%, 100% { opacity: .3; } 30% { opacity: 1; } }
+
+/* composer */
+.sv-composer {
+  border-top: 1px solid var(--bd-2);
+  padding: 10px 14px;
+  display: flex; align-items: center; gap: 10px;
+}
+.sv-composer input {
+  flex: 1; min-width: 0;
+  background: var(--bg-panel); border: 1px solid var(--bd-1); border-radius: var(--r-card);
+  padding: 9px 12px; color: var(--tx-1);
+  font-family: var(--font-sans); font-size: var(--fs-body); outline: none;
+}
+.sv-composer input::placeholder { color: var(--tx-faint); }
+.sv-composer input:focus { border-color: var(--bd-accent); }
+
+.sv-empty { margin: auto; text-align: center; color: var(--tx-4); font-size: var(--fs-meta); line-height: 1.7; padding: 20px; }
+
+.sv-term { flex: 1; min-height: 0; background: var(--bg-app); }
