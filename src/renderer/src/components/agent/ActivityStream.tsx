@@ -1,5 +1,6 @@
 import React from 'react'
 import { LogRow, LogSeverity } from './LogRow'
+import { useAgentLog } from '@renderer/services/logBuffer'
 
 /**
  * ActivityStream — the parsed Activity tab body (2a).
@@ -10,9 +11,9 @@ import { LogRow, LogSeverity } from './LogRow'
  * runs of repeated MCP lines fold into a single "N MCP calls ▾" summary, and
  * "TASK n OF m" markers become centered dividers.
  *
- * It self-subscribes to the log stream (same pattern as the old Output pane) so a
- * new line re-renders ONLY this pane — never the parent view, which keeps the
- * composer/search inputs from dropping keystrokes.
+ * It reads the shared, path-scoped logBuffer service (useAgentLog) so a new line
+ * re-renders ONLY this pane — never the parent view, which keeps the composer/
+ * search inputs from dropping keystrokes.
  */
 
 interface DividerItem {
@@ -144,22 +145,22 @@ function TaskDivider({ label }: { label: string }): React.JSX.Element {
 }
 
 export interface ActivityStreamProps {
-  /** reads the latest raw log buffer for the selected agent */
-  getText: () => string
-  /** subscribe to the shared log stream; returns an unsubscribe fn */
-  subscribe: (cb: () => void) => () => void
+  /** the selected agent's workspace path — keys the shared log buffer */
+  path: string
+  /** initial snapshot fallback so an agent with only a lastOutput still shows it */
+  lastOutput?: string
   /** auto-scroll to the newest line when true (the Follow toggle) */
   follow: boolean
   /** show the unparsed raw buffer instead of the parsed rows (Raw log link) */
   raw?: boolean
 }
 
-export function ActivityStream({ getText, subscribe, follow, raw = false }: ActivityStreamProps): React.JSX.Element {
+export function ActivityStream({ path, lastOutput, follow, raw = false }: ActivityStreamProps): React.JSX.Element {
   const ref = React.useRef<HTMLDivElement>(null)
-  const [, force] = React.useState(0)
-  React.useEffect(() => subscribe(() => force((t) => t + 1)), [subscribe])
 
-  const text = getText()
+  // Read the shared, path-scoped buffer; fall back to the agent's initial snapshot
+  // (lastOutput) when nothing has streamed yet so the pane isn't blank on first open.
+  const text = useAgentLog(path) || lastOutput || ''
   const items = React.useMemo(() => (raw ? [] : parseLog(text)), [text, raw])
 
   // Follow: stick to the bottom on new output only while Follow is on.

@@ -3,25 +3,30 @@ import { AppShell, ContextMenu, ContextMenuEntry } from '@renderer/ui'
 import { AgentRail, AgentAction, BulkAction } from '@renderer/components/agent/AgentRail'
 import { AgentDetail, DetailTab } from '@renderer/components/agent/AgentDetail'
 import { Inspector } from '@renderer/components/agent/Inspector'
-import { AgentState, ATTENTION_STATES } from '@renderer/components/agent/AgentRow'
+import { AgentState, ATTENTION_STATES } from '@renderer/services/model'
+import { useAgents, getAgents, actions } from '@renderer/services/agentStore'
+import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
 import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 
 /**
  * AgentsView — screen 2a. Three columns: the AgentRail (262), the AgentDetail
- * center, and the fixed Inspector (308). It owns the fleet array (listAgents +
- * live onAgentUpdated/onAgentsChanged patches), the per-agent log buffer streamed
- * through onAgentLog (re-rendering ONLY the visible ActivityStream, never this
- * whole view — so composer/search keystrokes are never dropped), the current
- * selection + bulk-check set, and the Setup / MCP modal open-state.
+ * center, and the fixed Inspector (308). The live fleet comes from the shared
+ * agentStore (useAgents) and the per-agent log buffer from the shared logBuffer
+ * service (path-scoped, so a streamed line re-renders ONLY the visible
+ * ActivityStream, never this whole view — composer/search keystrokes are never
+ * dropped). This view owns only the current selection + bulk-check set and the
+ * Setup / MCP modal open-state.
  *
  * All agent lifecycle goes through the real window.api (start/stop/restart/
  * removeFolder/openFolder/sendAgentMessage). Where the api lacks a field the
  * design wants, the nearest real value is used and marked // TODO(redesign).
  */
 export function AgentsView(): React.JSX.Element {
-  const [agents, setAgents] = React.useState<AgentState[]>([])
+  // The live fleet comes from the shared agentStore (one seed/subscribe/poll for
+  // the whole app); this view only owns selection, bulk-check and modal state.
+  const agents = useAgents()
   const [selected, setSelected] = React.useState<string | undefined>(undefined)
   const [checked, setChecked] = React.useState<Set<string>>(new Set())
   const [detailTab, setDetailTab] = React.useState<DetailTab>('activity')
@@ -30,61 +35,14 @@ export function AgentsView(): React.JSX.Element {
   const [mcpPath, setMcpPath] = React.useState<string | null>(null)
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
 
-  // Log buffer + a listener set so streamed lines re-render only the visible pane.
-  const logsRef = React.useRef<Map<string, string>>(new Map())
-  const logListeners = React.useRef<Set<() => void>>(new Set())
-  const subscribeLog = React.useCallback((cb: () => void) => {
-    logListeners.current.add(cb)
-    return () => {
-      logListeners.current.delete(cb)
-    }
-  }, [])
-
-  // Read-only mirror of `agents` for event handlers (autodev:open-agent) that
-  // need the latest fleet without re-subscribing. NEVER mutate agents through
-  // this — it exists so those handlers don't have to abuse a setAgents updater
-  // (which is impure and double-fires under StrictMode) just to read state.
-  const agentsRef = React.useRef<AgentState[]>([])
+  // Prune log buffers for agents no longer in the fleet so the Map can't grow
+  // unbounded (diff against the live set — a size gate would strand stale buffers
+  // when one agent is removed as another is added), and default the selection to
+  // the first agent once the fleet loads.
   React.useEffect(() => {
-    agentsRef.current = agents
+    pruneAgentLogs(new Set(agents.map((a) => a.path)))
+    setSelected((cur) => cur ?? agents[0]?.path)
   }, [agents])
-
-  const refresh = React.useCallback(async () => {
-    const list = (await window.api.listAgents()) as AgentState[]
-    setAgents(list)
-    setSelected((cur) => cur ?? list[0]?.path)
-    // Prune log buffers for agents no longer in the fleet so the Map can't grow
-    // unbounded. Always diff against the live set — a size gate would leave stale
-    // buffers behind whenever an agent is removed while another is added.
-    const live = new Set(list.map((a) => a.path))
-    for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
-  }, [])
-
-  React.useEffect(() => {
-    void refresh()
-    const offChanged = window.api.onAgentsChanged(() => void refresh())
-    const offUpdated = window.api.onAgentUpdated((s: AgentState) => {
-      setAgents((prev) => {
-        const i = prev.findIndex((a) => a.path === s.path)
-        if (i === -1) return [...prev, s]
-        const next = prev.slice()
-        next[i] = s
-        return next
-      })
-    })
-    const offLog = window.api.onAgentLog(({ path, line }: { path: string; line: string }) => {
-      const cur = logsRef.current.get(path) ?? ''
-      logsRef.current.set(path, (cur + line).slice(-20000))
-      logListeners.current.forEach((cb) => cb())
-    })
-    const poll = window.setInterval(() => void refresh(), 5000)
-    return () => {
-      offChanged()
-      offUpdated()
-      offLog()
-      window.clearInterval(poll)
-    }
-  }, [refresh])
 
   // Soft-hook: another screen (the Office view's "open this agent") asks us to
   // reveal a specific agent. App switches the top-nav to Agents; we own the
@@ -94,10 +52,9 @@ export function AgentsView(): React.JSX.Element {
     const onOpen = (e: Event): void => {
       const d = (e as CustomEvent).detail as { path?: string; officeSlug?: string; agentSlug?: string }
       if (!d) return
-      // Read the latest fleet from the ref (not a setAgents updater) so the match
-      // is a pure lookup and the selection/tab/toast side-effects fire exactly
-      // once — an updater would double-run them under StrictMode.
-      const list = agentsRef.current
+      // Read the latest fleet imperatively from the store so the match is a pure
+      // lookup and the selection/tab/toast side-effects fire exactly once.
+      const list = getAgents()
       // office is a SOFT filter: an identity (officeAgentSlug) or folder
       // (path ends with /agentSlug) match may stand alone, so a bound-but-
       // offline agent whose officeSlug isn't populated locally still resolves.
@@ -141,17 +98,8 @@ export function AgentsView(): React.JSX.Element {
 
   /* ------------------------------------------------------------- lifecycle */
 
-  const start = React.useCallback((path: string) => window.api.startAgent(path), [])
-  const stop = React.useCallback((path: string) => window.api.stopAgent(path), [])
-  const restart = React.useCallback(async (path: string) => {
-    await window.api.stopAgent(path)
-    // small delay so the child fully exits before we respawn
-    await new Promise((r) => setTimeout(r, 400))
-    await window.api.startAgent(path)
-  }, [])
   const addTask = React.useCallback((path: string, text: string) => {
-    logsRef.current.set(path, (logsRef.current.get(path) ?? '') + `\n${new Date().toTimeString().slice(0, 5)} ✉ queued task: ${text}\n`)
-    logListeners.current.forEach((cb) => cb())
+    appendAgentLog(path, `\n${new Date().toTimeString().slice(0, 5)} ✉ queued task: ${text}\n`)
     return window.api.sendAgentMessage(path, text)
   }, [])
 
@@ -176,10 +124,10 @@ export function AgentsView(): React.JSX.Element {
           }
           break
         case 'stop':
-          await stop(p)
+          await actions.stop(p)
           break
         case 'restart':
-          await restart(p)
+          await actions.restart(p)
           break
         case 'connect':
           // TODO(redesign): the connect-to-office binding flow (officeBindWorkspace)
@@ -195,42 +143,32 @@ export function AgentsView(): React.JSX.Element {
         case 'remove': {
           const ok = await window.api.confirmDialog(`Remove ${agent.name}?`, `Deletes the workspace folder:\n${p}`)
           if (ok) {
-            await window.api.removeAgentFolder(p)
-            logsRef.current.delete(p)
-            // The keep-alive host never unmounts a taken-over TerminalPane on
-            // switch, so a removed agent's shell PTY would leak (the agent is
-            // gone but its `agent-term:<path>` process keeps running). This is
-            // the one case where killing that specific PTY is correct — mirror
-            // TerminalPane's own [id] teardown so no zombie shell remains.
-            void window.api.ptyKill(`agent-term:${p}`)
+            // actions.remove does removeAgentFolder + ptyKill(agent-term:<path>) +
+            // reload; we own the confirm + drop this agent's log buffer + selection.
+            await actions.remove(p)
+            deleteAgentLog(p)
             if (selected === p) setSelected(undefined)
-            void refresh()
           }
           break
         }
       }
     },
-    [stop, restart, selected, refresh]
+    [selected]
   )
 
   const onBulk = React.useCallback(
     async (action: BulkAction) => {
       const paths = Array.from(checked)
       for (const p of paths) {
-        if (action === 'start') await window.api.startAgent(p)
-        else if (action === 'stop') await window.api.stopAgent(p)
-        else if (action === 'restart') await restart(p)
+        if (action === 'start') await actions.start(p)
+        else if (action === 'stop') await actions.stop(p)
+        else if (action === 'restart') await actions.restart(p)
         // TODO(redesign): bulk 'add' needs a shared task-prompt UI — deferred to Stage 3.
       }
       if (action !== 'add') setChecked(new Set())
     },
-    [checked, restart]
+    [checked]
   )
-
-  const getLog = React.useCallback(() => {
-    if (!displayAgent) return ''
-    return logsRef.current.get(displayAgent.path) || displayAgent.lastOutput || ''
-  }, [displayAgent])
 
   const openMenu = React.useCallback((e: React.MouseEvent, agent: AgentState) => {
     e.preventDefault()
@@ -284,13 +222,11 @@ export function AgentsView(): React.JSX.Element {
           {displayAgent && (
             <AgentDetail
               agent={displayAgent}
-              getLog={getLog}
-              subscribeLog={subscribeLog}
               tab={detailTab}
               onTabChange={setDetailTab}
-              onStart={() => void start(displayAgent.path)}
-              onStop={() => void stop(displayAgent.path)}
-              onRestart={() => void restart(displayAgent.path)}
+              onStart={() => void actions.start(displayAgent.path)}
+              onStop={() => void actions.stop(displayAgent.path)}
+              onRestart={() => void actions.restart(displayAgent.path)}
               onOpenFolder={() => window.api.openPath(displayAgent.path)}
               onAddTask={(text) => void addTask(displayAgent.path, text)}
               onMenu={openMenu}

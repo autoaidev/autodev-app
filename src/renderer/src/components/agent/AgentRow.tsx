@@ -1,132 +1,37 @@
 import React from 'react'
-import { StatusDot, DotStatus, PillVariant, Icon } from '@renderer/ui'
+import { StatusDot, DotStatus, Icon } from '@renderer/ui'
+import { rowMeta, isDim } from '@renderer/services/model'
+import type { AgentState, MetaTone } from '@renderer/services/model'
 
 /**
- * AgentRow — one row of the Agents rail (2a) plus the shared fleet model + the
- * derived-state helpers used across the whole Agent-detail screen. The row only
- * carries what DIFFERS between agents: a check, a state dot, the name, ONE dim
- * mono meta line (or a coloured state line), and the single number that matters
- * (tasks left). Office / provider repetition lives on the group header.
+ * AgentRow — one row of the Agents rail (2a). The row only carries what DIFFERS
+ * between agents: a check, a state dot, the name, ONE dim mono meta line (or a
+ * coloured state line), and the single number that matters (tasks left). Office
+ * / provider repetition lives on the group header.
  *
- * The `AgentState` shape mirrors AgentManager.readState (see CURRENT-APP.md §2);
- * it is re-exported here so every Agent component shares one type.
+ * The shared fleet model + derived-state helpers now live in
+ * `@renderer/services/model` (the single source of truth). They are re-exported
+ * here so every existing `import { … } from '.../AgentRow'` keeps resolving.
  */
 
-export type Activity =
-  | 'working'
-  | 'idle'
-  | 'stopped'
-  | 'stalled'
-  | 'needs-auth'
-  | 'rate-limited'
-  | 'crashed'
-
-export interface AgentState {
-  path: string
-  name: string
-  provider?: string
-  sessionName?: string
-  wsUrl?: string
-  running: boolean
-  external?: boolean
-  online?: boolean
-  activity: Activity
-  tasks: { total: number; remaining: number; done: number }
-  currentTask?: string
-  lastOutput?: string
-  error?: string
-  exitCode?: number | null
-  officeAgentSlug?: string
-  officeSlug?: string
-  officeAgentId?: string
-}
-
-export const ACTIVITY_LABEL: Record<Activity, string> = {
-  working: 'Working',
-  idle: 'Idle',
-  stopped: 'Stopped',
-  stalled: 'Stalled',
-  'needs-auth': 'Needs re-auth',
-  'rate-limited': 'Rate-limited',
-  crashed: 'Crashed'
-}
-
-export const ATTENTION_STATES = new Set<Activity>(['stalled', 'needs-auth', 'rate-limited', 'crashed'])
-
-/** WORKING/IDLE/… pill variant reserved strictly for state. */
-export function pillVariantFor(a: Activity): PillVariant {
-  if (a === 'working') return 'green'
-  if (a === 'crashed') return 'red'
-  if (ATTENTION_STATES.has(a)) return 'amber'
-  return 'neutral'
-}
-
-/** State-badge label (mono, uppercase) for a StatusPill. */
-export function stateLabel(a: Activity): string {
-  switch (a) {
-    case 'working':
-      return 'WORKING'
-    case 'idle':
-      return 'IDLE'
-    case 'stopped':
-      return 'STOPPED'
-    case 'stalled':
-      return 'STALLED'
-    case 'needs-auth':
-      return 'NEEDS AUTH'
-    case 'rate-limited':
-      return 'RATE LIMIT'
-    case 'crashed':
-      return 'TIMED OUT'
-  }
-}
-
-export function providerShort(p?: string): string {
-  return (p || '').split('-')[0] || 'local'
-}
-
-/** The trailing hash of a workspace basename, e.g. balance-analyst-d271e → d271e. */
-export function agentIdHash(path: string): string {
-  const base = path.replace(/\/+$/, '').split('/').filter(Boolean).pop() || ''
-  const m = base.match(/-([0-9a-z]{4,12})$/i)
-  return m ? m[1] : base
-}
-
-/** Last-two path segments — the compact rail/header label. */
-export function shortPath(p?: string): string {
-  if (!p) return ''
-  const parts = p.replace(/\/+$/, '').split('/').filter(Boolean)
-  return parts.slice(-2).join('/') || p
-}
-
-export type MetaTone = 'default' | 'amber' | 'red' | 'idle'
+export type { Activity, AgentState, MetaTone } from '@renderer/services/model'
+export {
+  ACTIVITY_LABEL,
+  ATTENTION_STATES,
+  pillVariantFor,
+  stateLabel,
+  providerShort,
+  agentIdHash,
+  shortPath,
+  rowMeta,
+  isDim
+} from '@renderer/services/model'
 
 const META_COLOR: Record<MetaTone, string> = {
   default: 'var(--tx-ghost)',
   amber: 'var(--st-needsyou)',
   red: 'var(--st-error)',
   idle: 'var(--tx-dim)'
-}
-
-/**
- * The meta / state line under the name. Default rows show the dim mono
- * "provider · id"; attention rows replace it with a coloured human state line.
- */
-export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: boolean } {
-  if (a.activity === 'needs-auth') return { text: 'waiting on you', tone: 'amber', mono: false }
-  if (a.activity === 'rate-limited') return { text: a.error || 'rate-limited', tone: 'amber', mono: false }
-  if (a.activity === 'stalled') return { text: a.error || 'stalled · no output', tone: 'amber', mono: false }
-  if (a.activity === 'crashed') {
-    const retry = a.tasks.total > 0 ? ' · retry 2/2' : ''
-    return { text: (a.error || 'timed out') + retry, tone: 'red', mono: false }
-  }
-  if (a.activity === 'idle' && a.tasks.remaining === 0) return { text: 'idle · all done', tone: 'idle', mono: false }
-  return { text: `${providerShort(a.provider)} · ${agentIdHash(a.path)}`, tone: 'default', mono: true }
-}
-
-/** Whether a row's name should be dimmed (idle / stopped, no live work). */
-export function isDim(a: AgentState): boolean {
-  return (a.activity === 'idle' || a.activity === 'stopped') && !a.running
 }
 
 /* ---------------------------------------------------------------- Checkbox -- */

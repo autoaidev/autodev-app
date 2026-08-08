@@ -6,7 +6,7 @@ import { OfficeView } from '@renderer/views/OfficeView'
 import { SessionsView } from '@renderer/views/SessionsView'
 import { SettingsView2 } from '@renderer/views/SettingsView2'
 import MakeAppView from './MakeAppView'
-import { ATTENTION_STATES, type AgentState } from '@renderer/components/agent/AgentRow'
+import { useFleetCounts } from '@renderer/services/agentStore'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from './nav'
 
 // One vocabulary for "link this local agent to an office character", re-exported
@@ -57,8 +57,10 @@ export default function App(): JSX.Element {
   // Lazy-mount + keep-alive: a view is added on first visit and never removed, so
   // a mounted PTY survives every later tab switch (we only toggle `display`).
   const [opened, setOpened] = useState<Set<NavId>>(() => new Set<NavId>(['agents']))
-  const [running, setRunning] = useState(0)
-  const [needsYou, setNeedsYou] = useState(0)
+  // Fleet-wide counts for the shell's RunPill ("N running · M need you"), fed to
+  // the AppShell we wrap the content views in. Sourced from the shared agent store
+  // so every consumer sees one live tally (no per-view listAgents poll).
+  const { running, needsYou } = useFleetCounts()
   const [cliMissing, setCliMissing] = useState(false)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
 
@@ -100,40 +102,6 @@ export default function App(): JSX.Element {
     const id = window.setTimeout(() => setToast(null), 4000)
     return () => window.clearTimeout(id)
   }, [toast])
-
-  // The counts (running/needsYou) feed ONLY the shell we wrap the content-only
-  // screens in — Agents/Fleet compute their own counts inside their embedded
-  // shells. So this poll is worthless whenever a self-counting screen is foremost;
-  // gate it to the content views to avoid a permanent 3rd concurrent listAgents
-  // poll. When a content view comes forward we re-seed immediately so its RunPill
-  // is correct on arrival.
-  const contentActive =
-    nav === 'office' || nav === 'sessions' || nav === 'makeapp' || nav === 'settings'
-
-  // Fleet-wide counts for the shell's RunPill ("N running · M need you"), fed to
-  // the AppShell we wrap the content views in. Seeded on entry, then kept live off
-  // the same watch/poll signals the screens use.
-  useEffect(() => {
-    if (!contentActive) return
-    let alive = true
-    const load = (): void => {
-      window.api.listAgents().then((list: AgentState[]) => {
-        if (!alive) return
-        setRunning(list.filter((a) => a.running).length)
-        setNeedsYou(list.filter((a) => ATTENTION_STATES.has(a.activity)).length)
-      })
-    }
-    load()
-    const offChanged = window.api.onAgentsChanged(load)
-    const offUpdated = window.api.onAgentUpdated(load)
-    const poll = window.setInterval(load, 5000)
-    return () => {
-      alive = false
-      offChanged()
-      offUpdated()
-      window.clearInterval(poll)
-    }
-  }, [contentActive])
 
   const recheckCli = useCallback(async () => {
     const c = (await window.api.cliCheck()) as { found: boolean }

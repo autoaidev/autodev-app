@@ -1,6 +1,6 @@
 import React from 'react'
 import { SegmentedTabs, Button, Pill, StatusDot, Icon } from '@renderer/ui'
-import { AgentState, providerShort, agentIdHash, pillVariantFor, stateLabel } from './AgentRow'
+import { AgentState, providerShort, agentIdHash, pillVariantFor, stateLabel } from '@renderer/services/model'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
@@ -99,8 +99,6 @@ function StatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
 
 export interface AgentDetailProps {
   agent: AgentState
-  getLog: () => string
-  subscribeLog: (cb: () => void) => () => void
   tab: DetailTab
   onTabChange: (t: DetailTab) => void
   onStart: () => void
@@ -113,8 +111,6 @@ export interface AgentDetailProps {
 
 export function AgentDetail({
   agent,
-  getLog,
-  subscribeLog,
   tab,
   onTabChange,
   onStart,
@@ -244,7 +240,7 @@ export function AgentDetail({
       {/* body — keep Chat/Terminal mounted (display toggle) so their PTYs survive tab switches */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: tab === 'activity' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <ActivityStream getText={getLog} subscribe={subscribeLog} follow={follow} raw={raw} />
+          <ActivityStream path={agent.path} lastOutput={agent.lastOutput} follow={follow} raw={raw} />
           {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}
           <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-2)' }}>
             <div

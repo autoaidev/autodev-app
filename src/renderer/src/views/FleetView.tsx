@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell, ContextMenu, Modal, Button } from '@renderer/ui'
 import { FleetHeader } from '@renderer/components/fleet/FleetHeader'
 import {
@@ -9,12 +9,8 @@ import {
 } from '@renderer/components/fleet/StatTiles'
 import { FleetTable, RowAction } from '@renderer/components/fleet/FleetTable'
 import { FleetStatusBar, BulkVerb } from '@renderer/components/fleet/FleetStatusBar'
-import {
-  AgentState,
-  ATTENTION_STATES,
-  isAttention,
-  formatElapsed
-} from '@renderer/components/fleet/fleet-helpers'
+import { AgentState, ATTENTION_STATES, isAttention, formatElapsed } from '@renderer/services/model'
+import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/agentStore'
 import '@renderer/components/fleet/fleet.css'
 import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 
@@ -63,74 +59,28 @@ interface MenuState {
 }
 
 export function FleetView(): React.JSX.Element {
-  const [agents, setAgents] = useState<AgentState[]>([])
+  // The live fleet now comes from the shared agent store (services/agentStore):
+  // ONE seed + subscribe + poll + elapsed-clock for the whole app. This view just
+  // consumes the snapshot — no local fetch/subscribe/poll/merge lives here anymore.
+  const agents = useAgents()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
-  const [now, setNow] = useState(() => Date.now())
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [bars, setBars] = useState<number[]>(() => new Array(10).fill(0))
   // Local, non-navigating fleet filter (the nav-bar search box is wired to
   // this — see SHARED SEARCH MODEL). Filters rows by name / office / path.
   const [search, setSearch] = useState('')
 
-  // TODO(redesign): AgentState exposes no task-start timestamp, so "elapsed" is
-  // measured from when THIS session first observed the agent enter its current
-  // task. It resets on app relaunch. A real per-task start time would need to be
-  // surfaced from the hooks-events stream.
-  const startedRef = useRef<Map<string, { task: string; since: number }>>(new Map())
-
-  const trackElapsed = useCallback((list: AgentState[]) => {
-    const m = startedRef.current
-    const live = new Set<string>()
-    const t = Date.now()
-    for (const a of list) {
-      const working = a.running || a.activity === 'working'
-      const task = a.currentTask ?? ''
-      if (working && task) {
-        live.add(a.path)
-        const cur = m.get(a.path)
-        if (!cur || cur.task !== task) m.set(a.path, { task, since: t })
-      } else {
-        m.delete(a.path)
-      }
-    }
-    for (const key of Array.from(m.keys())) if (!live.has(key)) m.delete(key)
-  }, [])
-
-  const refresh = useCallback(async () => {
-    try {
-      const list = (await api().listAgents()) as AgentState[]
-      trackElapsed(list)
-      setAgents(list)
-      // throughput sample: cumulative closed tasks across the fleet.
-      const closed = list.reduce((s, a) => s + (a.tasks?.done ?? 0), 0)
-      setBars((prev) => [...prev.slice(1), closed])
-    } catch {
-      /* transient — keep the last good list */
-    }
-  }, [trackElapsed])
-
+  // Throughput sparkline sampler: roll the cumulative closed-task count into the
+  // bars window on the store's poll cadence. Presentation-only (the store owns the
+  // agent data); reads the live snapshot imperatively to avoid a stale closure.
   useEffect(() => {
-    void refresh()
-    const offUpdated = api().onAgentUpdated?.((s: AgentState) => {
-      setAgents((prev) => {
-        const next = prev.some((a) => a.path === s.path)
-          ? prev.map((a) => (a.path === s.path ? s : a))
-          : [...prev, s]
-        trackElapsed(next)
-        return next
-      })
-    })
-    const offChanged = api().onAgentsChanged?.(() => void refresh())
-    const poll = window.setInterval(() => void refresh(), 5000)
-    const clock = window.setInterval(() => setNow(Date.now()), 15000)
-    return () => {
-      offUpdated?.()
-      offChanged?.()
-      window.clearInterval(poll)
-      window.clearInterval(clock)
-    }
-  }, [refresh, trackElapsed])
+    const id = window.setInterval(() => {
+      const closed = getAgents().reduce((s, a) => s + (a.tasks?.done ?? 0), 0)
+      setBars((prev) => [...prev.slice(1), closed])
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [])
 
   /* ------------------------------- derived -------------------------------- */
 
@@ -173,43 +123,11 @@ export function FleetView(): React.JSX.Element {
 
   /* ------------------------------- actions -------------------------------- */
 
-  const restart = useCallback(async (path: string) => {
-    try {
-      await api().stopAgent(path)
-    } catch {
-      /* may not be running */
-    }
-    try {
-      await api().startAgent(path)
-    } catch {
-      /* surfaced via state */
-    }
-    void refresh()
-  }, [refresh])
+  const restart = useCallback((path: string) => actions.restart(path), [])
 
-  const start = useCallback(
-    async (path: string) => {
-      try {
-        await api().startAgent(path)
-      } catch {
-        /* ignore */
-      }
-      void refresh()
-    },
-    [refresh]
-  )
+  const start = useCallback((path: string) => actions.start(path), [])
 
-  const stop = useCallback(
-    async (path: string) => {
-      try {
-        await api().stopAgent(path)
-      } catch {
-        /* ignore */
-      }
-      void refresh()
-    },
-    [refresh]
-  )
+  const stop = useCallback((path: string) => actions.stop(path), [])
 
   const startAllIdle = useCallback(async () => {
     setBusy(true)
@@ -217,15 +135,14 @@ export function FleetView(): React.JSX.Element {
     let failed = 0
     for (const a of idle) {
       try {
-        await api().startAgent(a.path)
+        await actions.start(a.path)
       } catch {
         failed++
       }
     }
     setBusy(false)
     if (failed) toast(`Couldn't start ${failed} of ${idle.length} agent${plural(idle.length)}`, true)
-    void refresh()
-  }, [agents, refresh])
+  }, [agents])
 
   const stopAll = useCallback(async () => {
     setBusy(true)
@@ -233,7 +150,7 @@ export function FleetView(): React.JSX.Element {
     let failed = 0
     for (const a of running) {
       try {
-        await api().stopAgent(a.path)
+        await actions.stop(a.path)
       } catch {
         failed++
       }
@@ -246,8 +163,7 @@ export function FleetView(): React.JSX.Element {
     }
     setBusy(false)
     if (failed) toast(`Couldn't stop ${failed} of ${running.length} agent${plural(running.length)}`, true)
-    void refresh()
-  }, [agents, refresh])
+  }, [agents])
 
   /* ---- attention verb per agent (NeedsYou tile + attention table rows) --- */
 
@@ -296,8 +212,7 @@ export function FleetView(): React.JSX.Element {
     setTaskModal(null)
     if (failed) toast(`Couldn't queue the task for ${failed} of ${paths.length} agent${plural(paths.length)}`, true)
     else toast(`Task queued for ${paths.length} agent${plural(paths.length)}`)
-    void refresh()
-  }, [taskText, taskModal, refresh])
+  }, [taskText, taskModal])
 
   const submitProvider = useCallback(async () => {
     const paths = provModal?.paths ?? []
@@ -316,8 +231,7 @@ export function FleetView(): React.JSX.Element {
       toast(`Couldn't switch provider for ${failed} of ${paths.length} agent${plural(paths.length)}`, true)
     else if (paths.length)
       toast(`Provider set for ${paths.length} agent${plural(paths.length)} · restart to take hold`)
-    void refresh()
-  }, [provModal, provChoice, refresh])
+  }, [provModal, provChoice])
 
   /* ------------------------------ row actions ----------------------------- */
 
@@ -346,20 +260,16 @@ export function FleetView(): React.JSX.Element {
     [attentionAction]
   )
 
-  const elapsedFor = useCallback(
-    (a: AgentState): { text: string; color: string } => {
-      const rec = startedRef.current.get(a.path)
-      const ms = rec ? now - rec.since : null
-      const text = formatElapsed(ms)
-      let color = 'var(--tx-5)'
-      if (ms == null) color = 'var(--tx-ghost)'
-      else if (a.activity === 'crashed' || a.activity === 'stalled') color = 'var(--st-error)'
-      else if (a.activity === 'needs-auth' || a.activity === 'rate-limited')
-        color = 'var(--st-needsyou)'
-      return { text, color }
-    },
-    [now]
-  )
+  const elapsedFor = useCallback((a: AgentState): { text: string; color: string } => {
+    const ms = getElapsedMs(a.path)
+    const text = formatElapsed(ms)
+    let color = 'var(--tx-5)'
+    if (ms == null) color = 'var(--tx-ghost)'
+    else if (a.activity === 'crashed' || a.activity === 'stalled') color = 'var(--st-error)'
+    else if (a.activity === 'needs-auth' || a.activity === 'rate-limited')
+      color = 'var(--st-needsyou)'
+    return { text, color }
+  }, [])
 
   const toggleSelect = useCallback((path: string) => {
     setSelected((prev) => {
