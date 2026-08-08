@@ -118,7 +118,10 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
       alive = false
       clearInterval(timer)
     }
-  }, [agent, ref, officeSlug])
+    // Depend on the stable primitives that actually drive the fetch — NOT the
+    // `agent` object identity. Every onAgentUpdated push is a new object; keying
+    // the effect off it would re-run the fetch and flash "Loading…" on each poll.
+  }, [ref, officeSlug, agent !== null])
 
   // Auto-scroll to newest only when the reader is pinned to the bottom.
   useEffect(() => {

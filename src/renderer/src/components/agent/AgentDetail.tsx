@@ -128,6 +128,25 @@ export function AgentDetail({
   const [raw, setRaw] = React.useState(false)
   const [draft, setDraft] = React.useState('')
 
+  // Keep-alive terminal host. A mounted <TerminalPane> === a live PTY, and its
+  // [id] cleanup runs ptyKill on unmount. Switching agents must NOT kill a shell
+  // the user took over, so every path whose terminal was taken over keeps a
+  // mounted, stable-id TerminalTab; we only toggle display. Keying each host by
+  // path also isolates TerminalTab's `takenOver` per agent, so selecting a fresh
+  // agent never auto-spawns a shell it never asked for.
+  const [termPaths, setTermPaths] = React.useState<Set<string>>(new Set())
+  const markTakenOver = React.useCallback((p: string) => {
+    setTermPaths((prev) => (prev.has(p) ? prev : new Set(prev).add(p)))
+  }, [])
+  // Render a host for the current agent (so its Take-over chrome shows) plus every
+  // agent whose PTY must stay alive. This set only grows — panes are never unmounted
+  // on agent-switch or sub-tab-switch.
+  const termHostPaths = React.useMemo(() => {
+    const s = new Set(termPaths)
+    s.add(agent.path)
+    return Array.from(s)
+  }, [termPaths, agent.path])
+
   const submit = (): void => {
     const t = draft.trim()
     if (!t) return
@@ -261,7 +280,14 @@ export function AgentDetail({
           <ChatTab agentPath={agent.path} />
         </div>
         <div style={{ display: tab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <TerminalTab agentPath={agent.path} />
+          {termHostPaths.map((p) => (
+            <div
+              key={p}
+              style={{ display: p === agent.path ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}
+            >
+              <TerminalTab agentPath={p} onTakenOver={() => markTakenOver(p)} />
+            </div>
+          ))}
         </div>
       </div>
     </div>

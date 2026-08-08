@@ -31,6 +31,19 @@ import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 // window.api is exposed by the preload contextBridge (see src/preload/index.ts).
 const api = (): any => (window as unknown as { api: any }).api
 
+// Bulk actions here swallow per-agent errors; surface the outcome through the
+// global toast wired in App.tsx (the 'redesign:toast' receiver) so feedback that
+// previously had nowhere to go actually reaches the user.
+const toast = (msg: string, err = false): void => {
+  try {
+    window.dispatchEvent(new CustomEvent('redesign:toast', { detail: { msg, err } }))
+  } catch {
+    /* ignore */
+  }
+}
+
+const plural = (n: number): string => (n === 1 ? '' : 's')
+
 // Flat provider list for the "Switch provider…" picker (mirrors App.tsx PROVIDER_GROUPS).
 const PROVIDER_OPTIONS: Array<{ id: string; label: string }> = [
   { id: 'claude-tui', label: 'Claude — interactive' },
@@ -185,25 +198,28 @@ export function FleetView(): React.JSX.Element {
   const startAllIdle = useCallback(async () => {
     setBusy(true)
     const idle = agents.filter((a) => !a.running && !a.external)
+    let failed = 0
     for (const a of idle) {
       try {
         await api().startAgent(a.path)
       } catch {
-        /* ignore */
+        failed++
       }
     }
     setBusy(false)
+    if (failed) toast(`Couldn't start ${failed} of ${idle.length} agent${plural(idle.length)}`, true)
     void refresh()
   }, [agents, refresh])
 
   const stopAll = useCallback(async () => {
     setBusy(true)
     const running = agents.filter((a) => a.running)
+    let failed = 0
     for (const a of running) {
       try {
         await api().stopAgent(a.path)
       } catch {
-        /* ignore */
+        failed++
       }
     }
     // mirror App.tsx: also kill any Operate PTYs owned by heavy views
@@ -213,6 +229,7 @@ export function FleetView(): React.JSX.Element {
       /* ignore */
     }
     setBusy(false)
+    if (failed) toast(`Couldn't stop ${failed} of ${running.length} agent${plural(running.length)}`, true)
     void refresh()
   }, [agents, refresh])
 
@@ -251,30 +268,38 @@ export function FleetView(): React.JSX.Element {
       setTaskModal(null)
       return
     }
+    let failed = 0
     for (const p of paths) {
       try {
         await api().sendAgentMessage(p, text) // appends "- [ ] text" to TODO.md
       } catch {
-        /* ignore */
+        failed++
       }
     }
     setTaskText('')
     setTaskModal(null)
+    if (failed) toast(`Couldn't queue the task for ${failed} of ${paths.length} agent${plural(paths.length)}`, true)
+    else toast(`Task queued for ${paths.length} agent${plural(paths.length)}`)
     void refresh()
   }, [taskText, taskModal, refresh])
 
   const submitProvider = useCallback(async () => {
     const paths = provModal?.paths ?? []
+    let failed = 0
     for (const p of paths) {
       try {
         // TODO(redesign): no dedicated setProvider IPC; drive the CLI config.
         // Applies on the agent's NEXT task (needs a loop restart to take hold).
         await api().runCli(['config', 'set', 'provider', provChoice], p)
       } catch {
-        /* ignore */
+        failed++
       }
     }
     setProvModal(null)
+    if (failed)
+      toast(`Couldn't switch provider for ${failed} of ${paths.length} agent${plural(paths.length)}`, true)
+    else if (paths.length)
+      toast(`Provider set for ${paths.length} agent${plural(paths.length)} · restart to take hold`)
     void refresh()
   }, [provModal, provChoice, refresh])
 
@@ -424,7 +449,16 @@ export function FleetView(): React.JSX.Element {
 
       {/* row "···" context menu */}
       {menu && menuAgent && (
-        <div style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 40 }}>
+        <div
+          style={{
+            position: 'fixed',
+            // Clamp to the viewport so bottom/right rows don't open off-screen
+            // (mirrors AgentsView).
+            left: Math.min(menu.x, window.innerWidth - 240),
+            top: Math.min(menu.y, window.innerHeight - 220),
+            zIndex: 40
+          }}
+        >
           <ContextMenu
             header={menuAgent.name}
             onClose={() => setMenu(null)}

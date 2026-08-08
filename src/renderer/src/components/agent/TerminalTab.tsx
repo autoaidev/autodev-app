@@ -15,6 +15,12 @@ import './TerminalTab.css'
  * one-way (it only ever mounts the pane), and the parent (Stage 3) keeps this
  * whole tab mounted with display:none when another sub-tab is shown.
  *
+ * This component is ALWAYS keyed per agent path by its keep-alive host (AgentDetail):
+ * each agent gets its own instance, so `takenOver` is naturally scoped per agent
+ * (a freshly selected agent starts read-only and never auto-spawns a shell), and a
+ * taken-over instance stays mounted across agent-switches so its PTY survives. On
+ * take-over we notify the host via onTakenOver so it keeps this path mounted.
+ *
  * TODO(redesign): the mockup's default "READ-ONLY" state mirrors the running
  * loop's own tmux session. The real PTY api (ptySpawn/onPtyData) has no
  * read-only tap into an already-running external loop — the read-only tail we DO
@@ -35,10 +41,22 @@ function basename(p: string): string {
   return parts[parts.length - 1] || p
 }
 
-export function TerminalTab({ agentPath }: { agentPath: string }): JSX.Element {
+export function TerminalTab({
+  agentPath,
+  onTakenOver
+}: {
+  agentPath: string
+  onTakenOver?: () => void
+}): JSX.Element {
   const [agent, setAgent] = useState<AgentLite | null>(null)
   // Once true, the interactive pane is mounted and stays mounted (keep-alive).
   const [takenOver, setTakenOver] = useState(false)
+  // Mount the live pane AND tell the host to keep this path mounted so switching
+  // agents never unmounts (SIGKILLs) it.
+  const takeOver = (): void => {
+    setTakenOver(true)
+    onTakenOver?.()
+  }
 
   useEffect(() => {
     let alive = true
@@ -78,7 +96,7 @@ export function TerminalTab({ agentPath }: { agentPath: string }): JSX.Element {
         ) : (
           <>
             <span className="dv-term__chip is-readonly">Read-only</span>
-            <Button size="sm" onClick={() => setTakenOver(true)}>
+            <Button size="sm" onClick={takeOver}>
               Take over
             </Button>
           </>
@@ -99,7 +117,7 @@ export function TerminalTab({ agentPath }: { agentPath: string }): JSX.Element {
               workspace and type directly — the running loop keeps its own session, so use
               <kbd> ⌃C</kbd> there to interrupt it.
             </div>
-            <Button variant="primary" onClick={() => setTakenOver(true)}>
+            <Button variant="primary" onClick={takeOver}>
               Take over to type
             </Button>
           </div>
@@ -115,7 +133,7 @@ export function TerminalTab({ agentPath }: { agentPath: string }): JSX.Element {
           <button
             type="button"
             className="dv-term__takeover"
-            onClick={() => setTakenOver(true)}
+            onClick={takeOver}
           >
             Take over to type into this session…
           </button>

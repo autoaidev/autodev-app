@@ -5,7 +5,10 @@
   --border: #2d333b;
   --fg: #e6edf3;
   --fg2: #9da7b3;
-  --accent: #2f81f7;
+  /* --accent is intentionally NOT defined here: ui/theme.css owns the shared
+     --accent token. Redefining it on :root (styles.css loads after theme.css)
+     clobbered the redesign accent app-wide at equal specificity. Legacy rules
+     below resolve var(--accent) from theme.css instead. */
   --green: #3fb950;
   --amber: #d29922;
   --red: #f85149;

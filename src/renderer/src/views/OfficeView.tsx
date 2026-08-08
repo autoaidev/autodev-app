@@ -23,7 +23,7 @@ import {
  * operating a character opens a live TerminalTabs pane in the stream area (its PTY
  * stays mounted per the keep-alive rule); spawning starts tracked loops (log panes).
  */
-export function OfficeView(): React.JSX.Element {
+export function OfficeView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
   // ── connection / login ──
   const [connected, setConnected] = useState(false)
   const [base, setBase] = useState('')
@@ -86,6 +86,14 @@ export function OfficeView(): React.JSX.Element {
   const msgInFlight = useRef(false)
   const termsRef = useRef<OpenTerm[]>([])
   useEffect(() => { termsRef.current = terms }, [terms])
+
+  // Auth expired mid-action. NEVER swap to the login form while live Operate PTYs
+  // are mounted — the login return unmounts <TerminalTabs> and SIGKILLs them.
+  // Mirror the poll-path guard: surface a soft reconnect notice instead.
+  const handleAuthExpiry = useCallback((): void => {
+    if (termsRef.current.length) { setListErr('Office session needs reconnect — your running session is unaffected.'); return }
+    setConnected(false); setLoaded(false); setErr(EXPIRED)
+  }, [])
 
   // Fold the flat agent list into offices (client-side derive, no backend change).
   const grouped = useMemo<OfficeGroup[]>(() => {
@@ -166,12 +174,12 @@ export function OfficeView(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
-    if (!connected) return
+    if (!connected || !visible) return
     const id = setInterval(pollAgents, 8000)
     const onFocus = (): void => { void pollAgents() }
     window.addEventListener('focus', onFocus)
     return () => { clearInterval(id); window.removeEventListener('focus', onFocus) }
-  }, [connected, pollAgents])
+  }, [connected, visible, pollAgents])
 
   // ── mount: resolve base + auto-connect ──
   useEffect(() => {
@@ -198,15 +206,21 @@ export function OfficeView(): React.JSX.Element {
     finally { msgInFlight.current = false }
   }, [])
 
+  // Depend on STABLE primitives (slug/ref), not the useMemo object identities —
+  // otherwise this re-ran every 8s poll (new selectedGroup/focusedChar objects)
+  // and setMessages([]) flashed the transcript empty. Now it only re-runs (and
+  // only clears) when the selected office or focused character actually changes.
+  const focusedRef = focusedChar?.slug ?? focusedChar?.id
   useEffect(() => {
     setMessages([])
-    if (!connected || !selectedGroup || !focusedChar) return
+    if (!connected || !visible || !selectedGroup || !focusedChar) return
     const slug = selectedGroup.slug
     const ref = focusedChar.slug
     void loadMessages(slug, ref)
     const id = setInterval(() => void loadMessages(slug, ref), 5000)
     return () => clearInterval(id)
-  }, [connected, selectedGroup, focusedChar, loadMessages])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, visible, selectedGroup?.slug, focusedRef, loadMessages])
 
   // ── connect / disconnect ──
   const connect = useCallback(async () => {
@@ -249,21 +263,31 @@ export function OfficeView(): React.JSX.Element {
   // Operate a SINGLE character in an interactive terminal (preserves the feature).
   const operate = useCallback(async (a: OfficeAgent) => {
     const rid = a.officeSlug + a.id
-    const id = `op-${a.officeSlug}-${a.id}`
-    if (terms.some((t) => t.id === id) && !endedIds.has(id)) { setActiveTermId(id); return }
+    const baseId = `op-${a.officeSlug}-${a.id}`
+    // A live (non-ended) pane for this character may carry a generation suffix.
+    const existing = terms.find((t) => t.id === baseId || t.id.startsWith(`${baseId}#`))
+    if (existing && !endedIds.has(existing.id)) { setActiveTermId(existing.id); return }
     if (operatingId === rid) return
     setListErr(''); setOperatingId(rid)
     try {
       const r = (await window.api.officeOperate(a.officeSlug, a.id, a.slug)) as { ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }
       if (r?.error || !r?.cwd) {
-        if (r?.error && isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        if (r?.error && isAuthError(r.error)) handleAuthExpiry()
         else setListErr(r?.error || 'Could not prepare the operate workspace')
         return
       }
+      // Re-operating an ENDED character: drop the stale (dead-PTY) term and mint a
+      // generation-suffixed id so React unmounts the old TerminalPane and mounts a
+      // FRESH one that spawns a new PTY — reusing the stale id never remounts.
+      if (existing) {
+        setTerms((prev) => prev.filter((t) => t.id !== existing.id))
+        setEndedIds((prev) => { const n = new Set(prev); n.delete(existing.id); return n })
+      }
+      const id = existing ? `${baseId}#${Date.now()}` : baseId
       openTerm({ id, kind: 'pty', cwd: r.cwd, mcpUrl: r.mcpUrl, name: `${a.name} · ${a.office}`, agentId: a.id, command: providerToCommand(a.provider), provider: a.provider })
       void pollAgents()
     } finally { setOperatingId('') }
-  }, [terms, endedIds, operatingId, openTerm, pollAgents])
+  }, [terms, endedIds, operatingId, openTerm, pollAgents, handleAuthExpiry])
 
   // Spawn the WHOLE office as tracked loops (block-if-any-online); auto-open log panes.
   const spawnOffice = useCallback(async (g: OfficeGroup) => {
@@ -274,7 +298,7 @@ export function OfficeView(): React.JSX.Element {
       if ('error' in r) {
         const online = (r as { online?: string[] }).online
         const who = online && online.length ? ` (online: ${online.join(', ')})` : ''
-        if (isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        if (isAuthError(r.error)) handleAuthExpiry()
         else setListErr(r.error + who)
         return
       }
@@ -290,10 +314,10 @@ export function OfficeView(): React.JSX.Element {
       void pollAgents()
     } catch (e) {
       const msg = String((e as Error)?.message ?? e)
-      if (isAuthError(msg)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+      if (isAuthError(msg)) handleAuthExpiry()
       else setListErr(msg)
     } finally { setSpawningOffice('') }
-  }, [spawningOffice, openTerm, pollAgents])
+  }, [spawningOffice, openTerm, pollAgents, handleAuthExpiry])
 
   const stopOffice = useCallback(async (g: OfficeGroup) => {
     if (stoppingOffice) return
@@ -301,7 +325,7 @@ export function OfficeView(): React.JSX.Element {
     try {
       const r = await window.api.officeStopOffice(g.slug)
       if ('error' in r) {
-        if (isAuthError(r.error)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+        if (isAuthError(r.error)) handleAuthExpiry()
         else setListErr(r.error)
         return
       }
@@ -315,10 +339,10 @@ export function OfficeView(): React.JSX.Element {
       void pollAgents()
     } catch (e) {
       const msg = String((e as Error)?.message ?? e)
-      if (isAuthError(msg)) { setConnected(false); setLoaded(false); setErr(EXPIRED) }
+      if (isAuthError(msg)) handleAuthExpiry()
       else setListErr(msg)
     } finally { setStoppingOffice('') }
-  }, [stoppingOffice, pollAgents])
+  }, [stoppingOffice, pollAgents, handleAuthExpiry])
 
   // Live instant-message (steer) — NOT a queued TODO task.
   const steer = useCallback(async (agentId: string, text: string) => {

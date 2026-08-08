@@ -193,9 +193,9 @@ export default function App(): JSX.Element {
         </div>
       )}
       {/* Content-only screens get the shell from here; kept mounted for keep-alive. */}
-      {opened.has('office') && <div style={layer(nav === 'office')}>{contentShell(<OfficeView />)}</div>}
+      {opened.has('office') && <div style={layer(nav === 'office')}>{contentShell(<OfficeView visible={nav === 'office'} />)}</div>}
       {opened.has('sessions') && (
-        <div style={layer(nav === 'sessions')}>{contentShell(<SessionsView />)}</div>
+        <div style={layer(nav === 'sessions')}>{contentShell(<SessionsView active={nav === 'sessions'} />)}</div>
       )}
       {opened.has('makeapp') && (
         <div style={layer(nav === 'makeapp')}>{contentShell(<MakeAppView />)}</div>

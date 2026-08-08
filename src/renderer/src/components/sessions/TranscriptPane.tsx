@@ -24,7 +24,12 @@ export function TranscriptPane({
   resumeDisabled,
   resumeTitle,
   onExport,
+  exportDisabled,
+  exportTitle,
   onInterject,
+  interjectDisabled,
+  interjectHint,
+  notice,
   connectSlot
 }: {
   session: SessionMeta
@@ -33,21 +38,31 @@ export function TranscriptPane({
   resumeDisabled?: boolean
   resumeTitle?: string
   onExport: () => void
-  onInterject: (text: string) => void
+  exportDisabled?: boolean
+  exportTitle?: string
+  // Returns an {error} when the write is rejected (e.g. non-AutoDev cwd); the
+  // composer keeps the draft and shows the error instead of silently clearing.
+  onInterject: (text: string) => void | Promise<{ error?: string } | void>
+  interjectDisabled?: boolean
+  interjectHint?: string
+  notice?: { kind: 'ok' | 'error'; text: string } | null
   connectSlot?: ReactNode
 }): JSX.Element {
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const [draft, setDraft] = useState('')
+  const [sendErr, setSendErr] = useState('')
   const agent = baseName(session.cwd)
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
   }, [msgs])
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     const t = draft.trim()
-    if (!t) return
-    onInterject(t)
+    if (!t || interjectDisabled) return
+    const r = await onInterject(t)
+    if (r && 'error' in r && r.error) { setSendErr(r.error); return }
+    setSendErr('')
     setDraft('')
   }
 
@@ -74,10 +89,30 @@ export function TranscriptPane({
         >
           <Icon name="clock" size={12} /> Resume here
         </Button>
-        <Button size="sm" onClick={onExport} title="Export this session's trace">
+        <Button
+          size="sm"
+          onClick={onExport}
+          disabled={exportDisabled}
+          title={exportTitle ?? "Export this session's trace"}
+          style={exportDisabled ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+        >
           <Icon name="external" size={12} /> Export
         </Button>
       </div>
+
+      {notice && (
+        <div
+          role={notice.kind === 'error' ? 'alert' : 'status'}
+          style={{
+            padding: '7px 18px',
+            borderBottom: '1px solid var(--bd-2)',
+            fontSize: 'var(--fs-meta)',
+            color: notice.kind === 'error' ? 'var(--st-error)' : 'var(--st-running)'
+          }}
+        >
+          {notice.text}
+        </div>
+      )}
 
       {connectSlot}
 
@@ -112,13 +147,28 @@ export function TranscriptPane({
       <div className="sv-composer">
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); if (sendErr) setSendErr('') }}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() } }}
-          placeholder="Interject in this session…"
+          placeholder={interjectDisabled ? (interjectHint ?? 'Read-only session') : 'Interject in this session…'}
           aria-label="Interject in this session"
+          disabled={interjectDisabled}
+          title={interjectDisabled ? interjectHint : undefined}
+          style={interjectDisabled ? { opacity: 0.55, cursor: 'not-allowed' } : undefined}
         />
-        <Button variant="primary" size="sm" onClick={submit} disabled={!draft.trim()}>Send</Button>
+        <Button variant="primary" size="sm" onClick={submit} disabled={interjectDisabled || !draft.trim()}>Send</Button>
       </div>
+      {(sendErr || (interjectDisabled && interjectHint)) && (
+        <div
+          role={sendErr ? 'alert' : undefined}
+          style={{
+            padding: '0 18px 8px',
+            fontSize: 'var(--fs-meta)',
+            color: sendErr ? 'var(--st-error)' : 'var(--tx-3)'
+          }}
+        >
+          {sendErr || interjectHint}
+        </div>
+      )}
     </>
   )
 }

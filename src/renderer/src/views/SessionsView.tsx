@@ -33,7 +33,7 @@ type TermState = { id: string; cwd: string; command?: string; name?: string }
  * claude session into a pixel office (officeConnectSession) and streams it as a
  * PTY; New session spawns an interactive PTY (ptySpawn via TerminalPane).
  */
-export function SessionsView(): JSX.Element {
+export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.Element {
   const [list, setList] = useState<SessionMeta[]>([])
   const [filter, setFilter] = useState<ProviderFilter>('all')
   const [query, setQuery] = useState('')
@@ -42,6 +42,11 @@ export function SessionsView(): JSX.Element {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [term, setTerm] = useState<TermState | null>(null)
+  // Whether the selected session's cwd is a writable AutoDev workspace — gates
+  // Interject (queues into TODO.md) and Export (needs .autodev/settings.json).
+  const [workspace, setWorkspace] = useState<{ exists: boolean } | null>(null)
+  // Transient export result surfaced in the transcript header.
+  const [exportNote, setExportNote] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
   // Resume-here (claude → office) inline connect bar state.
   const [connectOpen, setConnectOpen] = useState(false)
@@ -59,12 +64,15 @@ export function SessionsView(): JSX.Element {
   }, [])
 
   // Rescan on mount + every 5s. (This view stays mounted across tab switches so a
-  // live Resume PTY survives — see CURRENT-APP §5.1 — hence the light poll.)
+  // live Resume PTY survives — see CURRENT-APP §5.1 — hence the light poll.) The
+  // poll is gated on `active` so a hidden tab stops rescanning the filesystem; we
+  // still refresh immediately whenever the tab (re)activates.
   useEffect(() => {
     refresh()
+    if (!active) return
     const id = setInterval(refresh, 5000)
     return () => clearInterval(id)
-  }, [refresh])
+  }, [refresh, active])
 
   // Live tail: append incoming lines for the currently-open transcript (claude).
   useEffect(() => {
@@ -85,15 +93,31 @@ export function SessionsView(): JSX.Element {
   const openSession = useCallback(async (s: SessionMeta) => {
     const prev = selFile.current
     selFile.current = s.provider === 'claude' ? s.file : null
-    setTerm(null)
+    // NOTE: do NOT setTerm(null) here. The terminal and transcript are visually
+    // mutually exclusive, but tearing down the TerminalPane runs its [id] cleanup
+    // → window.api.ptyKill → the live Resume/New PTY dies. We keep the pane MOUNTED
+    // (hidden via display:none while a transcript is shown, see the pane below) so
+    // peeking another session never silently kills a running session.
     setSel(s)
     setMsgs([])
     setConnectOpen(false)
+    setWorkspace(null)
+    setExportNote(null)
     try {
       if (prev && prev !== selFile.current) await window.api.sessionClose(prev)
       setMsgs((await window.api.sessionBacklog({ file: s.file, provider: s.provider, id: s.id, cwd: s.cwd })) as SessionMsg[])
       if (s.provider === 'claude' && s.file) await window.api.sessionOpen(s.file)
     } catch (e) { console.error('[SessionsView.openSession]', e) }
+    try {
+      const info = (await window.api.workspaceInfo(s.cwd)) as { exists: boolean }
+      setWorkspace({ exists: !!info?.exists })
+    } catch { setWorkspace({ exists: false }) }
+  }, [])
+
+  // Return to a live terminal that's been hidden behind a peeked transcript.
+  const backToTerminal = useCallback(async () => {
+    if (selFile.current) { await window.api.sessionClose(selFile.current); selFile.current = null }
+    setSel(null); setMsgs([]); setConnectOpen(false); setExportNote(null)
   }, [])
 
   const newSession = useCallback(async () => {
@@ -139,19 +163,25 @@ export function SessionsView(): JSX.Element {
 
   const exportTrace = useCallback(async () => {
     if (!sel) return
+    setExportNote(null)
     const out = (await window.api.saveFile(`${sel.provider}-${sel.id.slice(0, 8)}.trace.txt`)) as string | null
     if (!out) return
     // exportTrace keys off the workspace path (grok native trace / backup zip).
-    await window.api.exportTrace(sel.cwd, out)
+    const r = await window.api.exportTrace(sel.cwd, out)
+    if ('error' in r) { setExportNote({ kind: 'error', text: r.error }); return }
+    setExportNote({ kind: 'ok', text: r.note ? `Exported to ${r.output} — ${r.note}` : `Exported to ${r.output}` })
   }, [sel])
 
-  const interject = useCallback((text: string) => {
-    if (!sel) return
-    // TODO(redesign): no api injects a message straight into a read transcript.
-    // The closest real write is queuing a task into the session's workspace
-    // TODO.md (sendAgentMessage); the live steer path (officeSteer) needs an
-    // office agent id we don't have from a bare SessionMeta.
-    window.api.sendAgentMessage(sel.cwd, text)
+  const interject = useCallback(async (text: string): Promise<{ error?: string }> => {
+    if (!sel) return { error: 'No session selected.' }
+    // No api injects a message straight into a read transcript. The closest real
+    // write is queuing a task into the session's workspace TODO.md
+    // (sendAgentMessage); it rejects a non-AutoDev cwd, so surface that {error}
+    // instead of discarding it (the live steer path needs an office agent id we
+    // don't have from a bare SessionMeta).
+    const r = (await window.api.sendAgentMessage(sel.cwd, text)) as { ok: true } | { error: string }
+    if ('error' in r) return { error: r.error }
+    return {}
   }, [sel])
 
   // ---- derived: filter + search + group + fold ----
@@ -289,8 +319,10 @@ export function SessionsView(): JSX.Element {
 
       {/* ---------- transcript / terminal pane ---------- */}
       <div className="sv-pane">
+        {/* The terminal stays MOUNTED whenever `term` is set — hidden (not
+            unmounted) while a transcript is peeked, so the live PTY survives. */}
         {term && (
-          <>
+          <div style={{ display: sel ? 'none' : 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
             <div className="sv-pane-head">
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="sv-pane-title">
@@ -313,7 +345,7 @@ export function SessionsView(): JSX.Element {
                 onExit={() => refresh()}
               />
             </div>
-          </>
+          </div>
         )}
 
         {!term && !sel && (
@@ -323,18 +355,45 @@ export function SessionsView(): JSX.Element {
           </div>
         )}
 
-        {!term && sel && (
-          <TranscriptPane
-            session={sel}
-            msgs={msgs}
-            onResume={openResume}
-            resumeDisabled={sel.provider !== 'claude'}
-            resumeTitle={sel.provider === 'claude'
-              ? 'Bind this session to a pixel office and resume it live as an agent'
-              : 'Resume live is supported for Claude sessions only'}
-            onExport={exportTrace}
-            onInterject={interject}
-            connectSlot={connectOpen && (
+        {sel && (
+          <>
+            {term && (
+              <button
+                type="button"
+                onClick={backToTerminal}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
+                  padding: '7px 18px', border: 'none', borderBottom: '1px solid var(--bd-2)',
+                  background: 'var(--st-running-wash)', color: 'var(--tx-2)',
+                  fontSize: 'var(--fs-meta)', cursor: 'pointer'
+                }}
+                title="Return to the live session running in the background"
+              >
+                <Pill variant="green" mono selected>LIVE</Pill>
+                <span>{term.name ?? 'claude'} is still running in the background — return</span>
+                <Icon name="caret" size={9} color="var(--tx-4)" style={{ transform: 'rotate(-90deg)', marginLeft: 'auto' }} />
+              </button>
+            )}
+            <TranscriptPane
+              session={sel}
+              msgs={msgs}
+              onResume={openResume}
+              resumeDisabled={sel.provider !== 'claude'}
+              resumeTitle={sel.provider === 'claude'
+                ? 'Bind this session to a pixel office and resume it live as an agent'
+                : 'Resume live is supported for Claude sessions only'}
+              onExport={exportTrace}
+              exportDisabled={workspace ? !workspace.exists : false}
+              exportTitle={workspace && !workspace.exists
+                ? "Export needs an AutoDev workspace (.autodev/settings.json) — this session's folder isn't one"
+                : "Export this session's trace"}
+              onInterject={interject}
+              interjectDisabled={workspace ? !workspace.exists : false}
+              interjectHint={workspace && !workspace.exists
+                ? "Read-only: this session's folder isn't an AutoDev workspace, so there's nowhere to queue a message."
+                : undefined}
+              notice={exportNote}
+              connectSlot={connectOpen && (
               <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--bd-2)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: 'var(--bg-1)' }}>
                 <span id="sv-resume-lbl" style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-3)' }}>Resume live as a character in:</span>
                 <select
@@ -353,7 +412,8 @@ export function SessionsView(): JSX.Element {
                 {connectErr && <span role="alert" style={{ fontSize: 'var(--fs-meta)', color: 'var(--st-error)' }}>{connectErr}</span>}
               </div>
             )}
-          />
+            />
+          </>
         )}
       </div>
     </div>
