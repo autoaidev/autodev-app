@@ -77,6 +77,9 @@ export function JsonCodeBlock({
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const gutterRef = React.useRef<HTMLDivElement>(null)
   const renderRef = React.useRef<HTMLPreElement>(null)
+  // The error-highlight band is a sibling of the scrolled <pre>, so it must be
+  // offset by the textarea's scrollTop or it desyncs from its line on scroll.
+  const [scrollTop, setScrollTop] = React.useState(0)
 
   // keep the tinted layer + gutter scroll-locked to the textarea
   const syncScroll = React.useCallback((): void => {
@@ -87,6 +90,7 @@ export function JsonCodeBlock({
       renderRef.current.scrollLeft = ta.scrollLeft
     }
     if (gutterRef.current) gutterRef.current.scrollTop = ta.scrollTop
+    setScrollTop(ta.scrollTop)
   }, [])
 
   return (
@@ -135,23 +139,28 @@ export function JsonCodeBlock({
         </div>
 
         {/* code area: tinted render under a transparent-text textarea */}
-        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
-          {/* highlight band for the offending line */}
-          {highlightLine && highlightLine >= 1 && highlightLine <= lines.length && (
-            <div
-              aria-hidden
-              style={{
-                position: 'absolute',
-                left: 0,
-                right: 0,
-                top: 10 + (highlightLine - 1) * CELL_LH,
-                height: CELL_LH,
-                background: 'var(--st-error-wash)',
-                boxShadow: 'inset 2px 0 0 var(--st-error)',
-                pointerEvents: 'none'
-              }}
-            />
-          )}
+        <div style={{ position: 'relative', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          {/* highlight band for the offending line — tracks the textarea scroll and
+              hides when the line scrolls out of the 220px viewport. */}
+          {highlightLine && highlightLine >= 1 && highlightLine <= lines.length && (() => {
+            const bandTop = 10 + (highlightLine - 1) * CELL_LH - scrollTop
+            if (bandTop + CELL_LH <= 10 || bandTop >= 220) return null // off-viewport
+            return (
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: bandTop,
+                  height: CELL_LH,
+                  background: 'var(--st-error-wash)',
+                  boxShadow: 'inset 2px 0 0 var(--st-error)',
+                  pointerEvents: 'none'
+                }}
+              />
+            )
+          })()}
           <pre
             ref={renderRef}
             aria-hidden
