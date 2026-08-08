@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button } from '@renderer/ui'
+import { Button, Icon } from '@renderer/ui'
+import { navTo } from '@renderer/nav'
 import { useOfficeMessages, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
 import './ChatTab.css'
@@ -53,6 +54,9 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  // Which slash chip is being pressed — gives the chips a real active/press state
+  // (border + hover live in ChatTab.css; this adds the momentary pressed feedback).
+  const [pressedChip, setPressedChip] = useState<string | null>(null)
 
   const rootRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
@@ -164,16 +168,27 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     taRef.current?.focus()
   }
 
-  // Local agent with no office character — chat needs an office link.
+  // Local agent with no office character — chat needs an office link. Actionable
+  // empty state: one-line explanation + a primary route to the Office tab. The
+  // composer/slash chips are intentionally NOT rendered here — inviting typing
+  // while disconnected contradicts the "not connected" message.
   if (agent !== null && !ref) {
     return (
       <div className="dv-chat" ref={rootRef}>
         <div className="dv-chat__empty">
-          <div className="dv-chat__empty-glyph">💬</div>
-          <div className="dv-chat__empty-title">No office conversation</div>
+          <div className="dv-chat__empty-glyph" style={{ color: 'var(--tx-dim)' }}>
+            <Icon name="office" size={26} />
+          </div>
+          <div className="dv-chat__empty-title">Not connected to a Pixel Office</div>
           <div className="dv-chat__empty-body">
-            This is a local agent. Connect it to a Pixel Office character to read and
-            message its conversation here — messages you send steer the agent live.
+            Chat is this agent&rsquo;s shared office conversation. A Pixel Office is an
+            optional team server — connect the agent to a character to read and steer it
+            here.
+          </div>
+          <div style={{ marginTop: 14 }}>
+            <Button variant="primary" onClick={() => navTo('office')}>
+              <Icon name="office" size={12} /> Connect to office…
+            </Button>
           </div>
         </div>
       </div>
@@ -234,7 +249,25 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
 
       <div className="dv-chat__slash" role="group" aria-label="Slash commands">
         {SLASH_COMMANDS.map((cmd) => (
-          <button key={cmd} type="button" className="dv-chat__chip" onClick={() => insertSlash(cmd)}>
+          <button
+            key={cmd}
+            type="button"
+            className="dv-chat__chip"
+            onClick={() => insertSlash(cmd)}
+            onMouseDown={() => setPressedChip(cmd)}
+            onMouseUp={() => setPressedChip(null)}
+            onMouseLeave={() => setPressedChip(null)}
+            style={
+              pressedChip === cmd
+                ? {
+                    transform: 'translateY(1px)',
+                    color: 'var(--accent-ink)',
+                    background: 'var(--bg-accent-soft)',
+                    borderColor: 'var(--bd-accent)'
+                  }
+                : undefined
+            }
+          >
             {cmd}
           </button>
         ))}

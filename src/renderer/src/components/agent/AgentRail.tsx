@@ -44,7 +44,7 @@ export type AgentAction =
 export type BulkAction = 'start' | 'stop' | 'restart' | 'add'
 
 type Filter = 'all' | 'running' | 'attention'
-type GroupBy = 'office' | 'provider' | 'status'
+type GroupBy = 'office' | 'role' | 'provider' | 'state'
 
 export interface AgentRailProps {
   agents: AgentState[]
@@ -78,26 +78,58 @@ function parentFolderName(path: string): string {
   return parts.length >= 2 ? parts[parts.length - 2] : 'workspace'
 }
 
+/**
+ * The mono office/path label shown as the header `sub`. The office slug is used
+ * here ONLY (never as a grouping key). When there's no bound office we fall back
+ * to the two path segments above the workspace so the header still locates the
+ * folder.
+ */
+function officePathLabel(a: AgentState): string {
+  if (a.officeSlug) return `offices/${a.officeSlug}`
+  const parts = a.path.replace(/\/+$/, '').split('/').filter(Boolean)
+  return parts.slice(-3, -1).join('/') || parentFolderName(a.path)
+}
+
+/** A semantic role for the Role partition — the office character slug, else the
+ *  agent name with its trailing id hash stripped. */
+function roleOf(a: AgentState): string {
+  if (a.officeAgentSlug) return a.officeAgentSlug
+  const stripped = a.name.replace(/[-_][0-9a-f]{4,12}$/i, '').trim()
+  return stripped || a.name
+}
+
 function groupKeyFor(a: AgentState, by: GroupBy): { key: string; label: string; sub: string } {
   if (by === 'provider') {
     const p = providerShort(a.provider)
     return { key: `p:${p}`, label: p, sub: 'provider' }
   }
-  if (by === 'status') {
-    return { key: `s:${a.activity}`, label: ACTIVITY_LABEL[a.activity], sub: 'status' }
+  if (by === 'state') {
+    return { key: `s:${a.activity}`, label: ACTIVITY_LABEL[a.activity], sub: 'state' }
   }
-  // office: prefer the bound office slug, else the containing folder
-  if (a.officeSlug) return { key: `o:${a.officeSlug}`, label: a.officeSlug.replace(/-/g, ' '), sub: `offices/${a.officeSlug}` }
-  if (a.wsUrl || a.officeAgentSlug) return { key: 'o:bound', label: 'Office', sub: 'connected' }
+  if (by === 'role') {
+    const r = roleOf(a)
+    return { key: `r:${r.toLowerCase()}`, label: r.replace(/[-_]/g, ' '), sub: 'role' }
+  }
+  // office folder: key on the CONTAINING SUBFOLDER first, so each real subfolder
+  // (director/, editor/, gaffer/, architect/…) becomes its own group. The office
+  // slug is ONLY the header's mono path label — never the grouping key. Keying on
+  // the slug/wsUrl is exactly what collapsed the whole fleet into one "Office"
+  // bucket before, nullifying the "office lives on the header" premise.
   const folder = parentFolderName(a.path)
-  if (!folder || folder === 'workspace') return { key: 'o:none', label: 'No office', sub: 'unbound' }
-  return { key: `f:${folder}`, label: folder.replace(/[-_]/g, ' '), sub: folder }
+  const label =
+    folder && folder !== 'workspace'
+      ? folder.replace(/[-_]/g, ' ')
+      : a.officeSlug
+        ? a.officeSlug.replace(/[-_]/g, ' ')
+        : 'workspace'
+  return { key: `f:${folder}`, label, sub: officePathLabel(a) }
 }
 
 function GroupHeader({
   label,
   sub,
   agents,
+  providerLabel,
   expanded,
   onToggleExpand,
   groupChecked,
@@ -106,6 +138,10 @@ function GroupHeader({
   label: string
   sub: string
   agents: AgentState[]
+  /** Provider shared by every agent in the group — rendered once here so the
+   *  rows never repeat it (R2). Undefined when the group is mixed, or when the
+   *  list is already partitioned by provider (the label would be redundant). */
+  providerLabel?: string
   expanded: boolean
   onToggleExpand: () => void
   groupChecked: 'none' | 'some' | 'all'
@@ -170,6 +206,21 @@ function GroupHeader({
         </span>
       </div>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}>
+        {providerLabel && (
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-micro)',
+              color: 'var(--tx-4)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              maxWidth: 78
+            }}
+          >
+            {providerLabel}
+          </span>
+        )}
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--tx-dim)' }}>
           {running}/{agents.length}
         </span>
@@ -181,8 +232,9 @@ function GroupHeader({
 
 const GROUP_OPTIONS: { id: GroupBy; label: string }[] = [
   { id: 'office', label: 'Office folder' },
+  { id: 'role', label: 'Role' },
   { id: 'provider', label: 'Provider' },
-  { id: 'status', label: 'Status' }
+  { id: 'state', label: 'State' }
 ]
 
 export function AgentRail({
@@ -369,12 +421,18 @@ export function AgentRail({
         )}
         {groups.map(([key, g]) => {
           const expanded = !collapsed.has(key)
+          // Provider is carried once on the header (R2). Show it only when every
+          // row in the group shares one provider AND we aren't already grouping
+          // by provider (which would make the header label + this redundant).
+          const provs = new Set(g.agents.map((a) => providerShort(a.provider)))
+          const providerLabel = groupBy !== 'provider' && provs.size === 1 ? [...provs][0] : undefined
           return (
             <div key={key} style={{ marginBottom: 4 }}>
               <GroupHeader
                 label={g.label}
                 sub={g.sub}
                 agents={g.agents}
+                providerLabel={providerLabel}
                 expanded={expanded}
                 onToggleExpand={() =>
                   setCollapsed((prev) => {

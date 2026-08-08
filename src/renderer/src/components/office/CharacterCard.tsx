@@ -9,6 +9,21 @@ import { OfficeAgent, initials, tickFor } from './officeTypes'
  * Disconnected: dashed avatar border, dimmed, with a blue "Connect & operate" CTA.
  * Selected + connected: inset accent ring.
  */
+
+/**
+ * Canonical provider display — one label form app-wide (matches Settings'
+ * "Grok / Claude / OpenCode / Copilot"), so the rail never shows the raw runner
+ * id (`grok-cli` / `grok-tui`). The runner suffix is dropped; the family name is
+ * what the user recognises.
+ */
+export function providerLabel(id: string): string {
+  const s = (id || '').toLowerCase()
+  if (s.startsWith('grok')) return 'Grok'
+  if (s.startsWith('claude')) return 'Claude'
+  if (s.startsWith('opencode')) return 'OpenCode'
+  if (s.startsWith('copilot')) return 'Copilot'
+  return id
+}
 export interface CharacterCardProps {
   agent: OfficeAgent
   selected: boolean
@@ -98,13 +113,13 @@ export function CharacterCard({
               style={{
                 fontFamily: 'var(--font-mono)',
                 fontSize: 'var(--fs-tiny)',
-                color: 'var(--tx-dim)',
+                color: 'var(--tx-4)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis'
               }}
             >
-              {agent.provider}
+              {providerLabel(agent.provider)}
             </div>
           )}
         </div>

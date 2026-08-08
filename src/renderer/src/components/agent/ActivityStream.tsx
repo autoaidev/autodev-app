@@ -1,4 +1,5 @@
 import React from 'react'
+import { Button, Icon } from '@renderer/ui'
 import { LogRow, LogSeverity } from './LogRow'
 import { useAgentLog } from '@renderer/services/logBuffer'
 
@@ -160,9 +161,26 @@ export interface ActivityStreamProps {
    * transition doesn't leave the view scrolled up.
    */
   active?: boolean
+  /** live run flag — drives the empty state (idle → Start CTA, running → waiting). */
+  running?: boolean
+  /** last-session task tally, shown as a summary line in the empty state. */
+  tasksDone?: number
+  tasksTotal?: number
+  /** start the agent from the empty state's primary CTA (idle only). */
+  onStart?: () => void
 }
 
-export function ActivityStream({ path, lastOutput, follow, raw = false, active = true }: ActivityStreamProps): React.JSX.Element {
+export function ActivityStream({
+  path,
+  lastOutput,
+  follow,
+  raw = false,
+  active = true,
+  running = false,
+  tasksDone = 0,
+  tasksTotal = 0,
+  onStart
+}: ActivityStreamProps): React.JSX.Element {
   const ref = React.useRef<HTMLDivElement>(null)
 
   // Read the shared, path-scoped buffer; fall back to the agent's initial snapshot
@@ -192,8 +210,39 @@ export function ActivityStream({ path, lastOutput, follow, raw = false, active =
       }}
     >
       {empty ? (
-        <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)', padding: '18px 0' }}>
-          No activity yet. Start the agent to stream its loop here.
+        <div
+          style={{
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            gap: 12,
+            padding: 24
+          }}
+        >
+          <span style={{ color: 'var(--tx-dim)', display: 'inline-flex' }}>
+            <Icon name="terminal" size={26} />
+          </span>
+          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 'var(--fw-selected)', color: 'var(--tx-2)' }}>
+            {running ? 'Waiting for output…' : 'Agent is idle'}
+          </div>
+          <div style={{ maxWidth: 420, fontSize: 'var(--fs-meta)', lineHeight: 1.55, color: 'var(--tx-4)' }}>
+            {running
+              ? 'This agent is running — its loop output will stream here as it works.'
+              : 'Press Start and it picks up the first unchecked task in TODO.md and works autonomously.'}
+          </div>
+          {tasksTotal > 0 && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
+              {tasksDone}/{tasksTotal} tasks done · last session
+            </div>
+          )}
+          {!running && onStart && (
+            <Button variant="primary" onClick={onStart}>
+              <Icon name="play" size={10} /> Start agent
+            </Button>
+          )}
         </div>
       ) : raw ? (
         <pre

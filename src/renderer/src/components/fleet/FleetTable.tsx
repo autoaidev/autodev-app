@@ -3,16 +3,25 @@ import { Icon, StatusDot } from '@renderer/ui'
 import {
   AgentState,
   STATE_LABEL,
+  anyRunning,
   dotStatus,
+  fleetOffice,
   isAttention,
-  officeLabel,
   tasksFraction,
   tasksLabel,
   washTone
 } from './fleet-helpers'
 
-/** Grid template shared by the header row and every data row. */
-const GRID = '14px 190px 130px 110px minmax(0,1fr) 88px 78px 60px'
+/**
+ * Grid template shared by the header row and every data row. The ELAPSED column
+ * is dropped entirely when nothing is running (it would be all "—"), so the
+ * template is derived from `showElapsed`.
+ */
+function gridFor(showElapsed: boolean): string {
+  return showElapsed
+    ? '14px 190px 130px 110px minmax(0,1fr) 88px 78px 60px'
+    : '14px 190px 130px 110px minmax(0,1fr) 88px 60px'
+}
 const COL_GAP = 14
 const ROW_PAD = '10px 12px'
 
@@ -92,11 +101,17 @@ function StateBadge({ a }: { a: AgentState }): React.JSX.Element {
   )
 }
 
-/** 34px mini progress + "n/m" mono. Idle shows a full grey track. */
+/**
+ * 34px mini progress + "n/m" mono. The fill is proportional to done/total and
+ * status-coloured, so a fully-done idle agent (252/252, accent) reads distinctly
+ * from an empty one (0/0, bare track) instead of both rendering identical grey.
+ */
 function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
+  const total = a.tasks.total
   const frac = tasksFraction(a.tasks)
   const running = a.running || a.activity === 'working'
   const tone = washTone(a)
+  const complete = total > 0 && a.tasks.done >= total
   const fill =
     tone === 'red'
       ? 'var(--st-error)'
@@ -104,9 +119,11 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
         ? 'var(--st-needsyou)'
         : running
           ? 'var(--st-running)'
-          : 'var(--st-track)'
-  // idle/stopped: full grey track (per spec) regardless of fraction
-  const width = running || tone !== 'none' ? `${Math.round(frac * 100)}%` : '100%'
+          : complete
+            ? 'var(--accent)' // all done, idle — distinct from running green (R7)
+            : 'var(--st-track)' // partial idle progress
+  // Proportional fill; an empty TODO (no tasks) leaves the bare track visible.
+  const width = total === 0 ? '0%' : `${Math.round(frac * 100)}%`
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
       <span
@@ -136,7 +153,7 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--fs-tiny)',
           fontWeight: 500,
-          color: 'var(--tx-3)'
+          color: total === 0 ? 'var(--tx-ghost)' : complete ? 'var(--accent-ink)' : 'var(--tx-3)'
         }}
       >
         {tasksLabel(a.tasks)}
@@ -147,22 +164,25 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
 
 /* ---------------------------------- header -------------------------------- */
 
-const HEAD = ['', 'AGENT', 'OFFICE', 'STATE', 'CURRENT TASK', 'TASKS', 'ELAPSED', ''] as const
+function headCols(showElapsed: boolean): string[] {
+  const base = ['', 'AGENT', 'OFFICE', 'STATE', 'CURRENT TASK', 'TASKS']
+  return showElapsed ? [...base, 'ELAPSED', ''] : [...base, '']
+}
 
-function HeaderRow(): React.JSX.Element {
+function HeaderRow({ showElapsed }: { showElapsed: boolean }): React.JSX.Element {
   return (
     <div
       role="row"
       style={{
         display: 'grid',
-        gridTemplateColumns: GRID,
+        gridTemplateColumns: gridFor(showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: '9px 12px',
         borderBottom: '1px solid var(--bd-row)'
       }}
     >
-      {HEAD.map((h, i) => (
+      {headCols(showElapsed).map((h, i) => (
         <span
           key={i}
           role="columnheader"
@@ -189,6 +209,7 @@ function HeaderRow(): React.JSX.Element {
 export interface FleetRowProps {
   agent: AgentState
   selected: boolean
+  showElapsed: boolean
   elapsed: string
   elapsedColor: string
   action: RowAction
@@ -199,6 +220,7 @@ export interface FleetRowProps {
 function FleetRow({
   agent,
   selected,
+  showElapsed,
   elapsed,
   elapsedColor,
   action,
@@ -206,6 +228,7 @@ function FleetRow({
   onOpen
 }: FleetRowProps): React.JSX.Element {
   const tone = washTone(agent)
+  const office = fleetOffice(agent)
   const cls = [
     'fleet-row',
     selected ? 'is-selected' : '',
@@ -226,7 +249,7 @@ function FleetRow({
       onClick={onOpen}
       style={{
         display: 'grid',
-        gridTemplateColumns: GRID,
+        gridTemplateColumns: gridFor(showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: ROW_PAD,
@@ -267,19 +290,20 @@ function FleetRow({
         )}
       </div>
 
-      {/* OFFICE */}
+      {/* OFFICE — same subfolder/slug derivation as the Agents rail; only "—"
+          when there is genuinely no office/folder to show. */}
       <span
         style={{
           fontFamily: 'var(--font-sans)',
           fontSize: 'var(--fs-meta)',
-          color: agent.officeSlug ? 'var(--tx-3)' : 'var(--tx-ghost)',
+          color: office ? 'var(--tx-3)' : 'var(--tx-ghost)',
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis'
         }}
-        title={officeLabel(agent.officeSlug)}
+        title={office || undefined}
       >
-        {agent.officeSlug ? officeLabel(agent.officeSlug) : '—'}
+        {office || '—'}
       </span>
 
       {/* STATE */}
@@ -304,18 +328,20 @@ function FleetRow({
       {/* TASKS */}
       <TasksCell a={agent} />
 
-      {/* ELAPSED */}
-      <span
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--fs-tiny)',
-          fontWeight: 500,
-          color: elapsedColor,
-          whiteSpace: 'nowrap'
-        }}
-      >
-        {elapsed}
-      </span>
+      {/* ELAPSED — only rendered while something is running (else all "—") */}
+      {showElapsed && (
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--fs-tiny)',
+            fontWeight: 500,
+            color: elapsedColor,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {elapsed}
+        </span>
+      )}
 
       {/* ACTION */}
       <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -373,9 +399,12 @@ export function FleetTable({
   onToggleSelect,
   onOpen
 }: FleetTableProps): React.JSX.Element {
+  // Drop the ELAPSED column entirely when nothing is running — otherwise it's a
+  // full column of "—". It reappears the moment any agent starts working.
+  const showElapsed = anyRunning(agents)
   return (
     <div role="table" aria-label="Fleet agents" style={{ minWidth: 0 }}>
-      <HeaderRow />
+      <HeaderRow showElapsed={showElapsed} />
       {agents.length === 0 ? (
         <div
           style={{
@@ -396,6 +425,7 @@ export function FleetTable({
               key={a.path}
               agent={a}
               selected={selected.has(a.path)}
+              showElapsed={showElapsed}
               elapsed={el.text}
               elapsedColor={el.color}
               action={actionFor(a)}

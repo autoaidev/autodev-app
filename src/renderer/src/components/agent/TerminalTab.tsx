@@ -43,10 +43,12 @@ function basename(p: string): string {
 
 export function TerminalTab({
   agentPath,
-  onTakenOver
+  onTakenOver,
+  onStart
 }: {
   agentPath: string
   onTakenOver?: () => void
+  onStart?: () => void
 }): JSX.Element {
   const [agent, setAgent] = useState<AgentLite | null>(null)
   // Once true, the interactive pane is mounted and stays mounted (keep-alive).
@@ -74,6 +76,7 @@ export function TerminalTab({
 
   const name = agent?.name || basename(agentPath)
   const provider = agent?.provider || 'shell'
+  const running = !!agent?.running
   // Stable per-agent PTY id — reused so re-mounts (should not happen) map to one PTY.
   const ptyId = `agent-term:${agentPath}`
 
@@ -107,38 +110,47 @@ export function TerminalTab({
         {takenOver ? (
           <TerminalPane id={ptyId} cwd={agentPath} keepShell onExit={() => { /* PTY exited; pane shows [session ended] */ }} />
         ) : (
+          // ONE read-only statement (the header chip is the control); this block only
+          // explains the state and differentiates STOPPED from a live "watch from a
+          // distance". Take-over stays the header control — not restated here.
           <div className="dv-term__ph">
             <span className="dv-term__ph-glyph">
               <Icon name="terminal" size={26} />
             </span>
-            <div className="dv-term__ph-title">Terminal is read-only</div>
-            <div className="dv-term__ph-body">
-              Watching {name} from a distance. Take over to open an interactive shell in this
-              workspace and type directly — the running loop keeps its own session, so use
-              <kbd> ⌃C</kbd> there to interrupt it.
-            </div>
-            <Button variant="primary" onClick={takeOver}>
-              Take over to type
-            </Button>
+            {running ? (
+              <>
+                <div className="dv-term__ph-title">Watching {name} from a distance</div>
+                <div className="dv-term__ph-body">
+                  This agent runs in its own session, so its output isn&rsquo;t typed here.
+                  Use <b>Take over</b> (top-right) to open an interactive shell in this
+                  workspace and type directly.
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="dv-term__ph-title">Agent not running</div>
+                <div className="dv-term__ph-body">
+                  Start it to see its loop output, or take over to open an interactive shell
+                  in this workspace.
+                </div>
+                {onStart && (
+                  <Button variant="primary" onClick={onStart}>
+                    <Icon name="play" size={10} /> Start agent
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
 
-      <div className="dv-term__foot">
-        {takenOver ? (
+      {takenOver && (
+        <div className="dv-term__foot">
           <span className="dv-term__foot-hint">
-            Interactive — type directly into the terminal · <kbd>⌃C</kbd> interrupts
+            Interactive — type directly into the terminal · <kbd>Ctrl+C</kbd> interrupts
           </span>
-        ) : (
-          <button
-            type="button"
-            className="dv-term__takeover"
-            onClick={takeOver}
-          >
-            Take over to type into this session…
-          </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

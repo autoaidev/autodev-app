@@ -270,7 +270,17 @@ export function AgentDetail({
       {/* body — keep Chat/Terminal mounted (display toggle) so their PTYs survive tab switches */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: tab === 'activity' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <ActivityStream path={agent.path} lastOutput={agent.lastOutput} follow={follow} raw={raw} active={tab === 'activity'} />
+          <ActivityStream
+            path={agent.path}
+            lastOutput={agent.lastOutput}
+            follow={follow}
+            raw={raw}
+            active={tab === 'activity'}
+            running={agent.running}
+            tasksDone={agent.tasks.done}
+            tasksTotal={agent.tasks.total}
+            onStart={onStart}
+          />
           {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}
           <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-2)' }}>
             <div
@@ -325,7 +335,7 @@ export function AgentDetail({
               key={p}
               style={{ display: p === agent.path ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}
             >
-              <TerminalTab agentPath={p} onTakenOver={() => markTakenOver(p)} />
+              <TerminalTab agentPath={p} onTakenOver={() => markTakenOver(p)} onStart={onStart} />
             </div>
           ))}
         </div>

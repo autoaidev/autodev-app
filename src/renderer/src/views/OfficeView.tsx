@@ -309,13 +309,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   if (!office.connected) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-0)', fontFamily: 'var(--font-sans)' }}>
+        <style>{`.office-login-input:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-tint)}`}</style>
         <form
           onSubmit={(e) => { e.preventDefault(); void connect() }}
-          style={{ width: 360, background: 'var(--bg-panel)', border: '1px solid var(--bd-strong)', borderRadius: 'var(--r-modal)', padding: 22, boxShadow: 'var(--shadow-modal)' }}
+          style={{ width: 380, background: 'var(--bg-panel)', border: '1px solid var(--bd-strong)', borderRadius: 'var(--r-modal)', padding: 24, boxShadow: 'var(--shadow-modal)' }}
         >
-          <h2 style={{ margin: '0 0 4px', fontSize: 'var(--fs-panel-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>Connect to your Pixel Office</h2>
-          <p style={{ margin: '0 0 16px', fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', lineHeight: 1.5 }}>
-            A Pixel Office is your team of remote agents. Sign in to list and operate them.
+          <h2 style={{ margin: '0 0 6px', fontSize: 'var(--fs-panel-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>Connect to a Pixel Office</h2>
+          <p style={{ margin: '0 0 18px', fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', lineHeight: 1.55 }}>
+            A Pixel Office is an optional shared team server — a room of remote agents you and your
+            teammates can watch and steer together. Sign in to list and operate them. You can also run
+            local agents on this machine without one.
           </p>
           {(['Server URL', 'Email', 'Password'] as const).map((label) => {
             const isPw = label === 'Password'
@@ -323,9 +326,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
             const value = label === 'Server URL' ? base : isEmail ? email : password
             const set = label === 'Server URL' ? setBase : isEmail ? setEmail : setPassword
             return (
-              <label key={label} style={{ display: 'block', marginBottom: 10 }}>
-                <span style={{ display: 'block', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginBottom: 5 }}>{label}</span>
+              <label key={label} style={{ display: 'block', marginBottom: 11 }}>
+                <span style={{ display: 'block', fontSize: 'var(--fs-desc)', color: 'var(--tx-3)', marginBottom: 5 }}>{label}</span>
                 <input
+                  className="office-login-input"
                   type={isPw ? 'password' : isEmail ? 'email' : 'text'}
                   autoComplete={isPw ? 'current-password' : isEmail ? 'username' : undefined}
                   value={value}
@@ -334,14 +338,18 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   style={{
                     width: '100%', boxSizing: 'border-box', padding: '8px 11px',
                     background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)',
-                    color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)'
+                    color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', outline: 'none'
                   }}
                 />
               </label>
             )
           })}
-          {office.authError && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-meta)', margin: '6px 0' }}>{office.authError}</div>}
-          <Button variant="primary" type="submit" block disabled={office.loading || !email || !password || !base} style={{ marginTop: 8 }}>
+          {office.authError && (
+            <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 7, color: 'var(--st-error-bright)', fontSize: 'var(--fs-meta)', margin: '2px 0 6px', lineHeight: 1.45 }}>
+              <span aria-hidden style={{ fontWeight: 700 }}>!</span> <span>{office.authError}</span>
+            </div>
+          )}
+          <Button variant="primary" type="submit" block disabled={office.loading || !email || !password || !base} style={{ marginTop: 10 }}>
             {office.loading ? 'Connecting…' : 'Connect'}
           </Button>
         </form>
@@ -479,7 +487,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 <div style={{ fontSize: 'var(--fs-panel-title)', fontWeight: 700, color: 'var(--tx-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {selectedGroup.name}
                 </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', marginTop: 2 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-4)', marginTop: 2 }}>
                   {total} character{total === 1 ? '' : 's'} · {online} connected
                 </div>
               </div>
@@ -492,7 +500,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   {stoppingOffice === selectedGroup.slug ? 'Stopping…' : 'Stop all'}
                 </Button>
               ) : (
-                <Button variant="secondary" size="sm" disabled={spawningOffice === selectedGroup.slug || online > 0} onClick={() => spawnOffice(selectedGroup)}>
+                <Button variant="primary" size="sm" disabled={spawningOffice === selectedGroup.slug || online > 0} onClick={() => spawnOffice(selectedGroup)}>
                   {spawningOffice === selectedGroup.slug ? 'Connecting…' : 'Connect all'}
                 </Button>
               )}

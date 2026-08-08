@@ -121,7 +121,7 @@ export function OfficeCard({
           </Button>
         ) : (
           <Button
-            variant="secondary"
+            variant="primary"
             size="sm"
             block
             disabled={busy === 'spawning' || online > 0}

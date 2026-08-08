@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Icon, StatusDot } from '@renderer/ui'
+import { Button, Icon, Pill, StatusDot } from '@renderer/ui'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -69,6 +69,12 @@ export function SettingsView2(): JSX.Element {
   const [status, setStatus] = useState<OfficeStatus | null>(null)
   const [officeCount, setOfficeCount] = useState<number | null>(null)
 
+  // --- REAL, resolved CLI availability for the About / footer block -----------
+  // cli:check returns { found, path } only (no version string is exposed), so the
+  // footer reports resolved availability rather than a `—` placeholder. `null`
+  // means "not resolved yet" → the block stays hidden until it is.
+  const [cli, setCli] = useState<{ found: boolean; path: string } | null>(null)
+
   // --- Aspirational, NOT-YET-PERSISTED agent defaults -------------------------
   // TODO(redesign): no getSettings field backs any of these — they live in local
   // state only. Stage 3 should extend settings:get/set (or a per-provider store).
@@ -127,6 +133,18 @@ export function SettingsView2(): JSX.Element {
   useEffect(() => {
     void refreshStatus()
   }, [refreshStatus])
+
+  // Resolve CLI availability once for the About section + footer.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = (await window.api.cliCheck()) as { found: boolean; path: string }
+        setCli({ found: !!r?.found, path: r?.path || '' })
+      } catch {
+        setCli({ found: false, path: '' })
+      }
+    })()
+  }, [])
 
   // Scroll-spy: highlight the nav item whose section is nearest the top.
   useEffect(() => {
@@ -257,12 +275,14 @@ export function SettingsView2(): JSX.Element {
             )
           })}
         </div>
-        <div style={S.navFooter}>
-          {/* TODO(redesign): no api exposes the app/CLI version. cli:check returns
-              {found,path} only. Stage 3 should surface real versions. */}
-          <div>autodev-app —</div>
-          <div>cli —</div>
-        </div>
+        {/* cli:check exposes availability, not a version string — so the footer
+            reports resolved status and stays hidden until it resolves (no `—`). */}
+        {cli && (
+          <div style={S.navFooter}>
+            <div>AutoDev desktop</div>
+            <div>{cli.found ? 'CLI ready' : 'CLI not found'}</div>
+          </div>
+        )}
       </nav>
 
       {/* right sectioned form (flex, scrolls) */}
@@ -273,13 +293,14 @@ export function SettingsView2(): JSX.Element {
             id="agent-defaults"
             innerRef={setRef('agent-defaults')}
             title="Agent defaults"
-            subtitle="Applied to every new agent. Override any of these during setup."
+            tag="Coming soon"
+            subtitle="A preview of the defaults applied to every new agent. These aren't saved yet — set them per agent during setup for now."
           >
             <SettingRow
               label="Provider"
               desc="Interactive gives a terminal you can watch and steer; headless runs quiet."
             >
-              <Dropdown value={provider} onChange={setProvider} options={PROVIDER_OPTS} />
+              <Dropdown value={provider} onChange={setProvider} options={PROVIDER_OPTS} disabled />
             </SettingRow>
 
             <SettingRow
@@ -293,11 +314,12 @@ export function SettingsView2(): JSX.Element {
                 value={timeoutMin}
                 onChange={setTimeoutMin}
                 format={(v) => `${v} min`}
+                disabled
               />
             </SettingRow>
 
             <SettingRow label="Retry on timeout" desc="Re-issue the task once if it times out.">
-              <Toggle checked={retryOnTimeout} onChange={setRetryOnTimeout} label="Retry on timeout" />
+              <Toggle checked={retryOnTimeout} onChange={setRetryOnTimeout} label="Retry on timeout" disabled />
             </SettingRow>
 
             <SettingRow
@@ -308,6 +330,7 @@ export function SettingsView2(): JSX.Element {
                 value={fallbackProvider}
                 onChange={setFallbackProvider}
                 options={[{ value: '', label: 'None' }, ...PROVIDER_OPTS]}
+                disabled
               />
             </SettingRow>
 
@@ -315,17 +338,18 @@ export function SettingsView2(): JSX.Element {
               label="Agents folder"
               desc="Where new agent workspaces are created on this machine."
             >
-              <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+              <div style={{ display: 'flex', gap: 6, width: '100%', opacity: 0.5 }}>
                 <input
                   className="sv2-input"
                   value={agentsFolder}
+                  disabled
                   spellCheck={false}
                   autoCapitalize="off"
                   autoCorrect="off"
                   onChange={(e) => setAgentsFolder(e.target.value)}
                   style={{ ...S.input, fontFamily: 'var(--font-mono)', flex: 1, minWidth: 0 }}
                 />
-                <Button variant="secondary" size="sm" onClick={() => void browseFolder()}>
+                <Button variant="secondary" size="sm" disabled onClick={() => void browseFolder()}>
                   Browse
                 </Button>
               </div>
@@ -340,15 +364,9 @@ export function SettingsView2(): JSX.Element {
                 checked={keepLoops}
                 onChange={setKeepLoops}
                 label="Keep loops running when window closes"
+                disabled
               />
             </SettingRow>
-
-            {/* TODO(redesign): the six rows above are UI-only — settings:set accepts
-                only { officeBaseUrl }. They do not persist yet. */}
-            <div style={S.notPersistedNote}>
-              These defaults are not saved yet — the app only persists the Pixel Office
-              URL below. Wiring is Stage 3.
-            </div>
           </Section>
 
           {/* ── Providers ──────────────────────────────────────────────── */}
@@ -476,19 +494,18 @@ export function SettingsView2(): JSX.Element {
             id="notifications"
             innerRef={setRef('notifications')}
             title="Notifications"
-            subtitle="When the app should surface a desktop notification."
+            tag="Coming soon"
+            subtitle="A preview of when the app will surface a desktop notification. These preferences aren't saved yet."
           >
-            {/* TODO(redesign): no api persists notification prefs; UI-only for now. */}
             <SettingRow label="An agent needs you" desc="Asked a question or awaiting a choice.">
-              <Toggle checked={notifyNeedsYou} onChange={setNotifyNeedsYou} label="Needs-you notifications" />
+              <Toggle checked={notifyNeedsYou} onChange={setNotifyNeedsYou} label="Needs-you notifications" disabled />
             </SettingRow>
             <SettingRow label="A task finished" desc="An agent completed its backlog.">
-              <Toggle checked={notifyDone} onChange={setNotifyDone} label="Task-done notifications" />
+              <Toggle checked={notifyDone} onChange={setNotifyDone} label="Task-done notifications" disabled />
             </SettingRow>
             <SettingRow label="Errors & timeouts" desc="A loop failed, timed out, or hit a rate limit." last>
-              <Toggle checked={notifyErrors} onChange={setNotifyErrors} label="Error notifications" />
+              <Toggle checked={notifyErrors} onChange={setNotifyErrors} label="Error notifications" disabled />
             </SettingRow>
-            <div style={S.notPersistedNote}>Not saved yet — wiring is Stage 3.</div>
           </Section>
 
           {/* ── Storage & logs ─────────────────────────────────────────── */}
@@ -515,13 +532,20 @@ export function SettingsView2(): JSX.Element {
             subtitle="AutoDev desktop."
             last
           >
-            {/* TODO(redesign): version strings need an api (cli:check returns only
-                {found,path}; no app-version channel). Showing what we can. */}
+            {/* cli:check resolves availability (found/path); no version string is
+                exposed, so the CLI row reports resolved status, and the path is the
+                mono technical sub-line when found. */}
             <SettingRow label="Application" desc="AutoDev desktop">
               <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>autodev-app</span>
             </SettingRow>
-            <SettingRow label="CLI" desc="Bundled autodev CLI" last>
-              <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>autodev-cli</span>
+            <SettingRow
+              label="CLI"
+              desc={cli?.found ? cli.path : 'Bundled autodev CLI'}
+              last
+            >
+              <span style={S.mutedValue}>
+                {cli == null ? 'checking…' : cli.found ? 'ready' : 'not found'}
+              </span>
             </SettingRow>
           </Section>
         </div>
@@ -537,6 +561,7 @@ function Section(props: {
   innerRef: (el: HTMLElement | null) => void
   title: string
   subtitle: string
+  tag?: string
   last?: boolean
   children: React.ReactNode
 }): JSX.Element {
@@ -546,7 +571,14 @@ function Section(props: {
       ref={props.innerRef}
       style={{ scrollMarginTop: 12, marginBottom: props.last ? 0 : 34 }}
     >
-      <h2 style={S.sectionTitle}>{props.title}</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <h2 style={S.sectionTitle}>{props.title}</h2>
+        {props.tag && (
+          <Pill variant="neutral" style={{ fontSize: 9.5, letterSpacing: '.04em', textTransform: 'uppercase' }}>
+            {props.tag}
+          </Pill>
+        )}
+      </div>
       <p style={S.sectionSub}>{props.subtitle}</p>
       <div>{props.children}</div>
     </section>
@@ -584,13 +616,15 @@ function Toggle(props: {
   checked: boolean
   onChange: (v: boolean) => void
   label: string
+  disabled?: boolean
 }): JSX.Element {
   return (
     <button
       role="switch"
       aria-checked={props.checked}
       aria-label={props.label}
-      onClick={() => props.onChange(!props.checked)}
+      disabled={props.disabled}
+      onClick={() => !props.disabled && props.onChange(!props.checked)}
       style={{
         position: 'relative',
         width: 32,
@@ -598,7 +632,8 @@ function Toggle(props: {
         borderRadius: 999,
         border: '1px solid var(--bd-1)',
         background: props.checked ? 'var(--accent)' : 'var(--bg-input)',
-        cursor: 'pointer',
+        cursor: props.disabled ? 'not-allowed' : 'pointer',
+        opacity: props.disabled ? 0.5 : 1,
         padding: 0,
         transition: 'background .12s ease',
         flexShrink: 0
@@ -624,14 +659,16 @@ function Dropdown(props: {
   value: string
   onChange: (v: string) => void
   options: { value: string; label: string }[]
+  disabled?: boolean
 }): JSX.Element {
   return (
-    <div style={{ position: 'relative', width: '100%' }}>
+    <div style={{ position: 'relative', width: '100%', opacity: props.disabled ? 0.5 : 1 }}>
       <select
         className="sv2-select"
         value={props.value}
+        disabled={props.disabled}
         onChange={(e) => props.onChange(e.target.value)}
-        style={S.select}
+        style={{ ...S.select, cursor: props.disabled ? 'not-allowed' : 'pointer' }}
       >
         {props.options.map((o) => (
           <option key={o.value} value={o.value}>
@@ -653,9 +690,10 @@ function Slider(props: {
   value: number
   onChange: (v: number) => void
   format: (v: number) => string
+  disabled?: boolean
 }): JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', opacity: props.disabled ? 0.5 : 1 }}>
       <input
         className="sv2-range"
         type="range"
@@ -663,6 +701,7 @@ function Slider(props: {
         max={props.max}
         step={props.step}
         value={props.value}
+        disabled={props.disabled}
         onChange={(e) => props.onChange(Number(e.target.value))}
         style={{ flex: 1, minWidth: 0 }}
       />

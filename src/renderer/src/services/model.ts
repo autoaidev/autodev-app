@@ -136,8 +136,15 @@ export function dotStatus(a: AgentState): 'running' | 'needs-you' | 'error' | 'i
 export type MetaTone = 'default' | 'amber' | 'red' | 'idle'
 
 /**
- * The meta / state line under an agent name in the rail. Default rows show the
- * dim mono "provider · id"; attention rows replace it with a coloured human line.
+ * The meta / state line under an agent name in the rail. It carries only what
+ * DIFFERS between sibling rows, in the STATE colour:
+ *  - attention rows → a coloured human reason ("waiting on you" / "timed out" …);
+ *  - default rows → the session id (last path hash) in dim mono.
+ *
+ * The provider and office no longer appear here: they live on the GROUP HEADER
+ * (AgentRail), so repeating "grok · <hash>" down the whole rail — the identical-
+ * info anti-pattern flagged in R2 — is gone. When a working row has a live task
+ * we surface that instead of the bare id, since it's the most differentiating bit.
  */
 export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: boolean } {
   if (a.activity === 'needs-auth') return { text: 'waiting on you', tone: 'amber', mono: false }
@@ -149,7 +156,16 @@ export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: bo
   }
   if (a.activity === 'idle' && a.tasks.remaining === 0)
     return { text: 'idle · all done', tone: 'idle', mono: false }
-  return { text: `${providerShort(a.provider)} · ${agentIdHash(a.path)}`, tone: 'default', mono: true }
+  if (a.activity === 'working' && a.currentTask)
+    return { text: stripTaskHash(a.currentTask), tone: 'default', mono: false }
+  // Session id only — never the provider (that's on the group header now).
+  return { text: agentIdHash(a.path), tone: 'default', mono: true }
+}
+
+/** Strip a leading "[7ef6ecb4…] " id token from a task title so the row shows
+ *  only human text (the id already lives in the mono session-id line/header). */
+function stripTaskHash(task: string): string {
+  return task.replace(/^\s*\[[0-9a-f]{6,}\W*\]\s*/i, '').trim() || task
 }
 
 /* ------------------------------------------------------------- formatting ---- */

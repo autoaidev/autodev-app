@@ -1,5 +1,7 @@
 import React from 'react'
 import { Button } from '@renderer/ui'
+import { useAgents } from '@renderer/services/agentStore'
+import { officeCountOf } from './fleet-helpers'
 
 /**
  * FleetHeader — the summary-band title row: page title + a mono one-line
@@ -8,7 +10,13 @@ import { Button } from '@renderer/ui'
  */
 export interface FleetHeaderProps {
   agentCount: number
-  officeCount: number
+  /**
+   * Pre-computed office count from the caller. Kept for compatibility, but the
+   * subtitle prefers a count DERIVED from the grouped folders/slugs of the live
+   * fleet (see `officeCountOf`) — the caller's `officeSlug`-only tally reads
+   * "0 offices" next to 29 folder-grouped agents, which this fixes.
+   */
+  officeCount?: number
   openTasks: number
   closedToday: number
   onStartAllIdle: () => void
@@ -25,10 +33,18 @@ export function FleetHeader({
   onStopAll,
   busy = false
 }: FleetHeaderProps): React.JSX.Element {
+  // Derive the office count the same way the rail groups agents (subfolder/slug),
+  // so it can never read "0 offices" beside a screen full of grouped agents. The
+  // store is the same live snapshot the Fleet view already renders — reading it
+  // here is a subscribe, not a mutation, so it's keep-alive safe.
+  const fleet = useAgents()
+  const derivedOffices = officeCountOf(fleet)
+  const offices = derivedOffices > 0 ? derivedOffices : (officeCount ?? 0)
+
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`
   const subtitle = [
     plural(agentCount, 'agent'),
-    plural(officeCount, 'office'),
+    plural(offices, 'office'),
     `${openTasks} open`,
     `${closedToday} closed today`
   ].join(' · ')

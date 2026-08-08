@@ -59,11 +59,44 @@ export interface NeedsYouTileProps {
 }
 
 export function NeedsYouTile({ agents, actionFor }: NeedsYouTileProps): React.JSX.Element {
+  // Empty state: collapse to a slim, non-growing reassurance strip so THROUGHPUT
+  // and PROVIDERS split the freed width evenly instead of leaving half the band
+  // reserved for "nothing needs you".
+  if (agents.length === 0) {
+    return (
+      <div
+        style={{
+          ...tileBase,
+          flex: '0 0 auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 9,
+          padding: '10px 14px',
+          border: '1px solid var(--bd-nav)',
+          background: 'var(--bg-panel)'
+        }}
+      >
+        <StatusDot status="idle" />
+        <span
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: 'var(--fs-meta)',
+            color: 'var(--tx-4)',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          Nothing needs you right now
+        </span>
+      </div>
+    )
+  }
   return (
     <div
       style={{
         ...tileBase,
-        flex: 1,
+        // Dominant but capped — grows twice as fast as the two info tiles rather
+        // than swallowing the whole band.
+        flex: 2,
         minWidth: 0,
         border: `1px solid var(--st-needsyou-bd)`,
         background: 'var(--st-needsyou-wash)'
@@ -72,18 +105,7 @@ export function NeedsYouTile({ agents, actionFor }: NeedsYouTileProps): React.JS
       <SectionLabel tone="amber">
         Needs you · {agents.length}
       </SectionLabel>
-      {agents.length === 0 ? (
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--fs-meta)',
-            color: 'var(--tx-4)'
-          }}
-        >
-          Nothing needs you right now.
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {agents.slice(0, 4).map((a) => {
             const act = actionFor(a)
             return (
@@ -141,7 +163,6 @@ export function NeedsYouTile({ agents, actionFor }: NeedsYouTileProps): React.JS
             </div>
           )}
         </div>
-      )}
     </div>
   )
 }
@@ -158,7 +179,7 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
   const max = Math.max(1, ...bars)
   const n = bars.length
   return (
-    <div style={{ ...tileBase, width: 224, flex: 'none' }}>
+    <div style={{ ...tileBase, flex: '1 1 224px', minWidth: 200 }}>
       <SectionLabel>Throughput · 24h</SectionLabel>
       <div
         style={{
@@ -215,7 +236,7 @@ export function ProvidersTile({ agents }: ProvidersTileProps): React.JSX.Element
   const rows = Array.from(counts.entries()).sort((x, y) => y[1] - x[1])
 
   return (
-    <div style={{ ...tileBase, width: 224, flex: 'none' }}>
+    <div style={{ ...tileBase, flex: '1 1 224px', minWidth: 200 }}>
       <SectionLabel>Providers</SectionLabel>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {rows.length === 0 && (

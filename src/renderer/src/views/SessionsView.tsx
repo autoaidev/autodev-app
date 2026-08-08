@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SearchInput, Pill, Button, Icon } from '@renderer/ui'
 import TerminalPane from '../TerminalPane'
 import { SessionRow } from '../components/sessions/SessionRow'
@@ -74,6 +74,21 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
   useEffect(() => {
     if (!sel) setSelRef(null)
   }, [sel])
+
+  // Auto-select the top (most-recent / live) session ONCE on first load so the
+  // transcript pane opens populated instead of a void — the EmptyState is kept
+  // only for a genuinely empty list or after the user closes everything. Guarded
+  // by a ref so it never fights a later manual deselection (New session /
+  // back-to-terminal leave `term` set, which also suppresses re-selection).
+  const didAutoSelect = useRef(false)
+  useEffect(() => {
+    if (didAutoSelect.current || loading) return
+    if (term || sel || selRef) return
+    if (shown.length > 0) {
+      didAutoSelect.current = true
+      setSelRef(shown[0])
+    }
+  }, [loading, shown, term, sel, selRef])
 
   const selKey = sel ? keyOf(sel) : null
 
