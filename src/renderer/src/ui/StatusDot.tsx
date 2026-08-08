@@ -48,6 +48,12 @@ export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {
   glow?: boolean
 }
 
+// Non-hue redundancy (a11y): idle/stopped agents render as a HOLLOW ring while
+// live states (running/needs-you/error/accent) render as a SOLID dot. State is
+// then distinguishable by SHAPE, not colour alone — survives colour-blindness,
+// greyscale, and a washed-out projector.
+const HOLLOW = new Set<DotStatus>(['idle', 'stopped'])
+
 export function StatusDot({
   status,
   size = 6,
@@ -56,6 +62,7 @@ export function StatusDot({
   style,
   ...rest
 }: StatusDotProps): React.JSX.Element {
+  const hollow = HOLLOW.has(status)
   return (
     <span
       role="img"
@@ -67,8 +74,12 @@ export function StatusDot({
         width: size,
         height: size,
         borderRadius: '50%',
-        background: COLOR[status],
-        boxShadow: glow ? GLOW[status] : undefined,
+        background: hollow ? 'transparent' : COLOR[status],
+        boxShadow: hollow
+          ? 'inset 0 0 0 1.5px var(--tx-faint)'
+          : glow
+            ? GLOW[status]
+            : undefined,
         ...style
       }}
       {...rest}

@@ -81,6 +81,9 @@ export function RunPill({
    *  useAppActions().focusAttention). Presentational otherwise — no app context. */
   onNeedsYouClick?: () => void
 } & React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  // Status truth: never a green dot beside a zero. At 0 running the pill goes grey
+  // + reads "idle"; only once agents are actually working does it turn green.
+  const active = running > 0
   return (
     <div
       className={className}
@@ -91,14 +94,14 @@ export function RunPill({
         padding: '5px 10px',
         borderRadius: 'var(--r-button)',
         background: 'var(--bg-input)',
-        border: '1px solid var(--bd-1)',
+        border: '1px solid var(--bd-field)',
         ...style
       }}
       {...rest}
     >
-      <StatusDot status="running" />
-      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-desc)', fontWeight: 500, color: 'var(--tx-2)' }}>
-        {running} running
+      <StatusDot status={active ? 'running' : 'idle'} />
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-desc)', fontWeight: 500, color: active ? 'var(--tx-2)' : 'var(--tx-dim)' }}>
+        {active ? `${running} running` : 'idle'}
       </span>
       {needsYou != null && needsYou > 0 && (
         <>
@@ -148,7 +151,7 @@ export function ConnectionPill({
         padding: '5px 10px',
         borderRadius: 'var(--r-button)',
         background: 'var(--bg-input)',
-        border: '1px solid var(--bd-1)',
+        border: '1px solid var(--bd-field)',
         ...style
       }}
       {...rest}
@@ -228,18 +231,9 @@ export function AppShell({
       className={className}
       style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-0)', ...style }}
     >
-      {/* title-bar strip */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          height: 'var(--h-titlebar)',
-          padding: '0 12px',
-          ...barBase
-        }}
-      >
-        <div style={{ margin: '0 auto', fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>AutoDev</div>
-      </div>
+      {/* The OS window frame already renders the "AutoDev" title, so the app no
+          longer paints a second 34px title strip here (was a duplicate wordmark
+          stacked on every screen). The nav bar below carries the brand mark. */}
 
       {/* nav bar */}
       <div

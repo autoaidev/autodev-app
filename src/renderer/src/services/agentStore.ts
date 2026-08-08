@@ -211,17 +211,45 @@ function applyUpdate(s: AgentState): void {
 
 /* --------------------------------------------------------------- lifecycle -- */
 
+// Visibility gating: a hidden window (app in the tray / another workspace) doesn't
+// need the 5s reconcile poll or the elapsed clock — pushed onAgentUpdated events
+// still keep state fresh the moment they arrive. Pausing the fixed-cadence timers
+// while hidden stops several polls stacking in the background during a demo.
+function startTimers(): void {
+  if (pollTimer == null) pollTimer = setInterval(() => void reload(), POLL_MS)
+  if (clockTimer == null)
+    clockTimer = setInterval(() => {
+      nowTs = Date.now()
+      notifyElapsed()
+    }, CLOCK_MS)
+}
+
+function stopTimers(): void {
+  if (pollTimer) clearInterval(pollTimer)
+  if (clockTimer) clearInterval(clockTimer)
+  pollTimer = null
+  clockTimer = null
+}
+
+function onVisibility(): void {
+  if (!started_) return
+  if (document.visibilityState === 'visible') {
+    void reload() // catch up on anything missed while hidden
+    startTimers()
+  } else {
+    stopTimers()
+  }
+}
+
 function startLoop(): void {
   if (started_) return
   started_ = true
   void reload() // ONE seed
   unsubChanged = api().onAgentsChanged(() => void reload())
   unsubUpdated = api().onAgentUpdated((s) => applyUpdate(s))
-  pollTimer = setInterval(() => void reload(), POLL_MS)
-  clockTimer = setInterval(() => {
-    nowTs = Date.now()
-    notifyElapsed()
-  }, CLOCK_MS)
+  document.addEventListener('visibilitychange', onVisibility)
+  // Only run the fixed-cadence timers while the window is actually visible.
+  if (document.visibilityState !== 'hidden') startTimers()
 }
 
 function stopLoop(): void {
@@ -231,10 +259,8 @@ function stopLoop(): void {
   unsubUpdated?.()
   unsubChanged = null
   unsubUpdated = null
-  if (pollTimer) clearInterval(pollTimer)
-  if (clockTimer) clearInterval(clockTimer)
-  pollTimer = null
-  clockTimer = null
+  document.removeEventListener('visibilitychange', onVisibility)
+  stopTimers()
 }
 
 /** Shared ref-count entry used by every hook's `subscribe`. */

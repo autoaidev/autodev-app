@@ -38,7 +38,7 @@ export function SearchInput({
         padding: '5px 10px',
         borderRadius: 'var(--r-button)',
         background: 'var(--bg-input)',
-        border: '1px solid var(--bd-1)',
+        border: '1px solid var(--bd-field)',
         ...wrapStyle
       }}
     >

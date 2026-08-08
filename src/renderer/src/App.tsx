@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { AppShell, ErrorBoundary } from '@renderer/ui'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { AppShell, ErrorBoundary, CommandPalette, type Command } from '@renderer/ui'
 import { CliStatusProvider } from '@renderer/services/cliStatus'
 import { AgentsView } from '@renderer/views/AgentsView'
 import { FleetView } from '@renderer/views/FleetView'
@@ -69,10 +69,41 @@ export default function App(): JSX.Element {
   // non-workspace folder). Pre-fills the target folder in MakeAppView.
   const [makeSeedFolder, setMakeSeedFolder] = useState<string | undefined>(undefined)
 
+  const [paletteOpen, setPaletteOpen] = useState(false)
+
   const go = useCallback((id: NavId) => {
     setNav(id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }, [])
+
+  // The ⌘K command surface — nav destinations + primary actions, runnable from any
+  // screen. Wired through the same `go` router + Make-app funnel the nav uses.
+  const commands = useMemo<Command[]>(
+    () => [
+      ...MAIN_NAV.map((n) => ({
+        id: `go-${n.id}`,
+        label: `Go to ${n.label}`,
+        hint: 'Navigate',
+        keywords: n.id,
+        run: () => go(n.id as NavId)
+      })),
+      {
+        id: `go-${SETTINGS_NAV.id}`,
+        label: `Go to ${SETTINGS_NAV.label}`,
+        hint: 'Navigate',
+        keywords: 'preferences config',
+        run: () => go(SETTINGS_NAV.id as NavId)
+      },
+      {
+        id: 'new-agent',
+        label: 'New agent',
+        hint: 'Action',
+        keywords: 'spawn create make app team',
+        run: () => go('makeapp')
+      }
+    ],
+    [go]
+  )
 
   // Auto-dismiss the toast (matches the legacy 4s behaviour).
   useEffect(() => {
@@ -81,18 +112,18 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(id)
   }, [toast])
 
-  // ⌘K / Ctrl+K jumps to the searchable Agents screen — the shell-level command
-  // affordance. This is a keyboard shortcut only; focusing a search box never navigates.
+  // ⌘K / Ctrl+K opens the global command palette — a real command surface that
+  // works from every screen (nav + primary actions), not just a jump to Agents.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault()
-        go('agents')
+        setPaletteOpen((v) => !v)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [go])
+  }, [])
 
   const layer = (active: boolean): React.CSSProperties =>
     active
@@ -192,6 +223,7 @@ export default function App(): JSX.Element {
       )}
 
       {toast && <Toast msg={toast.msg} err={toast.err} />}
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
     </AppActionsProvider>
     </CliStatusProvider>

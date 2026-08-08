@@ -47,3 +47,6 @@ export { AppShell, NavItem, RunPill, ConnectionPill } from './AppShell'
 export type { AppShellProps, NavItemDef } from './AppShell'
 
 export { CliBanner } from './CliBanner'
+
+export { CommandPalette } from './CommandPalette'
+export type { CommandPaletteProps, Command } from './CommandPalette'

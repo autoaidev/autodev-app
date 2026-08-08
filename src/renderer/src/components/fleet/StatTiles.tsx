@@ -207,15 +207,28 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
           )
         })}
       </div>
-      <div
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--fs-tiny)',
-          fontWeight: 500,
-          color: 'var(--tx-4)'
-        }}
-      >
-        {closed} closed
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 18,
+            fontWeight: 700,
+            lineHeight: 1,
+            color: 'var(--tx-hi)',
+            letterSpacing: 'var(--ls-tight)'
+          }}
+        >
+          {closed.toLocaleString()}
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-sans)',
+            fontSize: 'var(--fs-desc)',
+            color: 'var(--tx-dim)'
+          }}
+        >
+          closed today
+        </span>
       </div>
     </div>
   )

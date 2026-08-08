@@ -25,13 +25,14 @@
   /* ----- palette: borders ----- */
   --bd-strong: #2f353e;      /* menu / avatar-tile / idle track */
   --bd-1: #2a2f38;           /* default control / card border */
+  --bd-field: #6c737e;       /* interactive input / checkbox / primary-outline border (>=3:1) */
   --bd-nav: #22262e;         /* topbar + nav dividers, chrome-less card */
   --bd-card: #262b33;        /* card / task-card / composer border */
   --bd-2: #1c2027;           /* subtle interior divider */
   --bd-row: #171b21;         /* table row divider */
   --bd-accent: #2f4a6d;      /* accent pill border */
   --bd-panel-sel: #2a3646;   /* selected panel border */
-  --bd-idle-box: #3a4049;    /* empty checkbox border */
+  --bd-idle-box: #6c737e;    /* empty checkbox border (raised to >=3:1) */
   --bd-icon-btn: #2f3f4f;    /* toolbar icon button border */
   --bd-track: #3a4657;       /* inline ··· button border / mini-bar */
 
@@ -40,12 +41,12 @@
   --tx-1: #d7dbe0;
   --tx-2: #c3c9d2;
   --tx-3: #9aa1ab;
-  --tx-4: #8b929c;
-  --tx-5: #7d848f;
-  --tx-dim: #6c737e;
-  --tx-faint: #5f6671;
-  --tx-ghost: #565d67;
-  --tx-gutter: #454b55;      /* log timestamp gutter / code line numbers */
+  --tx-4: #8f96a0;           /* raised to ~4.8:1 for informational meta text */
+  --tx-5: #8d949f;           /* raised to ~4.9:1 (was 3.9:1) */
+  --tx-dim: #9098a2;         /* raised to ~5.3:1 (was 3.68:1) — the main secondary-text tier */
+  --tx-faint: #868d97;       /* raised to ~4.6:1 (was 3.04:1) — collapsed meta tier */
+  --tx-ghost: #7d848f;       /* raised to ~3.9:1 (was 2.65:1) — kbd/hint decorative text */
+  --tx-gutter: #6c737e;      /* log timestamp gutter / code line numbers (decorative) */
   --tx-onaccent: #08111d;    /* ink on accent-filled surfaces */
 
   /* ----- palette: the ONE accent ----- */
