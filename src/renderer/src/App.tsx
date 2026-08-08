@@ -101,11 +101,20 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(id)
   }, [toast])
 
+  // The counts (running/needsYou) feed ONLY the shell we wrap the content-only
+  // screens in — Agents/Fleet compute their own counts inside their embedded
+  // shells. So this poll is worthless whenever a self-counting screen is foremost;
+  // gate it to the content views to avoid a permanent 3rd concurrent listAgents
+  // poll. When a content view comes forward we re-seed immediately so its RunPill
+  // is correct on arrival.
+  const contentActive =
+    nav === 'office' || nav === 'sessions' || nav === 'makeapp' || nav === 'settings'
+
   // Fleet-wide counts for the shell's RunPill ("N running · M need you"), fed to
-  // the AppShell we wrap the content views in. Seeded once, then kept live off the
-  // same watch/poll signals the screens use. (Agents/Fleet compute their own
-  // counts inside their embedded shells — this is only for the content-view shell.)
+  // the AppShell we wrap the content views in. Seeded on entry, then kept live off
+  // the same watch/poll signals the screens use.
   useEffect(() => {
+    if (!contentActive) return
     let alive = true
     const load = (): void => {
       window.api.listAgents().then((list: AgentState[]) => {
@@ -124,7 +133,7 @@ export default function App(): JSX.Element {
       offUpdated()
       window.clearInterval(poll)
     }
-  }, [])
+  }, [contentActive])
 
   const recheckCli = useCallback(async () => {
     const c = (await window.api.cliCheck()) as { found: boolean }
@@ -253,7 +262,9 @@ function CliBanner({ onRecheck }: { onRecheck: () => Promise<void> }): JSX.Eleme
       role="alert"
       style={{
         position: 'fixed',
-        top: 6,
+        // Sit BELOW the 34px title bar + 46px nav so the strip never covers the
+        // window title or the nav brand; a small gap keeps it visually detached.
+        top: 88,
         left: '50%',
         transform: 'translateX(-50%)',
         display: 'flex',

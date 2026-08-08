@@ -98,6 +98,15 @@ export function AgentsView(): React.JSX.Element {
         if (match) {
           setSelected(match.path)
           setDetailTab('chat')
+        } else {
+          // No local workspace path resolved — the character runs remotely (office-
+          // only, no local loop). App already switched to the Agents tab, so without
+          // this the user lands on a blank/unchanged detail with no explanation.
+          window.dispatchEvent(
+            new CustomEvent('redesign:toast', {
+              detail: { msg: 'That character runs remotely — no local agent to open.', err: false }
+            })
+          )
         }
         return prev
       })

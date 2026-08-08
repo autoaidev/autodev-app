@@ -29,10 +29,22 @@ export function OfficeRoom({
 }: OfficeRoomProps): React.JSX.Element {
   const [text, setText] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  const atBottomRef = useRef(true)
+
+  const onScroll = (): void => {
+    const el = bodyRef.current
+    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
+  const scrollToBottom = (): void => {
     const el = bodyRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages])
+  }
+
+  // Auto-scroll to newest only when the reader was already pinned to the bottom,
+  // so the 5s poll's freshly-filtered array can't yank scrollback away mid-read.
+  useEffect(() => {
+    if (atBottomRef.current) scrollToBottom()
+  }, [messages.length])
 
   const submit = (): void => {
     const t = text.trim()
@@ -70,7 +82,7 @@ export function OfficeRoom({
         </div>
       </div>
 
-      <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: '10px 14px', minHeight: 0 }}>
+      <div ref={bodyRef} onScroll={onScroll} style={{ flex: 1, overflow: 'auto', padding: '10px 14px', minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-faint)', padding: '8px 0' }}>
             No room chatter yet.

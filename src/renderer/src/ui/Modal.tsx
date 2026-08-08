@@ -67,6 +67,10 @@ export function Modal({
       style={{
         width,
         maxWidth: '100%',
+        // Never taller than the viewport (minus the overlay's 24px padding each
+        // side); the body below scrolls while header/footer stay pinned, so a tall
+        // generate/config dialog can't clip its header or ✕.
+        maxHeight: 'calc(100vh - 48px)',
         background: 'var(--bg-panel)',
         border: '1px solid var(--bd-strong)',
         borderRadius: 'var(--r-modal)',
@@ -84,7 +88,8 @@ export function Modal({
             alignItems: 'center',
             gap: 10,
             padding: '15px 18px 13px',
-            borderBottom: '1px solid var(--bd-card)'
+            borderBottom: '1px solid var(--bd-card)',
+            flexShrink: 0
           }}
         >
           <div style={{ minWidth: 0 }}>
@@ -141,7 +146,7 @@ export function Modal({
         </div>
       )}
 
-      <div style={{ padding: '15px 18px', overflow: 'auto' }}>{children}</div>
+      <div style={{ padding: '15px 18px', overflow: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
 
       {footer && (
         <div
@@ -150,7 +155,8 @@ export function Modal({
             alignItems: 'center',
             gap: 10,
             padding: '12px 18px',
-            borderTop: '1px solid var(--bd-card)'
+            borderTop: '1px solid var(--bd-card)',
+            flexShrink: 0
           }}
         >
           {footer}

@@ -56,6 +56,11 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
   const [connectBusy, setConnectBusy] = useState(false)
 
   const selFile = useRef<string | null>(null)
+  // Monotonic open token: openSession awaits a per-provider backlog (a CLI
+  // subprocess for non-claude, variable latency), so clicking A then B can let a
+  // slow A resolve last and overwrite B's transcript. Each open bumps this; after
+  // every await we bail if a newer open has started.
+  const openSeqRef = useRef(0)
 
   const refresh = useCallback(async () => {
     const l = (await window.api.sessionsDiscover()) as SessionMeta[]
@@ -91,6 +96,7 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
   useEffect(() => () => { if (selFile.current) window.api.sessionClose(selFile.current) }, [])
 
   const openSession = useCallback(async (s: SessionMeta) => {
+    const seq = ++openSeqRef.current
     const prev = selFile.current
     selFile.current = s.provider === 'claude' ? s.file : null
     // NOTE: do NOT setTerm(null) here. The terminal and transcript are visually
@@ -105,13 +111,16 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
     setExportNote(null)
     try {
       if (prev && prev !== selFile.current) await window.api.sessionClose(prev)
-      setMsgs((await window.api.sessionBacklog({ file: s.file, provider: s.provider, id: s.id, cwd: s.cwd })) as SessionMsg[])
+      const backlog = (await window.api.sessionBacklog({ file: s.file, provider: s.provider, id: s.id, cwd: s.cwd })) as SessionMsg[]
+      if (seq !== openSeqRef.current) return
+      setMsgs(backlog)
       if (s.provider === 'claude' && s.file) await window.api.sessionOpen(s.file)
     } catch (e) { console.error('[SessionsView.openSession]', e) }
     try {
       const info = (await window.api.workspaceInfo(s.cwd)) as { exists: boolean }
+      if (seq !== openSeqRef.current) return
       setWorkspace({ exists: !!info?.exists })
-    } catch { setWorkspace({ exists: false }) }
+    } catch { if (seq === openSeqRef.current) setWorkspace({ exists: false }) }
   }, [])
 
   // Return to a live terminal that's been hidden behind a peeked transcript.

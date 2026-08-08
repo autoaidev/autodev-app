@@ -83,6 +83,11 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     return () => { io.disconnect(); document.removeEventListener('visibilitychange', compute) }
   }, [])
 
+  // Clear the half-typed message when the agent changes — ChatTab is kept mounted
+  // (not keyed) for keep-alive, so without this a draft would carry to the next
+  // selected agent and be sent to the wrong one.
+  useEffect(() => { setDraft('') }, [agentPath])
+
   // Resolve the office link off AgentState, then keep it fresh on updates.
   useEffect(() => {
     let alive = true

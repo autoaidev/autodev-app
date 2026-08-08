@@ -35,10 +35,28 @@ export function AgentStream({
 }: AgentStreamProps): React.JSX.Element {
   const [text, setText] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  const atBottomRef = useRef(true)
+
+  const onScroll = (): void => {
+    const el = bodyRef.current
+    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
+  const scrollToBottom = (): void => {
     const el = bodyRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages, agent.id])
+  }
+
+  // Switching focused character = a fresh view: re-pin to the tail.
+  useEffect(() => {
+    atBottomRef.current = true
+    scrollToBottom()
+  }, [agent.id])
+
+  // Auto-scroll to newest only when the reader was already pinned to the bottom,
+  // so the 5s poll can't yank scrollback away mid-read.
+  useEffect(() => {
+    if (atBottomRef.current) scrollToBottom()
+  }, [messages.length])
 
   const submit = (): void => {
     const t = text.trim()
@@ -101,7 +119,7 @@ export function AgentStream({
       </div>
 
       {/* timeline */}
-      <div ref={bodyRef} style={{ flex: 1, overflow: 'auto', padding: '10px 14px', minHeight: 0 }}>
+      <div ref={bodyRef} onScroll={onScroll} style={{ flex: 1, overflow: 'auto', padding: '10px 14px', minHeight: 0 }}>
         {messages.length === 0 && (
           <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-faint)', padding: '8px 0' }}>
             {agent.online ? 'Waiting for activity…' : 'This character is offline. Connect & operate it, or Spawn the office.'}

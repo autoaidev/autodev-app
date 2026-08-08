@@ -413,10 +413,12 @@ export function AgentRail({
           borderTop: '1px solid var(--bd-2)'
         }}
       >
+        {/* Single entry to the add-agent flow. A second control here (previously a
+            "More agent options" IconButton) routed to the exact same funnel with a
+            different label, so it read as two distinct actions — de-duplicated. */}
         <Button variant="primary" block onClick={onNewAgent}>
           <Icon name="plus" size={11} color="var(--tx-onaccent)" /> New agent
         </Button>
-        <IconButton label="More agent options" icon="more" size={34} onClick={onNewAgent} />
       </div>
 
       {menu && (

@@ -128,6 +128,14 @@ export function AgentDetail({
   const [raw, setRaw] = React.useState(false)
   const [draft, setDraft] = React.useState('')
 
+  // AgentDetail is intentionally NOT keyed on agent.path (keying would unmount the
+  // terminal host and ptyKill live shells). But that means local composer state
+  // persists across a selection change — a half-typed task would otherwise carry
+  // over and Enter would send it to the newly-selected agent. Clear it on switch.
+  React.useEffect(() => {
+    setDraft('')
+  }, [agent.path])
+
   // Keep-alive terminal host. A mounted <TerminalPane> === a live PTY, and its
   // [id] cleanup runs ptyKill on unmount. Switching agents must NOT kill a shell
   // the user took over, so every path whose terminal was taken over keeps a
@@ -159,7 +167,7 @@ export function AgentDetail({
       {/* header */}
       <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--bd-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <span style={{ fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }}>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }} title={agent.name}>
             {agent.name}
           </span>
           <StatusPill agent={agent} />

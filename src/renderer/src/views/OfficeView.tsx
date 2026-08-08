@@ -87,6 +87,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   const termsRef = useRef<OpenTerm[]>([])
   useEffect(() => { termsRef.current = terms }, [terms])
 
+  // Prune log buffers whose tracked loop is gone (office stopped / log pane closed)
+  // so the Map can't grow unbounded across spawn/stop cycles. Mirror AgentsView:
+  // always diff against the live set (live log-term paths), never a size gate.
+  useEffect(() => {
+    const live = new Set(terms.filter((t) => t.kind === 'log' && t.path).map((t) => t.path as string))
+    for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
+  }, [terms])
+
   // Auth expired mid-action. NEVER swap to the login form while live Operate PTYs
   // are mounted — the login return unmounts <TerminalTabs> and SIGKILLs them.
   // Mirror the poll-path guard: surface a soft reconnect notice instead.
@@ -109,22 +117,32 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   const onlineAgentIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents])
 
+  // Remember every office slug we've ever seen. A term whose office transiently drops
+  // out of a poll must still resolve to its OWN slug bucket (below) — otherwise it would
+  // fall into a shared bucket, changing the pane's React key, remounting <TerminalTabs>
+  // and SIGKILLing a live PTY. A slug is recorded while its office is in `grouped`, so
+  // by the time that office churns out it is already known.
+  const seenSlugsRef = useRef<Set<string>>(new Set())
+  useEffect(() => { for (const g of grouped) seenSlugsRef.current.add(g.slug) }, [grouped])
+
   // Bucket open terms by their owning office. Term ids embed the office slug
   // (`op-<slug>-<id>` / `log-<slug>-<id>`) so the operate pane can be scoped to the
   // SELECTED office — otherwise a global `operating` shows office A's terminals (and
-  // steers A's character) while you're viewing office B. Longest-slug-first match so
-  // an `acme` bucket never swallows an `acme-2` term. Terms whose office is no longer
-  // in the list are kept as orphans (rendered hidden) so a live PTY is never unmounted.
-  const { termsByOffice, orphanTerms } = useMemo(() => {
-    const slugs = grouped.map((g) => g.slug).sort((a, b) => b.length - a.length)
+  // steers A's character) while you're viewing office B. Match against known slugs
+  // (current `grouped` PLUS every slug ever seen), longest-first so an `acme` bucket
+  // never swallows an `acme-2` term. Bucketing by the term's OWN slug — even when its
+  // office is momentarily absent from the list — keeps its stable `term-<slug>` React
+  // key across polls so a live PTY is never remounted/killed.
+  const termsByOffice = useMemo(() => {
+    const known = new Set<string>(seenSlugsRef.current)
+    for (const g of grouped) known.add(g.slug)
+    const slugs = [...known].sort((a, b) => b.length - a.length)
     const byOffice = new Map<string, OpenTerm[]>()
-    const orphans: OpenTerm[] = []
     for (const t of terms) {
-      const slug = slugs.find((s) => t.id.startsWith(`op-${s}-`) || t.id.startsWith(`log-${s}-`))
-      if (slug) { const arr = byOffice.get(slug) ?? []; arr.push(t); byOffice.set(slug, arr) }
-      else orphans.push(t)
+      const slug = slugs.find((s) => t.id.startsWith(`op-${s}-`) || t.id.startsWith(`log-${s}-`)) ?? '__unbucketed__'
+      const arr = byOffice.get(slug) ?? []; arr.push(t); byOffice.set(slug, arr)
     }
-    return { termsByOffice: byOffice, orphanTerms: orphans }
+    return byOffice
   }, [terms, grouped])
 
   const selectedGroup = useMemo(
@@ -270,6 +288,20 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     setTerms([]); setActiveTermId(''); setEndedIds(new Set()); setListErr('')
     setSpawnedOffices(new Set())
   }, [])
+
+  // Soft reconnect (the inline error-box button). NEVER tear down live Operate PTYs:
+  // if terminals are mounted, re-auth in place (mirror the poll-path auto-connect
+  // recovery) and keep them running. Only a full user-initiated Disconnect (which
+  // calls disconnect() directly) may clear terms.
+  const reconnect = useCallback(async () => {
+    if (termsRef.current.length) {
+      setListErr('')
+      try { await window.api.officeAutoConnect() } catch { /* loadAgents surfaces auth state */ }
+      void loadAgents()
+      return
+    }
+    void disconnect()
+  }, [disconnect, loadAgents])
 
   // Close ONLY interactive Operate PTY panes (SIGKILL on unmount) — leave tracked loops.
   const closeOperatePtys = useCallback(() => {
@@ -487,8 +519,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   // One TerminalTabs per office that has terms. ALL stay mounted (a mounted pty pane
   // === a live PTY); the non-selected offices' panes are hidden with display:none so
-  // switching offices never SIGKILLs a running shell. Orphaned terms (office gone from
-  // the list) ride along in a hidden bucket for the same keep-alive reason.
+  // switching offices never SIGKILLs a running shell. Terms whose office is momentarily
+  // absent from the list keep their own hidden `term-<slug>` bucket for the same reason.
   const renderTermPane = (ots: OpenTerm[], visible: boolean, key: string): React.JSX.Element => {
     const oActiveId = ots.some((t) => t.id === activeTermId) ? activeTermId : (ots[0]?.id ?? '')
     const oActive = ots.find((t) => t.id === oActiveId)
@@ -566,7 +598,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               {listErr}
               <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
                 <Button variant="secondary" size="sm" onClick={loadAgents}>Retry</Button>
-                <Button variant="secondary" size="sm" danger onClick={disconnect}>Reconnect</Button>
+                <Button variant="secondary" size="sm" danger onClick={reconnect}>Reconnect</Button>
               </div>
             </div>
           )}
@@ -655,9 +687,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
             {/* lower split: focused stream (or live terminal) + office room */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, borderRight: '1px solid var(--bd-2)' }}>
-                {/* Keep every office's terminals mounted; show only the selected office's. */}
+                {/* Keep every office's terminals mounted; show only the selected office's.
+                    Each bucket carries a stable `term-<slug>` key (offices that churned
+                    out of the poll keep their own bucket) so switching/polling never
+                    remounts — and SIGKILLs — a live PTY. */}
                 {termOffices.map((slug) => renderTermPane(termsByOffice.get(slug) ?? [], slug === selectedGroup.slug, `term-${slug}`))}
-                {orphanTerms.length > 0 && renderTermPane(orphanTerms, false, 'term-orphans')}
                 {/* Selected office has no live terminals → show its focused stream instead. */}
                 {!operating && (focusedChar ? (
                   <AgentStream
