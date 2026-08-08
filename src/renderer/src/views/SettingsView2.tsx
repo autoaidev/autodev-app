@@ -280,7 +280,9 @@ export function SettingsView2(): JSX.Element {
         {cli && (
           <div style={S.navFooter}>
             <div>AutoDev desktop</div>
-            <div>{cli.found ? 'CLI ready' : 'CLI not found'}</div>
+            {/* Matches the global banner wording exactly (R6): the missing piece is the
+                AutoDev CLI runner, distinct from the provider CLIs listed above. */}
+            <div>{cli.found ? 'AutoDev CLI ready' : 'AutoDev CLI not installed'}</div>
           </div>
         )}
       </nav>
@@ -381,7 +383,7 @@ export function SettingsView2(): JSX.Element {
             id="providers"
             innerRef={setRef('providers')}
             title="Providers"
-            subtitle="Which coding models this machine can launch. Credentials are managed per provider."
+            subtitle="The provider CLIs (Grok, Claude) this machine can launch — separate from the AutoDev CLI runner that drives them. Credentials are managed per provider."
           >
             {/* TODO(redesign): no api enumerates configured providers or their auth
                 state. This mirrors the known provider ids as a static reference. */}
@@ -546,12 +548,12 @@ export function SettingsView2(): JSX.Element {
               <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>autodev-app</span>
             </SettingRow>
             <SettingRow
-              label="CLI"
-              desc={cli?.found ? cli.path : 'Bundled autodev CLI'}
+              label="AutoDev CLI"
+              desc={cli?.found ? cli.path : 'The runner that drives agents (bundled autodev CLI)'}
               last
             >
               <span style={S.mutedValue}>
-                {cli == null ? 'checking…' : cli.found ? 'ready' : 'not found'}
+                {cli == null ? 'checking…' : cli.found ? 'ready' : 'not installed'}
               </span>
             </SettingRow>
           </Section>

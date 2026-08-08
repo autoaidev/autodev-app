@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AppShell, ErrorBoundary } from '@renderer/ui'
+import { CliStatusProvider } from '@renderer/services/cliStatus'
 import { AgentsView } from '@renderer/views/AgentsView'
 import { FleetView } from '@renderer/views/FleetView'
 import { OfficeView } from '@renderer/views/OfficeView'
@@ -61,7 +62,6 @@ export default function App(): JSX.Element {
   // the AppShell we wrap the content views in. Sourced from the shared agent store
   // so every consumer sees one live tally (no per-view listAgents poll).
   const { running, needsYou } = useFleetCounts()
-  const [cliMissing, setCliMissing] = useState(false)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
 
   const go = useCallback((id: NavId) => {
@@ -103,14 +103,6 @@ export default function App(): JSX.Element {
     return () => window.clearTimeout(id)
   }, [toast])
 
-  const recheckCli = useCallback(async () => {
-    const c = (await window.api.cliCheck()) as { found: boolean }
-    setCliMissing(!c.found)
-  }, [])
-  useEffect(() => {
-    void recheckCli()
-  }, [recheckCli])
-
   // ⌘K / Ctrl+K jumps to the searchable Agents screen — the shell-level command
   // affordance. This is a keyboard shortcut only; focusing a search box never navigates.
   useEffect(() => {
@@ -151,6 +143,7 @@ export default function App(): JSX.Element {
   )
 
   return (
+    <CliStatusProvider>
     <div
       style={{
         height: '100vh',
@@ -210,9 +203,9 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {cliMissing && <CliBanner onRecheck={recheckCli} />}
       {toast && <Toast msg={toast.msg} err={toast.err} />}
     </div>
+    </CliStatusProvider>
   )
 }
 
@@ -244,61 +237,3 @@ function Toast({ msg, err }: { msg: string; err?: boolean }): JSX.Element {
   )
 }
 
-/**
- * App-level gate carried over from the legacy shell: without the `autodev` CLI on
- * PATH no agent can run, and the redesigned screens don't surface that on their
- * own. A non-intrusive floating strip (never displaces the 100vh screens) with a
- * recheck, so a missing CLI is visible instead of silently failing.
- */
-function CliBanner({ onRecheck }: { onRecheck: () => Promise<void> }): JSX.Element {
-  const [checking, setChecking] = useState(false)
-  return (
-    <div
-      role="alert"
-      style={{
-        position: 'fixed',
-        // Sit BELOW the 34px title bar + 46px nav so the strip never covers the
-        // window title or the nav brand; a small gap keeps it visually detached.
-        top: 88,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 12,
-        maxWidth: '92vw',
-        background: 'var(--st-error-soft)',
-        border: '1px solid var(--st-error-bd)',
-        color: 'var(--st-error-bright)',
-        padding: '7px 14px',
-        borderRadius: 'var(--r-card)',
-        fontFamily: 'var(--font-sans)',
-        fontSize: 'var(--fs-desc)',
-        boxShadow: '0 6px 24px rgba(0,0,0,.4)',
-        zIndex: 1000
-      }}
-    >
-      <span>
-        The <code>autodev</code> CLI isn&rsquo;t installed &mdash; agents can&rsquo;t run until it is.
-      </span>
-      <button
-        onClick={async () => {
-          setChecking(true)
-          await onRecheck()
-          setChecking(false)
-        }}
-        style={{
-          background: 'var(--bg-input)',
-          border: '1px solid var(--bd-1)',
-          color: 'var(--tx-1)',
-          borderRadius: 'var(--r-button)',
-          padding: '4px 10px',
-          fontFamily: 'var(--font-sans)',
-          fontSize: 'var(--fs-desc)',
-          cursor: 'pointer'
-        }}
-      >
-        {checking ? 'Checking…' : 'Recheck'}
-      </button>
-    </div>
-  )
-}

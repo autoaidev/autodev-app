@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button, Icon } from '@renderer/ui'
 import TerminalPane from '../../TerminalPane'
+import { useCliStatus } from '@renderer/services/cliStatus'
 import './TerminalTab.css'
 
 /**
@@ -51,6 +52,8 @@ export function TerminalTab({
   onStart?: () => void
 }): JSX.Element {
   const [agent, setAgent] = useState<AgentLite | null>(null)
+  // Start can't succeed without the AutoDev CLI runner — disable it + explain (R5).
+  const { missing: cliMissing } = useCliStatus()
   // Once true, the interactive pane is mounted and stays mounted (keep-alive).
   const [takenOver, setTakenOver] = useState(false)
   // Mount the live pane AND tell the host to keep this path mounted so switching
@@ -134,9 +137,16 @@ export function TerminalTab({
                   in this workspace.
                 </div>
                 {onStart && (
-                  <Button variant="primary" onClick={onStart}>
-                    <Icon name="play" size={10} /> Start agent
-                  </Button>
+                  <>
+                    <Button variant="primary" onClick={onStart} disabled={cliMissing}>
+                      <Icon name="play" size={10} /> Start agent
+                    </Button>
+                    {cliMissing && (
+                      <div className="dv-term__ph-body" style={{ color: 'var(--st-error-bright)' }}>
+                        Install the AutoDev CLI to run agents.
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}

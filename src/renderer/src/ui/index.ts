@@ -45,3 +45,5 @@ export type { SegmentedTabsProps, SegTab } from './SegmentedTabs'
 
 export { AppShell, NavItem, RunPill, ConnectionPill } from './AppShell'
 export type { AppShellProps, NavItemDef } from './AppShell'
+
+export { CliBanner } from './CliBanner'

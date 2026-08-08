@@ -1,6 +1,8 @@
 import React from 'react'
 import { SearchInput } from './SearchInput'
 import { StatusDot } from './StatusDot'
+import { CliBanner } from './CliBanner'
+import { useCliStatus } from '@renderer/services/cliStatus'
 
 /**
  * AppShell — the window chrome shared by every full screen: the 34px title-bar
@@ -192,6 +194,12 @@ export function AppShell({
     borderBottom: '1px solid var(--bd-nav)'
   }
 
+  // The AutoDev-CLI-missing banner is painted here — in its OWN full-width row
+  // between the nav and the screen content — so it reserves layout space and pushes
+  // content down on EVERY screen (Agents / Sessions / Settings / …) instead of
+  // floating over a header. One source of truth (context), one placement app-wide.
+  const cli = useCliStatus()
+
   return (
     <div
       className={className}
@@ -272,6 +280,10 @@ export function AppShell({
           )}
         </div>
       </div>
+
+      {/* Full-width CLI-missing row — reserves its own space below the nav (never an
+          overlay). Renders null when the CLI is present, collapsing to zero height. */}
+      <CliBanner missing={cli.missing} checking={cli.checking} onRecheck={cli.recheck} />
 
       {children}
     </div>

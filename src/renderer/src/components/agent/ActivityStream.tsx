@@ -3,6 +3,7 @@ import { Button, Icon } from '@renderer/ui'
 import { LogRow, LogSeverity } from './LogRow'
 import { useAgentLog } from '@renderer/services/logBuffer'
 import { describeExit } from '@renderer/services/model'
+import { useCliStatus } from '@renderer/services/cliStatus'
 
 /**
  * ActivityStream — the parsed Activity tab body (2a).
@@ -229,6 +230,9 @@ export function ActivityStream({
   onStart
 }: ActivityStreamProps): React.JSX.Element {
   const ref = React.useRef<HTMLDivElement>(null)
+  // Without the AutoDev CLI runner, Start is guaranteed to fail — so disable the
+  // empty-state CTA and say why, instead of inviting a press that can't work (R5).
+  const { missing: cliMissing } = useCliStatus()
 
   // Read the shared, path-scoped buffer; fall back to the agent's initial snapshot
   // (lastOutput) when nothing has streamed yet so the pane isn't blank on first open.
@@ -292,9 +296,20 @@ export function ActivityStream({
               none, the composer below is — so Start is demoted to secondary and the
               copy points at it, matching what Start would actually do (R5). */}
           {!running && onStart && (
-            <Button variant={hasTask ? 'primary' : 'secondary'} onClick={onStart}>
-              <Icon name="play" size={10} /> Start agent
-            </Button>
+            <>
+              <Button
+                variant={hasTask ? 'primary' : 'secondary'}
+                onClick={onStart}
+                disabled={cliMissing}
+              >
+                <Icon name="play" size={10} /> Start agent
+              </Button>
+              {cliMissing && (
+                <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-error-bright)' }}>
+                  Install the AutoDev CLI to run agents.
+                </div>
+              )}
+            </>
           )}
         </div>
       ) : raw ? (

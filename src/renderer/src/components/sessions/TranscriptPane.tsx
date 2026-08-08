@@ -29,6 +29,7 @@ export function TranscriptPane({
   onInterject,
   interjectDisabled,
   interjectHint,
+  interjectAction,
   notice,
   connectSlot
 }: {
@@ -45,6 +46,9 @@ export function TranscriptPane({
   onInterject: (text: string) => void | Promise<{ error?: string } | void>
   interjectDisabled?: boolean
   interjectHint?: string
+  // When the composer is disabled for a jargon-y reason (e.g. non-workspace folder),
+  // offer a concrete next step next to the hint instead of dead-ending on it.
+  interjectAction?: { label: string; onClick: () => void }
   notice?: { kind: 'ok' | 'error'; text: string } | null
   connectSlot?: ReactNode
 }): JSX.Element {
@@ -161,12 +165,25 @@ export function TranscriptPane({
         <div
           role={sendErr ? 'alert' : undefined}
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            flexWrap: 'wrap',
             padding: '0 18px 8px',
             fontSize: 'var(--fs-meta)',
             color: sendErr ? 'var(--st-error)' : 'var(--tx-3)'
           }}
         >
-          {sendErr || interjectHint}
+          <span>{sendErr || interjectHint}</span>
+          {!sendErr && interjectDisabled && interjectAction && (
+            <button
+              type="button"
+              onClick={interjectAction.onClick}
+              style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--fs-meta)' }}
+            >
+              {interjectAction.label}
+            </button>
+          )}
         </div>
       )}
     </>

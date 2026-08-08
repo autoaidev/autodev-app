@@ -275,7 +275,15 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
               onInterject={(text) => interject(sel.cwd, text)}
               interjectDisabled={workspace ? !workspace.exists : false}
               interjectHint={workspace && !workspace.exists
-                ? "Read-only: this session's folder isn't an AutoDev workspace, so there's nowhere to queue a message."
+                ? "This session ran in a folder that isn't set up as an agent workspace, so you can't send messages here. Open it as an agent to continue."
+                : undefined}
+              interjectAction={workspace && !workspace.exists
+                ? {
+                    label: 'Open as agent ↗',
+                    onClick: () => window.dispatchEvent(
+                      new CustomEvent('autodev:open-agent', { detail: { path: sel.cwd } })
+                    )
+                  }
                 : undefined}
               notice={exportNote}
               connectSlot={connect.open && (
