@@ -177,9 +177,16 @@ function GroupHeader({
       >
         <Icon name="caret" size={9} />
       </button>
+      {/* The office name is what a folder header exists to show, so it gets width
+          priority: it takes the row's flex space and grows, while the (identical-
+          across-groups) repo-path `sub` yields first (high flex-shrink) — so at
+          262px the full "EPICMOVIES" / "MOVIE STUDIO" shows and only the path
+          ellipsizes. The name ellipsizes last, and only when truly too long. */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 7 }}>
         <span
           style={{
+            flex: '1 1 auto',
+            minWidth: 0,
             fontSize: 'var(--fs-section)',
             fontWeight: 700,
             letterSpacing: 'var(--ls-group)',
@@ -194,6 +201,8 @@ function GroupHeader({
         </span>
         <span
           style={{
+            flex: '0 8 auto',
+            minWidth: 0,
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--fs-micro)',
             color: 'var(--tx-ghost)',
@@ -215,7 +224,7 @@ function GroupHeader({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 78
+              maxWidth: 52
             }}
           >
             {providerLabel}

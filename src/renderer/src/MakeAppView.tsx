@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import OfficeSelector from './OfficeSelector'
 import FileBrowserCheckbox from './FileBrowserCheckbox'
+import { SignInForm } from './components/office/SignInForm'
 import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
@@ -272,26 +273,40 @@ export default function MakeAppView(): JSX.Element {
 
   const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false) }, [])
 
-  // ── not connected: login form ──
+  // ── not connected: login form (shared credential form — R11/R12) ──
   if (!connected) {
     return (
-      <div className="legacy-app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-        <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
-          <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>🐣 Spawn agents</h2>
-          <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)' }}>Describe what you want built and generate a team. Sign in first.</p>
-          <label className="fld" htmlFor="makeapp-base">Server URL</label>
-          <input className="fld-input" id="makeapp-base" value={base} onChange={(e) => setBase(e.target.value)} placeholder="https://…" style={inp} />
-          <label className="fld" htmlFor="makeapp-email">Email</label>
-          <input className="fld-input" id="makeapp-email" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inp} />
-          <label className="fld" htmlFor="makeapp-password">Password</label>
-          <input className="fld-input" id="makeapp-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={inp} />
-          {err && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, margin: '6px 0' }}>{err}</div>}
-          <button className="primary" type="submit" style={{ width: '100%', marginTop: 10 }} disabled={busy || !email || !password || !base.trim()}>{busy ? 'Connecting…' : 'Connect'}</button>
-          <p style={{ margin: '10px 0 0', fontSize: 11, color: 'var(--muted)' }}>
-            New here? <a href="#" onClick={(e) => { e.preventDefault(); if (base.trim()) void window.api.openExternal(base.trim()) }} style={{ color: 'var(--accent)' }}>Open the office</a> to create an account.
+      <SignInForm
+        title="🐣 Spawn agents"
+        description="Describe what you want built and generate a team. Sign in first."
+        base={base}
+        email={email}
+        password={password}
+        onBase={setBase}
+        onEmail={setEmail}
+        onPassword={setPassword}
+        onSubmit={() => void connect()}
+        loading={busy}
+        error={err}
+        width={340}
+        basePlaceholder="https://…"
+        footer={
+          <p style={{ margin: 0, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
+            New here?{' '}
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault()
+                if (base.trim()) void window.api.openExternal(base.trim())
+              }}
+              style={{ color: 'var(--accent)' }}
+            >
+              Open the office
+            </a>{' '}
+            to create an account.
           </p>
-        </form>
-      </div>
+        }
+      />
     )
   }
 

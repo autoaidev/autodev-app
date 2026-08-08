@@ -141,19 +141,21 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
         >
           {agent.name}
         </div>
-        <div
-          style={{
-            marginTop: 1,
-            fontFamily: meta.mono ? 'var(--font-mono)' : 'var(--font-sans)',
-            fontSize: 'var(--fs-tiny)',
-            color: META_COLOR[meta.tone],
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {meta.text}
-        </div>
+        {meta.text && (
+          <div
+            style={{
+              marginTop: 1,
+              fontFamily: meta.mono ? 'var(--font-mono)' : 'var(--font-sans)',
+              fontSize: 'var(--fs-tiny)',
+              color: META_COLOR[meta.tone],
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {meta.text}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}>

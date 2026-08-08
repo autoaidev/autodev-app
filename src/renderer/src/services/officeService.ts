@@ -493,6 +493,29 @@ export function useOffice(): OfficeState & typeof officeActions {
   return useMemo(() => ({ ...s, ...officeActions }), [s])
 }
 
+/**
+ * useOfficeConnection() — a READ-ONLY view of the office connection / session
+ * state (connected, ready, authError, base, …) for surfaces OUTSIDE the office tab
+ * (e.g. the Agents-detail header) that must reflect the SAME live session truth so
+ * one screen can't say "office connected" while another says "session expired".
+ *
+ * Unlike useOffice() it does NOT ref-count the 8s office-list poll — it only
+ * subscribes to store updates and triggers the one-time connection probe. So it
+ * never starts background polling from the Agents tab; it simply reads whatever the
+ * office store already knows (updated whenever the office tab runs its poll, or by
+ * the initial probe / an explicit connect / an auth-expiry).
+ */
+export function useOfficeConnection(): OfficeConnection {
+  return useSyncExternalStore(subscribeConnection, getState)
+}
+function subscribeConnection(cb: () => void): () => void {
+  listeners.add(cb)
+  void ensureResolved()
+  return () => {
+    listeners.delete(cb)
+  }
+}
+
 export interface UseOfficeAgents {
   group: OfficeGroup | undefined
   agents: OfficeAgent[]

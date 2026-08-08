@@ -122,6 +122,40 @@ export function stateLabel(a: Activity): string {
 }
 
 /**
+ * Plain-language reason for a loop exit code (R8). Raw exit codes are meaningless
+ * to a customer and often contradict the status word (130 is an interrupt, not a
+ * timeout), so we never surface the number as the primary explanation.
+ */
+export function describeExit(code?: number | null): string {
+  if (code == null) return ''
+  switch (code) {
+    case 0:
+      return 'finished cleanly'
+    case 124:
+      return 'timed out'
+    case 130:
+      return 'interrupted'
+    case 137:
+      return 'killed'
+    case 143:
+      return 'stopped'
+    default:
+      return `stopped (code ${code})`
+  }
+}
+
+/**
+ * State-badge label, exit-code aware (R8). A "crashed" agent that was actually
+ * interrupted (130) or terminated (143) reads STOPPED, not the timeout-implying
+ * TIMED OUT — so the badge never disagrees with the exit reason shown elsewhere.
+ */
+export function stateLabelForAgent(a: AgentState): string {
+  if (a.activity === 'crashed' && (a.exitCode === 130 || a.exitCode === 143))
+    return STATE_LABEL.stopped
+  return STATE_LABEL[a.activity]
+}
+
+/**
  * Map an AgentState onto the 4-token dot status used by the fleet table/tiles
  * (running / needs-you / error / idle). Note StatusDot also accepts an Activity
  * directly; this is the collapsed-to-4 variant fleet-helpers exposed.
@@ -152,14 +186,25 @@ export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: bo
   if (a.activity === 'stalled') return { text: a.error || 'stalled · no output', tone: 'amber', mono: false }
   if (a.activity === 'crashed') {
     const retry = a.tasks.total > 0 ? ' · retry 2/2' : ''
-    return { text: (a.error || 'timed out') + retry, tone: 'red', mono: false }
+    // Plain-language reason (never the raw exit code) so the row can't read
+    // "TIMED OUT" while the code says something else (R8).
+    const reason = describeExit(a.exitCode) || a.error || 'timed out'
+    return { text: reason + retry, tone: 'red', mono: false }
   }
   if (a.activity === 'idle' && a.tasks.remaining === 0)
     return { text: 'idle · all done', tone: 'idle', mono: false }
   if (a.activity === 'working' && a.currentTask)
     return { text: stripTaskHash(a.currentTask), tone: 'default', mono: false }
-  // Session id only — never the provider (that's on the group header now).
-  return { text: agentIdHash(a.path), tone: 'default', mono: true }
+  // The distinguishing "provider · shortid" meta (R3). The id is only meaningful
+  // when it's a real trailing hash — for an office folder whose basename IS the
+  // role (…/director), agentIdHash echoes the name, so we suppress the second line
+  // entirely rather than repeat the name. Provider already lives on the group
+  // header, but pairing it with the id here is what actually distinguishes rows.
+  const id = agentIdHash(a.path)
+  const prov = providerShort(a.provider)
+  if (id && id.toLowerCase() !== a.name.trim().toLowerCase())
+    return { text: `${prov} · ${id}`, tone: 'default', mono: true }
+  return { text: '', tone: 'default', mono: true }
 }
 
 /** Strip a leading "[7ef6ecb4…] " id token from a task title so the row shows

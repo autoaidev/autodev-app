@@ -296,6 +296,13 @@ export function SettingsView2(): JSX.Element {
             tag="Coming soon"
             subtitle="A preview of the defaults applied to every new agent. These aren't saved yet — set them per agent during setup for now."
           >
+            {/* R7: every control below is a preview — say so once, at the top of the
+                group, and keep the controls disabled/greyed so a first-timer can't
+                change a setting that silently won't persist. */}
+            <div style={S.previewNote} role="note">
+              Preview only — not yet editable. These controls don&rsquo;t save yet; set
+              them per agent during setup.
+            </div>
             <SettingRow
               label="Provider"
               desc="Interactive gives a terminal you can watch and steer; headless runs quiet."
@@ -631,9 +638,18 @@ function Toggle(props: {
         height: 18,
         borderRadius: 999,
         border: '1px solid var(--bd-1)',
-        background: props.checked ? 'var(--accent)' : 'var(--bg-input)',
+        // A disabled toggle must not read as an active blue switch (R7): a checked-
+        // but-disabled control uses a muted grey track, not the accent, so a preview-
+        // only panel never looks like a live, editable setting.
+        background: props.disabled
+          ? props.checked
+            ? 'var(--st-track)'
+            : 'var(--bg-input)'
+          : props.checked
+            ? 'var(--accent)'
+            : 'var(--bg-input)',
         cursor: props.disabled ? 'not-allowed' : 'pointer',
-        opacity: props.disabled ? 0.5 : 1,
+        opacity: props.disabled ? 0.55 : 1,
         padding: 0,
         transition: 'background .12s ease',
         flexShrink: 0
@@ -877,6 +893,16 @@ const S: Record<string, React.CSSProperties> = {
     background: 'var(--bg-panel)',
     border: '1px solid var(--bd-nav)',
     borderRadius: 8
+  },
+  previewNote: {
+    fontSize: 11,
+    color: 'var(--tx-4)',
+    lineHeight: 1.5,
+    padding: '8px 12px',
+    marginBottom: 4,
+    background: 'var(--bg-panel)',
+    border: '1px solid var(--bd-2)',
+    borderRadius: 7
   }
 }
 

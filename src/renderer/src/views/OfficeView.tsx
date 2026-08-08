@@ -5,6 +5,7 @@ import { OfficeCard } from '../components/office/OfficeCard'
 import { CharacterCard } from '../components/office/CharacterCard'
 import { AgentStream } from '../components/office/AgentStream'
 import { OfficeRoom } from '../components/office/OfficeRoom'
+import { SignInForm } from '../components/office/SignInForm'
 import { OfficeAgent, OfficeGroup, isAuthError } from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
@@ -305,55 +306,23 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // notice, and the registry's reap notice.
   const boxErr = actionErr || office.listError || notice
 
-  // ── not connected: login ──
+  // ── not connected: login (shared credential form — R11/R12) ──
   if (!office.connected) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: 'var(--bg-0)', fontFamily: 'var(--font-sans)' }}>
-        <style>{`.office-login-input:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-tint)}`}</style>
-        <form
-          onSubmit={(e) => { e.preventDefault(); void connect() }}
-          style={{ width: 380, background: 'var(--bg-panel)', border: '1px solid var(--bd-strong)', borderRadius: 'var(--r-modal)', padding: 24, boxShadow: 'var(--shadow-modal)' }}
-        >
-          <h2 style={{ margin: '0 0 6px', fontSize: 'var(--fs-panel-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>Connect to a Pixel Office</h2>
-          <p style={{ margin: '0 0 18px', fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', lineHeight: 1.55 }}>
-            A Pixel Office is an optional shared team server — a room of remote agents you and your
-            teammates can watch and steer together. Sign in to list and operate them. You can also run
-            local agents on this machine without one.
-          </p>
-          {(['Server URL', 'Email', 'Password'] as const).map((label) => {
-            const isPw = label === 'Password'
-            const isEmail = label === 'Email'
-            const value = label === 'Server URL' ? base : isEmail ? email : password
-            const set = label === 'Server URL' ? setBase : isEmail ? setEmail : setPassword
-            return (
-              <label key={label} style={{ display: 'block', marginBottom: 11 }}>
-                <span style={{ display: 'block', fontSize: 'var(--fs-desc)', color: 'var(--tx-3)', marginBottom: 5 }}>{label}</span>
-                <input
-                  className="office-login-input"
-                  type={isPw ? 'password' : isEmail ? 'email' : 'text'}
-                  autoComplete={isPw ? 'current-password' : isEmail ? 'username' : undefined}
-                  value={value}
-                  onChange={(e) => set(e.target.value)}
-                  placeholder={label === 'Server URL' ? office.baseUrlPlaceholder : isEmail ? 'you@example.com' : undefined}
-                  style={{
-                    width: '100%', boxSizing: 'border-box', padding: '8px 11px',
-                    background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)',
-                    color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', outline: 'none'
-                  }}
-                />
-              </label>
-            )
-          })}
-          {office.authError && (
-            <div role="alert" style={{ display: 'flex', alignItems: 'flex-start', gap: 7, color: 'var(--st-error-bright)', fontSize: 'var(--fs-meta)', margin: '2px 0 6px', lineHeight: 1.45 }}>
-              <span aria-hidden style={{ fontWeight: 700 }}>!</span> <span>{office.authError}</span>
-            </div>
-          )}
-          <Button variant="primary" type="submit" block disabled={office.loading || !email || !password || !base} style={{ marginTop: 10 }}>
-            {office.loading ? 'Connecting…' : 'Connect'}
-          </Button>
-        </form>
-      </div>
+      <SignInForm
+        title="Connect to a Pixel Office"
+        description="A Pixel Office is an optional shared team server — a room of remote agents you and your teammates can watch and steer together. Sign in to list and operate them. You can also run local agents on this machine without one."
+        base={base}
+        email={email}
+        password={password}
+        onBase={setBase}
+        onEmail={setEmail}
+        onPassword={setPassword}
+        onSubmit={() => void connect()}
+        loading={office.loading}
+        error={office.authError}
+        basePlaceholder={office.baseUrlPlaceholder}
+      />
     )
   }
 

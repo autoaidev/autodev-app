@@ -1,6 +1,8 @@
 import React from 'react'
 import { SegmentedTabs, Button, Pill, StatusDot, Icon } from '@renderer/ui'
-import { AgentState, providerShort, agentIdHash, pillVariantFor, stateLabel } from '@renderer/services/model'
+import { AgentState, providerShort, agentIdHash, pillVariantFor, stateLabelForAgent } from '@renderer/services/model'
+import { useOfficeConnection } from '@renderer/services/officeService'
+import { navTo } from '@renderer/nav'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
@@ -92,7 +94,7 @@ function StatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
   return (
     <Pill variant={pillVariantFor(agent.activity)} mono selected>
       <StatusDot status={agent.activity} size={6} />
-      {stateLabel(agent.activity)}
+      {stateLabelForAgent(agent)}
     </Pill>
   )
 }
@@ -133,6 +135,15 @@ export function AgentDetail({
   const [follow, setFollow] = React.useState(true)
   const [raw, setRaw] = React.useState(false)
   const [draft, setDraft] = React.useState('')
+
+  // Reconcile the office indicator with the ONE live session truth (R4 + R6): the
+  // header must never claim "office connected" while the office session is expired
+  // (shown on the Office tab) or while Chat says "not connected". `officeLinked`
+  // mirrors ChatTab's ref (officeAgentId||officeAgentSlug) so the two agree; an
+  // expired session flips the label to "office session expired" everywhere at once.
+  const officeConn = useOfficeConnection()
+  const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
+  const officeExpired = officeLinked && officeConn.ready && !!officeConn.authError
 
   // AgentDetail is intentionally NOT keyed on agent.path (keying would unmount the
   // terminal host and ptyKill live shells). But that means local composer state
@@ -230,12 +241,30 @@ export function AgentDetail({
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
             {providerShort(agent.provider)} · {agentIdHash(agent.path)}
           </span>
-          {(agent.online || agent.wsUrl) && (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <StatusDot status="running" size={5} />
-              <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-running)' }}>office connected</span>
-            </span>
-          )}
+          {officeLinked &&
+            (officeExpired ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <StatusDot status="needs-you" size={5} />
+                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)' }}>office session expired</span>
+                <button
+                  type="button"
+                  onClick={() => navTo('office')}
+                  style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--fs-tiny)' }}
+                >
+                  Reconnect
+                </button>
+              </span>
+            ) : agent.online ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <StatusDot status="running" size={5} />
+                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-running)' }}>office connected</span>
+              </span>
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <StatusDot status="idle" size={5} />
+                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>office linked · offline</span>
+              </span>
+            ))}
         </div>
       </div>
 
@@ -279,6 +308,7 @@ export function AgentDetail({
             running={agent.running}
             tasksDone={agent.tasks.done}
             tasksTotal={agent.tasks.total}
+            tasksRemaining={agent.tasks.remaining}
             onStart={onStart}
           />
           {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}

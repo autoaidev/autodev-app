@@ -32,6 +32,7 @@ export function Button({
 }: ButtonProps): React.JSX.Element {
   const pad = size === 'sm' ? '5px 11px' : '6px 12px'
   const fs = size === 'sm' ? 'var(--fs-desc)' : 'var(--fs-meta)'
+  const isDisabled = !!rest.disabled
 
   const base: React.CSSProperties = {
     display: block ? 'flex' : 'inline-flex',
@@ -44,9 +45,13 @@ export function Button({
     fontFamily: 'var(--font-sans)',
     fontSize: fs,
     lineHeight: 1.2,
-    cursor: 'pointer',
+    // A disabled button must LOOK disabled everywhere (R12): muted + not-allowed, so
+    // a primary CTA can't render as a fully-saturated, clickable-looking blue while
+    // it's actually inert (the Office-vs-Make-app Connect-button mismatch).
+    cursor: isDisabled ? 'not-allowed' : 'pointer',
+    opacity: isDisabled ? 0.5 : 1,
     whiteSpace: 'nowrap',
-    transition: 'background .12s ease, border-color .12s ease'
+    transition: 'background .12s ease, border-color .12s ease, opacity .12s ease'
   }
 
   let skin: React.CSSProperties
