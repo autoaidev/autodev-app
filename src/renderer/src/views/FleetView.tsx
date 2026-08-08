@@ -16,6 +16,7 @@ import {
   formatElapsed
 } from '@renderer/components/fleet/fleet-helpers'
 import '@renderer/components/fleet/fleet.css'
+import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 
 /**
  * 2b · Fleet — a single triage table that answers "what needs me" across the
@@ -370,6 +371,10 @@ export function FleetView(): React.JSX.Element {
   return (
     <AppShell
       activeNav="fleet"
+      nav={MAIN_NAV}
+      rightNav={SETTINGS_NAV}
+      onNavChange={(id) => navTo(id)}
+      search
       running={runningCount}
       needsYou={attention.length}
       style={{ height: '100%' }}

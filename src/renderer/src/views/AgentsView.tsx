@@ -6,6 +6,7 @@ import { Inspector } from '@renderer/components/agent/Inspector'
 import { AgentState, ATTENTION_STATES } from '@renderer/components/agent/AgentRow'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
+import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 
 /**
  * AgentsView — screen 2a. Three columns: the AgentRail (262), the AgentDetail
@@ -70,6 +71,33 @@ export function AgentsView(): React.JSX.Element {
       window.clearInterval(poll)
     }
   }, [refresh])
+
+  // Soft-hook: another screen (the Office view's "open this agent") asks us to
+  // reveal a specific agent. App switches the top-nav to Agents; we own the
+  // selection, so we resolve the office identity to a local workspace path and
+  // select it here. Stays wired even while hidden (this view is kept mounted).
+  React.useEffect(() => {
+    const onOpen = (e: Event): void => {
+      const d = (e as CustomEvent).detail as { path?: string; officeSlug?: string; agentSlug?: string }
+      if (!d) return
+      setAgents((prev) => {
+        const match = d.path
+          ? prev.find((a) => a.path === d.path)
+          : prev.find(
+              (a) =>
+                a.officeSlug === d.officeSlug &&
+                (a.officeAgentSlug === d.agentSlug || a.path.endsWith('/' + (d.agentSlug ?? '\0')))
+            )
+        if (match) {
+          setSelected(match.path)
+          setDetailTab('chat')
+        }
+        return prev
+      })
+    }
+    window.addEventListener('autodev:open-agent', onOpen)
+    return () => window.removeEventListener('autodev:open-agent', onOpen)
+  }, [])
 
   const current = agents.find((a) => a.path === selected)
   const running = agents.filter((a) => a.running).length
@@ -186,8 +214,10 @@ export function AgentsView(): React.JSX.Element {
   return (
     <AppShell
       activeNav="agents"
-      // TODO(redesign): top-nav routing is wired at Stage 3; broadcast intent so App can pick it up.
-      onNavChange={(id) => window.dispatchEvent(new CustomEvent('redesign:nav', { detail: id }))}
+      nav={MAIN_NAV}
+      rightNav={SETTINGS_NAV}
+      // Top-nav routing is owned by App.tsx (Stage 3): broadcast the intent, App switches the tab.
+      onNavChange={(id) => navTo(id)}
       search
       running={running}
       needsYou={needsYou}
