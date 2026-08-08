@@ -259,6 +259,23 @@ export class AgentManager extends EventEmitter {
    * instead of taking the workspace over as its own child.
    */
   private _extStopping = new Map<string, number>()
+
+  // ── Auto-restart-on-crash state ──────────────────────────────────────────
+  // A spawned grok loop can exit abnormally (observed: code 130 / SIGINT right
+  // after going idle) and then sits "Crashed" until the user clicks Restart —
+  // which reliably brings it back. So do that automatically: on a CRASH exit
+  // (non-zero, NOT a user stop, NOT app quit) re-`start()` the same loop, up to
+  // MAX_CRASH_RETRIES times with a short backoff. A loop that stays healthy past
+  // RETRY_RESET_MS earns its budget back, so only a fast crash-loop hits the cap.
+  private static readonly MAX_CRASH_RETRIES = 3
+  private static readonly RETRY_BACKOFF_MS = [2000, 4000, 8000]
+  private static readonly RETRY_RESET_MS = 90_000
+  private _spawnedAt = new Map<string, number>()
+  private _crashRetries = new Map<string, number>()
+  private _retryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private _intentionalStop = new Set<string>()
+  private _disposing = false
+
   private _externalPid(path: string): number | null {
     if (process.platform !== 'linux') return null
     const now = Date.now()
@@ -582,7 +599,13 @@ export class AgentManager extends EventEmitter {
   }
 
   // --- loop control --------------------------------------------------------
-  async start(path: string, provider?: string): Promise<{ ok: true; alreadyRunning?: boolean } | { error: string }> {
+  async start(path: string, provider?: string, isRetry = false): Promise<{ ok: true; alreadyRunning?: boolean } | { error: string }> {
+    // A fresh (manual / spawn-office) start clears the crash-retry budget and any
+    // pending "user stopped this" marker; an auto-retry preserves the budget.
+    this._intentionalStop.delete(path)
+    const pendingRetry = this._retryTimers.get(path)
+    if (pendingRetry) { clearTimeout(pendingRetry); this._retryTimers.delete(path) }
+    if (!isRetry) this._crashRetries.delete(path)
     // Already running — our own child OR an external loop for this workspace.
     // The external check makes "Start all" a no-op for live agents instead of
     // spawning a duplicate loop that fights the first for the same office slug.
@@ -620,6 +643,7 @@ export class AgentManager extends EventEmitter {
     // is the backstop for force-quit / crash where disposeAll can't run.
     const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, AUTODEV_EXIT_WITH_PARENT: '1', PATH: augmentPath((baseEnv as Record<string, string>).PATH ?? process.env.PATH) }, stdio: ['ignore', 'pipe', 'pipe'] })
     this._procs.set(path, child)
+    this._spawnedAt.set(path, Date.now())
     const onData = (buf: Buffer) => {
       const s = buf.toString('utf8')
       this.emit('log', { path, line: s })
@@ -639,6 +663,7 @@ export class AgentManager extends EventEmitter {
       this._lastExit.set(path, code)
       this.emit('log', { path, line: `\n[loop exited code=${code ?? '?'}]\n` })
       this.emit('changed')
+      this._maybeAutoRestart(path, provider, code)
     })
     // Without this, an async spawn failure (e.g. ENOENT: the cwd was deleted, or
     // the node/cli binary is missing) emits 'error' with no 'exit' — the child
@@ -656,7 +681,45 @@ export class AgentManager extends EventEmitter {
     return { ok: true }
   }
 
+  /**
+   * Auto-restart a loop that CRASHED — not one the user stopped and not on app
+   * quit. Budget of MAX_CRASH_RETRIES, replenished once a loop stays healthy past
+   * RETRY_RESET_MS, so a stable loop that dies hours later still gets fresh tries
+   * while a spawn-time crash-loop stops after 3 and waits for a manual Restart.
+   */
+  private _maybeAutoRestart(path: string, provider: string | undefined, code: number | null): void {
+    if (this._disposing || this._intentionalStop.has(path)) { this._intentionalStop.delete(path); return }
+    if (code === 0) { this._crashRetries.delete(path); return }   // clean end — not a crash
+
+    const ranMs = Date.now() - (this._spawnedAt.get(path) ?? Date.now())
+    if (ranMs > AgentManager.RETRY_RESET_MS) this._crashRetries.delete(path)
+
+    const n = this._crashRetries.get(path) ?? 0
+    if (n >= AgentManager.MAX_CRASH_RETRIES) {
+      this.emit('log', { path, line: `\n[auto-restart: gave up after ${AgentManager.MAX_CRASH_RETRIES} attempts — click Restart to try again]\n` })
+      return
+    }
+    this._crashRetries.set(path, n + 1)
+    const delay = AgentManager.RETRY_BACKOFF_MS[n] ?? 8000
+    this.emit('log', { path, line: `\n[auto-restart ${n + 1}/${AgentManager.MAX_CRASH_RETRIES} after crash (code=${code ?? '?'}) in ${Math.round(delay / 1000)}s…]\n` })
+    const t = setTimeout(() => {
+      this._retryTimers.delete(path)
+      // Something changed while we waited — don't step on it.
+      if (this._procs.has(path) || this._intentionalStop.has(path) || this._disposing) return
+      if (this._externalPid(path) !== null) return   // a loop for this path is live elsewhere now
+      void this.start(path, provider, true)
+    }, delay)
+    t.unref?.()
+    this._retryTimers.set(path, t)
+  }
+
   stop(path: string): void {
+    // Mark as a deliberate stop so the exit handler doesn't auto-restart it, and
+    // cancel any pending retry from an earlier crash.
+    this._intentionalStop.add(path)
+    const pending = this._retryTimers.get(path)
+    if (pending) { clearTimeout(pending); this._retryTimers.delete(path) }
+    this._crashRetries.delete(path)
     const child = this._procs.get(path)
     if (child) {
       try { child.kill('SIGINT') } catch { /* ignore */ }
@@ -920,6 +983,10 @@ export class AgentManager extends EventEmitter {
   runningCount(): number { return this._procs.size }
 
   disposeAll(): void {
+    // App is quitting: stop any pending auto-restart from resurrecting a loop.
+    this._disposing = true
+    for (const t of this._retryTimers.values()) { try { clearTimeout(t) } catch { /* ignore */ } }
+    this._retryTimers.clear()
     // Kill the loops WE spawned…
     for (const child of this._procs.values()) { try { child.kill('SIGKILL') } catch { /* ignore */ } }
     // …and any EXTERNAL `autodev start` loops for our registered workspaces —
