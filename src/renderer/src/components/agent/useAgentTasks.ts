@@ -48,32 +48,54 @@ export interface AgentTasks {
 
 /** Fetch + parse `status --all` for an agent and reconcile it against the store
  *  summary. `path` may be undefined (no selection) → an unloaded, zeroed result. */
+const REFRESH_MS = 4000
+
 export function useAgentTasks(agent?: Pick<AgentState, 'path' | 'running' | 'tasks'>): AgentTasks {
   const [items, setItems] = React.useState<TodoItem[] | null>(null)
   const path = agent?.path
+  const running = agent?.running ?? false
+  // A mutation signal: whenever the store summary moves (a task completed, or the
+  // composer appended one via sendAgentMessage → TODO.md), re-parse the file so the
+  // Inspector checklist re-renders instead of freezing at its first read.
+  const sig = agent?.tasks ? `${agent.tasks.done}/${agent.tasks.total}/${agent.tasks.remaining}` : ''
+  // Only blank to the loading state when the SELECTED agent actually changes; a
+  // refresh from the poll or a summary bump refreshes in place (no null flash).
+  const prevPath = React.useRef<string | undefined>(undefined)
 
   React.useEffect(() => {
     if (!path) {
+      prevPath.current = undefined
       setItems(null)
       return
     }
-    setItems(null)
     let live = true
-    window.api
-      .runCli(['status', path, '--all'])
-      .then((r: { stdout?: string; stderr?: string }) => {
-        if (!live) return
-        setItems(parseTodo((r.stdout || r.stderr || '').replace(/\x1b\[[0-9;]*m/g, '')))
-      })
-      .catch(() => live && setItems([]))
+    const fetchNow = (): void => {
+      window.api
+        .runCli(['status', path, '--all'])
+        .then((r: { stdout?: string; stderr?: string }) => {
+          if (!live) return
+          setItems(parseTodo((r.stdout || r.stderr || '').replace(/\x1b\[[0-9;]*m/g, '')))
+        })
+        .catch(() => {
+          if (live) setItems((cur) => cur ?? [])
+        })
+    }
+    if (prevPath.current !== path) {
+      prevPath.current = path
+      setItems(null)
+    }
+    fetchNow()
+    // While the agent is actively working, TODO.md changes without any store-summary
+    // delta (an item flips ~→x); poll so the checklist tracks it live.
+    const iv = running ? setInterval(fetchNow, REFRESH_MS) : null
     return () => {
       live = false
+      if (iv) clearInterval(iv)
     }
-  }, [path])
+  }, [path, running, sig])
 
   const list = items ?? []
   const loaded = items !== null
-  const running = agent?.running ?? false
   const summary = agent?.tasks ?? { total: 0, remaining: 0, done: 0 }
   const inProgress = loaded && list.length === 0 && running && summary.remaining > 0
   const emptyDone = loaded && list.length === 0 && !inProgress

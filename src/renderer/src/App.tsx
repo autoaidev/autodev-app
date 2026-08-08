@@ -64,6 +64,10 @@ export default function App(): JSX.Element {
   // so every consumer sees one live tally (no per-view listAgents poll).
   const { running, needsYou } = useFleetCounts()
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
+  // Optional folder seed for the Make-app funnel — set when a caller routes to
+  // "new agent" with a specific folder (e.g. Sessions' "Open as agent" on a
+  // non-workspace folder). Pre-fills the target folder in MakeAppView.
+  const [makeSeedFolder, setMakeSeedFolder] = useState<string | undefined>(undefined)
 
   const go = useCallback((id: NavId) => {
     setNav(id)
@@ -121,7 +125,10 @@ export default function App(): JSX.Element {
     <AppActionsProvider
       onNavigate={go}
       onOpenAgentTab={() => go('agents')}
-      onNewAgent={() => go('makeapp')}
+      onNewAgent={(seed) => {
+        setMakeSeedFolder(seed?.path)
+        go('makeapp')
+      }}
       onToast={(msg, err) => setToast({ msg, err })}
       onFocusAttention={() => go('agents')}
     >
@@ -172,7 +179,7 @@ export default function App(): JSX.Element {
       {opened.has('makeapp') && (
         <div style={layer(nav === 'makeapp')}>
           <ErrorBoundary resetKey={nav} label="Make-app">
-            {contentShell(<MakeAppView />)}
+            {contentShell(<MakeAppView initialFolder={makeSeedFolder} />)}
           </ErrorBoundary>
         </div>
       )}

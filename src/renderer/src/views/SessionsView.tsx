@@ -33,7 +33,25 @@ import '../components/sessions/sessions.css'
  * peeked) so the live PTY is never SIGKILLed by a remount.
  */
 export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.Element {
-  const { openAgent } = useAppActions()
+  const { openAgent, newAgent, toast } = useAppActions()
+
+  // "Open as agent" for a session whose folder isn't an AutoDev workspace. The old
+  // path called openAgent({path}) — which only reveals an ALREADY-registered agent,
+  // so it always failed with a misleading "runs remotely" toast and still yanked to
+  // Agents. Instead: register the folder if it's already a workspace and reveal it;
+  // otherwise route to the create-agent funnel seeded with the folder (no bounce).
+  const openAsAgent = async (cwd: string): Promise<void> => {
+    try {
+      const r = (await window.api.addAgent(cwd)) as { error?: string; path?: string }
+      if (r && typeof r === 'object' && 'error' in r && r.error) {
+        newAgent({ path: cwd })
+        return
+      }
+      openAgent({ path: cwd })
+    } catch {
+      toast('Could not open that folder as an agent.', true)
+    }
+  }
   const [filter, setFilter] = useState<ProviderFilter>('all')
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -282,7 +300,7 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
               interjectAction={workspace && !workspace.exists
                 ? {
                     label: 'Open as agent ↗',
-                    onClick: () => openAgent({ path: sel.cwd })
+                    onClick: () => void openAsAgent(sel.cwd)
                   }
                 : undefined}
               notice={exportNote}

@@ -330,8 +330,30 @@ let visible = true
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let stopTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * Silent token refresh. When the office session has lapsed (`authError` set), try
+ * to re-auth in place WITHOUT dropping the user to a red sign-in wall — this is the
+ * quiet half of the "session expired shouldn't bleed red across every screen" fix.
+ * On success we clear the expiry and reload; on failure the store stays in its
+ * single neutral "reconnecting" state and the user can Reconnect explicitly.
+ */
+async function trySilentRefresh(): Promise<void> {
+  if (!state.authError) return
+  try {
+    if (await api().officeAutoConnect()) {
+      emit({ connected: true, authError: '' })
+      await loadAgents()
+    }
+  } catch {
+    /* stay in the neutral reconnecting state */
+  }
+}
+
 const onFocus = (): void => {
   if (state.connected && visible) void poll()
+  // A lapsed session may recover on its own (rotated token) — attempt it silently
+  // on focus so the user often never sees an expiry at all.
+  else if (state.authError) void trySilentRefresh()
 }
 
 /** Resolve the saved base + probe for a live session, exactly once. */
@@ -507,6 +529,33 @@ export function useOffice(): OfficeState & typeof officeActions {
  */
 export function useOfficeConnection(): OfficeConnection {
   return useSyncExternalStore(subscribeConnection, getState)
+}
+
+/**
+ * The ONE derived office-link status for an agent, shared by every surface (the
+ * AgentDetail header pill, the Chat tab + composer, and the Inspector Setup row)
+ * so they can never contradict each other — no more "office connected" in the
+ * header while Chat says "not connected" and the composer says "offline".
+ *
+ *   'unlinked'     — the agent has no office character (Chat offers "Connect")
+ *   'connected'    — office session healthy AND the character is online
+ *   'offline'      — office session healthy, character not online (messages queue)
+ *   'reconnecting' — the office session needs the user (expired / dropped). This is
+ *                    the SINGLE neutral "Reconnect" state (never a red app-wide error);
+ *                    a silent token refresh is attempted first (see trySilentRefresh).
+ *
+ * Before the connection probe resolves (`ready === false`) we trust the agent's own
+ * `online` flag (from the fleet store) rather than flip to reconnecting on launch.
+ */
+export type OfficeLinkStatus = 'unlinked' | 'connected' | 'offline' | 'reconnecting'
+export function deriveOfficeLinkStatus(
+  officeLinked: boolean,
+  agentOnline: boolean,
+  conn: Pick<OfficeConnection, 'ready' | 'connected' | 'authError'>
+): OfficeLinkStatus {
+  if (!officeLinked) return 'unlinked'
+  if (conn.ready && (conn.authError !== '' || !conn.connected)) return 'reconnecting'
+  return agentOnline ? 'connected' : 'offline'
 }
 function subscribeConnection(cb: () => void): () => void {
   listeners.add(cb)

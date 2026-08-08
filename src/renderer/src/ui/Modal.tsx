@@ -10,6 +10,14 @@ import { Icon } from './Icon'
  * For the chrome-less compositions (2g) pass `overlay={false}` to drop the
  * scrim and render just the dialog card.
  */
+// Shared open-modal stack so a single Escape only closes the TOP-MOST modal.
+// Every open Modal registers a window keydown listener; without this guard a
+// nested modal (e.g. the MCP editor opened from within the agent Setup dialog)
+// and its parent would BOTH receive the Escape and both call onClose, collapsing
+// the whole stack in one keypress. Each open modal pushes an identity token here
+// and only acts on Escape when it is the last (top-most) token.
+const modalStack: symbol[] = []
+
 export interface ModalProps {
   open: boolean
   onClose?: () => void
@@ -46,13 +54,28 @@ export function Modal({
   style,
   children
 }: ModalProps): React.JSX.Element | null {
+  // Stable identity for this modal instance in the shared open-modal stack.
+  const idRef = React.useRef<symbol | null>(null)
+  if (idRef.current === null) idRef.current = Symbol('modal')
+
   React.useEffect(() => {
     if (!open || !onClose) return
+    const id = idRef.current!
+    modalStack.push(id)
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      // Only the top-most open modal handles Escape; stop other Modal listeners
+      // (all bound to window) from also firing so the parent doesn't close too.
+      if (modalStack[modalStack.length - 1] !== id) return
+      e.stopImmediatePropagation()
+      onClose()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      const i = modalStack.lastIndexOf(id)
+      if (i !== -1) modalStack.splice(i, 1)
+    }
   }, [open, onClose])
 
   if (!open) return null

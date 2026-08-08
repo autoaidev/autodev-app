@@ -59,7 +59,7 @@ function deriveName(desc: string): string {
  * team as LOCAL autodev agents into a folder you pick (one workspace per agent).
  * Reuses the pixel-office connection (prompts login first if not connected).
  */
-export default function MakeAppView(): JSX.Element {
+export default function MakeAppView({ initialFolder }: { initialFolder?: string } = {}): JSX.Element {
   // Shared pixel-office selection state (connection probe, office list, checkbox,
   // selected office) — same composable the Create dialog uses.
   const officeSel = useOfficeSelection({ defaultUseOffice: true, defaultSelection: NEW_OFFICE })
@@ -78,13 +78,23 @@ export default function MakeAppView(): JSX.Element {
   const [creating, setCreating] = useState(false)
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
-  const [folder, setFolder] = useState('')
+  const [folder, setFolder] = useState(initialFolder ?? '')
   const [sharedFolder, setSharedFolder] = useState(false) // Bug 2: one folder, all agents in a single .mcp.json
   const [fileBrowser, setFileBrowser] = useState(false)   // enable the office file-browser for EVERY spawned agent (both modes)
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
   const [wired, setWired] = useState(false)          // shared-folder .mcp.json was written → offer "add to sidebar"
   const [addingSidebar, setAddingSidebar] = useState(false)
+
+  // Apply a folder seed handed in after mount. This view is kept mounted (a
+  // keep-alive layer), so the useState initializer above only runs once — when a
+  // caller later routes here with a folder (Sessions' "Open as agent"), reflect it.
+  useEffect(() => {
+    if (initialFolder) {
+      setFolder(initialFolder)
+      setWired(false)
+    }
+  }, [initialFolder])
 
   // Seed the login form's base/email from the shared office session (the
   // composable owns `connected`; this only fills in display defaults).

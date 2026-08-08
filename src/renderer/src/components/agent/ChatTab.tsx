@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
-import { useOfficeMessages, useOfficeConnection, steer } from '@renderer/services/officeService'
+import { useOfficeMessages, useOfficeConnection, deriveOfficeLinkStatus, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
 import './ChatTab.css'
 
@@ -174,17 +174,20 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     taRef.current?.focus()
   }
 
-  // Chat can be unavailable for exactly ONE of three reasons — pick the true one and
-  // state it once (issues 1/4/7). In every unavailable state we render the shared
-  // empty-state layout (icon + heading + one-line reason + a single CTA) and render
-  // NEITHER the composer NOR the slash chips: an affordance that can't work must not
-  // be shown. Neutral heading/desc colours (matching Activity/Terminal), never the
-  // reddish error tone.
+  // Chat availability derives from the ONE shared office-link status (same source as
+  // the detail header pill / composer / Setup row), so Chat can never say "not
+  // connected" while the header says "office connected". Two unavailable states:
+  // 'unlinked' (no office character) and 'reconnecting' (session needs the user — a
+  // single NEUTRAL Reconnect, never the reddish error tone; a silent refresh is
+  // attempted upstream). 'connected' and 'offline' both render the live chat (the
+  // composer states the offline/queued caveat itself). NEITHER composer nor slash
+  // chips are shown in an unavailable state — an affordance that can't work isn't shown.
+  const officeStatus = deriveOfficeLinkStatus(!!ref, !!agent?.online, officeConn)
   let unavailable:
     | { title: string; body: React.ReactNode; cta: string; onCta: () => void }
     | null = null
   if (agent !== null) {
-    if (!ref) {
+    if (officeStatus === 'unlinked') {
       // Local agent with no office character — chat needs an office link.
       unavailable = {
         title: 'Not connected to a Pixel Office',
@@ -198,30 +201,18 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
         cta: 'Connect to office…',
         onCta: () => navigate('office')
       }
-    } else if (officeConn.ready && officeConn.authError) {
-      // Linked to a character, but the office session has expired.
+    } else if (officeStatus === 'reconnecting') {
+      // Linked to a character, but the office session needs the user (expired /
+      // dropped). One neutral reconnect affordance — the local loop is unaffected.
       unavailable = {
-        title: 'Office session expired',
+        title: 'Reconnect to your Pixel Office',
         body: (
           <>
-            Your Pixel Office session ended, so this conversation is paused. Reconnect to
-            read and steer this agent again.
+            Your Pixel Office session needs to reconnect, so this conversation is paused.
+            Reconnect to read and steer this agent again — the agent keeps running.
           </>
         ),
         cta: 'Reconnect…',
-        onCta: () => navigate('office')
-      }
-    } else if (officeConn.ready && !officeConn.connected) {
-      // Linked to a character, but not currently connected to the office server.
-      unavailable = {
-        title: 'Not connected to a Pixel Office',
-        body: (
-          <>
-            This agent is linked to an office character, but you&rsquo;re not connected to
-            the office server right now. Connect to read and steer it here.
-          </>
-        ),
-        cta: 'Connect to office…',
         onCta: () => navigate('office')
       }
     }

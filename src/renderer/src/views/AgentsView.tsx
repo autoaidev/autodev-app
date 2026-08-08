@@ -73,6 +73,13 @@ export function AgentsView(): React.JSX.Element {
       if (match) {
         setSelected(match.path)
         setDetailTab('chat')
+      } else if (d.path) {
+        // A concrete workspace path that isn't in the fleet yet — e.g. it was just
+        // registered (Sessions' "Open as agent") and the store's reload is still in
+        // flight. Select it optimistically; displayAgent resolves once the poll
+        // lands. NEVER the "runs remotely" toast (that's only for office-only refs).
+        setSelected(d.path)
+        setDetailTab('activity')
       } else {
         // No local workspace path resolved — the character runs remotely (office-
         // only, no local loop). App already switched to the Agents tab, so without

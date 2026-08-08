@@ -10,7 +10,7 @@ import {
   attentionTitle,
   attentionSummary
 } from '@renderer/services/model'
-import { useOfficeConnection } from '@renderer/services/officeService'
+import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
 import { useAppActions } from '@renderer/services/appActions'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
@@ -163,20 +163,24 @@ export function AgentDetail({
   const attnSummary = isAttention(agent) ? attentionSummary(agent) : null
 
   // Reconcile the office indicator with the ONE live session truth (R4 + R6): the
-  // header must never claim "office connected" while the office session is expired
-  // (shown on the Office tab) or while Chat says "not connected". `officeLinked`
-  // mirrors ChatTab's ref (officeAgentId||officeAgentSlug) so the two agree; an
-  // expired session flips the label to "office session expired" everywhere at once.
+  // header, Chat, composer and Setup row all derive from deriveOfficeLinkStatus, so
+  // they can never contradict (no "office connected" here while Chat says "not
+  // connected"). `officeLinked` mirrors ChatTab's ref (officeAgentId||officeAgentSlug).
   const officeConn = useOfficeConnection()
   const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
-  const officeExpired = officeLinked && officeConn.ready && !!officeConn.authError
+  const officeStatus = deriveOfficeLinkStatus(officeLinked, !!agent.online, officeConn)
 
   // AgentDetail is intentionally NOT keyed on agent.path (keying would unmount the
   // terminal host and ptyKill live shells). But that means local composer state
   // persists across a selection change — a half-typed task would otherwise carry
   // over and Enter would send it to the newly-selected agent. Clear it on switch.
+  // Also reset the per-agent view toggles: without this, turning Raw log on (or
+  // Follow off) for agent A leaks into agent B's Activity when you switch, because
+  // AgentDetail is deliberately not re-keyed/remounted on selection change.
   React.useEffect(() => {
     setDraft('')
+    setRaw(false)
+    setFollow(true)
   }, [agent.path])
 
   // Keep-alive terminal host. A mounted <TerminalPane> === a live PTY, and its
@@ -268,7 +272,7 @@ export function AgentDetail({
             {providerShort(agent.provider)} · {agentIdHash(agent.path)}
           </span>
           {officeLinked &&
-            (officeExpired ? (
+            (officeStatus === 'reconnecting' ? (
               // Non-blocking (R7): the local loop keeps running while the Pixel Office
               // link is down, so this is a dim, dismissible note — not an orange error.
               // Reconnect only matters for watching/steering with teammates.
@@ -297,7 +301,7 @@ export function AgentDetail({
                   </button>
                 </span>
               )
-            ) : agent.online ? (
+            ) : officeStatus === 'connected' ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status="running" size={5} />
                 <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-running)' }}>office connected</span>

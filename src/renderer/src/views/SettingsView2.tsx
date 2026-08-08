@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Icon, Pill, StatusDot } from '@renderer/ui'
+import { Button, Pill, StatusDot } from '@renderer/ui'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -13,27 +13,23 @@ import { Button, Icon, Pill, StatusDot } from '@renderer/ui'
  *     (getSettings/setSettings). That drives the "Pixel Office" section, which is
  *     the one fully-wired, Save-gated control.
  *   - officeStatus()/officeOffices() give the live connection badge + office count.
- *   - Everything else (agent-default provider, task timeout, retry, rate-limit
- *     fallback, agents folder, keep-loops-running, MCP, notifications, storage)
- *     has NO persistence surface yet — those controls render sensible defaults
- *     and are marked // TODO(redesign) so Stage 3 can wire real storage.
+ *   - Unwired preview panes (agent-defaults, notifications) have been REMOVED rather
+ *     than shipped disabled behind a "not saved yet / Stage 3" disclaimer — a Settings
+ *     page must not confess it's a prototype. Only sections backed by a real value
+ *     remain, and the page opens on Providers.
  */
 
 type SectionId =
-  | 'agent-defaults'
   | 'providers'
   | 'pixel-office'
   | 'mcp'
-  | 'notifications'
   | 'storage'
   | 'about'
 
 const NAV: { id: SectionId; label: string }[] = [
-  { id: 'agent-defaults', label: 'Agent defaults' },
   { id: 'providers', label: 'Providers' },
   { id: 'pixel-office', label: 'Pixel Office' },
   { id: 'mcp', label: 'MCP' },
-  { id: 'notifications', label: 'Notifications' },
   { id: 'storage', label: 'Storage & logs' },
   { id: 'about', label: 'About' }
 ]
@@ -54,7 +50,9 @@ interface OfficeStatus {
 }
 
 export function SettingsView2(): JSX.Element {
-  const [active, setActive] = useState<SectionId>('agent-defaults')
+  // Open on the Providers pane — the first section that reflects a real value, so a
+  // first-time visitor never lands on an unwired preview.
+  const [active, setActive] = useState<SectionId>('providers')
 
   // --- REAL, persisted preference: Pixel Office server URL ---------------------
   const [base, setBase] = useState('')
@@ -75,19 +73,9 @@ export function SettingsView2(): JSX.Element {
   // means "not resolved yet" → the block stays hidden until it is.
   const [cli, setCli] = useState<{ found: boolean; path: string } | null>(null)
 
-  // --- Aspirational, NOT-YET-PERSISTED agent defaults -------------------------
-  // TODO(redesign): no getSettings field backs any of these — they live in local
-  // state only. Stage 3 should extend settings:get/set (or a per-provider store).
-  const [provider, setProvider] = useState('grok-cli')
-  const [timeoutMin, setTimeoutMin] = useState(30)
-  const [retryOnTimeout, setRetryOnTimeout] = useState(true)
-  const [fallbackProvider, setFallbackProvider] = useState('claude-tui')
-  const [agentsFolder, setAgentsFolder] = useState('~/.autodev-app/offices')
-  const [keepLoops, setKeepLoops] = useState(true)
-  // Notifications (aspirational)
-  const [notifyNeedsYou, setNotifyNeedsYou] = useState(true)
-  const [notifyDone, setNotifyDone] = useState(false)
-  const [notifyErrors, setNotifyErrors] = useState(true)
+  // The workspace root shown (read-only) in Storage & logs. There is no persistence
+  // surface for it yet, so it's a displayed default — not an editable (unwired) control.
+  const agentsFolder = '~/.autodev-app/offices'
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -227,12 +215,6 @@ export function SettingsView2(): JSX.Element {
   const urlDirty = base.trim() !== savedBase.trim()
   const urlInvalid = !looksValid(base)
 
-  const browseFolder = useCallback(async () => {
-    // TODO(redesign): no directory-picker api is exposed in the preload surface
-    // (CURRENT-APP.md lists no dialog:pickFolder). Left inert until Stage 3 adds
-    // one; the field remains editable so the value is never lost.
-  }, [])
-
   const setRef = (id: SectionId) => (el: HTMLElement | null): void => {
     sectionRefs.current[id] = el
   }
@@ -290,94 +272,6 @@ export function SettingsView2(): JSX.Element {
       {/* right sectioned form (flex, scrolls) */}
       <div ref={contentRef} style={S.content}>
         <div style={S.inner}>
-          {/* ── Agent defaults ─────────────────────────────────────────── */}
-          <Section
-            id="agent-defaults"
-            innerRef={setRef('agent-defaults')}
-            title="Agent defaults"
-            tag="Coming soon"
-            subtitle="A preview of the defaults applied to every new agent. These aren't saved yet — set them per agent during setup for now."
-          >
-            {/* R7: every control below is a preview — say so once, at the top of the
-                group, and keep the controls disabled/greyed so a first-timer can't
-                change a setting that silently won't persist. */}
-            <div style={S.previewNote} role="note">
-              Preview only — not yet editable. These controls don&rsquo;t save yet; set
-              them per agent during setup.
-            </div>
-            <SettingRow
-              label="Provider"
-              desc="Interactive gives a terminal you can watch and steer; headless runs quiet."
-            >
-              <Dropdown value={provider} onChange={setProvider} options={PROVIDER_OPTS} disabled />
-            </SettingRow>
-
-            <SettingRow
-              label="Task timeout"
-              desc="How long a single task may run before the loop intervenes."
-            >
-              <Slider
-                min={5}
-                max={120}
-                step={5}
-                value={timeoutMin}
-                onChange={setTimeoutMin}
-                format={(v) => `${v} min`}
-                disabled
-              />
-            </SettingRow>
-
-            <SettingRow label="Retry on timeout" desc="Re-issue the task once if it times out.">
-              <Toggle checked={retryOnTimeout} onChange={setRetryOnTimeout} label="Retry on timeout" disabled />
-            </SettingRow>
-
-            <SettingRow
-              label="Fall back to another provider on rate limit"
-              desc="When the primary provider is rate-limited, continue on this one."
-            >
-              <Dropdown
-                value={fallbackProvider}
-                onChange={setFallbackProvider}
-                options={[{ value: '', label: 'None' }, ...PROVIDER_OPTS]}
-                disabled
-              />
-            </SettingRow>
-
-            <SettingRow
-              label="Agents folder"
-              desc="Where new agent workspaces are created on this machine."
-            >
-              <div style={{ display: 'flex', gap: 6, width: '100%', opacity: 0.5 }}>
-                <input
-                  className="sv2-input"
-                  value={agentsFolder}
-                  disabled
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  onChange={(e) => setAgentsFolder(e.target.value)}
-                  style={{ ...S.input, fontFamily: 'var(--font-mono)', flex: 1, minWidth: 0 }}
-                />
-                <Button variant="secondary" size="sm" disabled onClick={() => void browseFolder()}>
-                  Browse
-                </Button>
-              </div>
-            </SettingRow>
-
-            <SettingRow
-              label="Keep loops running when window closes"
-              desc="Agents keep working in the background; reopen to reattach."
-              last
-            >
-              <Toggle
-                checked={keepLoops}
-                onChange={setKeepLoops}
-                label="Keep loops running when window closes"
-                disabled
-              />
-            </SettingRow>
-          </Section>
-
           {/* ── Providers ──────────────────────────────────────────────── */}
           <Section
             id="providers"
@@ -498,25 +392,6 @@ export function SettingsView2(): JSX.Element {
             </div>
           </Section>
 
-          {/* ── Notifications ──────────────────────────────────────────── */}
-          <Section
-            id="notifications"
-            innerRef={setRef('notifications')}
-            title="Notifications"
-            tag="Coming soon"
-            subtitle="A preview of when the app will surface a desktop notification. These preferences aren't saved yet."
-          >
-            <SettingRow label="An agent needs you" desc="Asked a question or awaiting a choice.">
-              <Toggle checked={notifyNeedsYou} onChange={setNotifyNeedsYou} label="Needs-you notifications" disabled />
-            </SettingRow>
-            <SettingRow label="A task finished" desc="An agent completed its backlog.">
-              <Toggle checked={notifyDone} onChange={setNotifyDone} label="Task-done notifications" disabled />
-            </SettingRow>
-            <SettingRow label="Errors & timeouts" desc="A loop failed, timed out, or hit a rate limit." last>
-              <Toggle checked={notifyErrors} onChange={setNotifyErrors} label="Error notifications" disabled />
-            </SettingRow>
-          </Section>
-
           {/* ── Storage & logs ─────────────────────────────────────────── */}
           <Section
             id="storage"
@@ -617,123 +492,6 @@ function SettingRow(props: {
       <div style={{ width: 210, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
         {props.children}
       </div>
-    </div>
-  )
-}
-
-function Toggle(props: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  label: string
-  disabled?: boolean
-}): JSX.Element {
-  return (
-    <button
-      role="switch"
-      aria-checked={props.checked}
-      aria-label={props.label}
-      disabled={props.disabled}
-      onClick={() => !props.disabled && props.onChange(!props.checked)}
-      style={{
-        position: 'relative',
-        width: 32,
-        height: 18,
-        borderRadius: 999,
-        border: '1px solid var(--bd-1)',
-        // A disabled toggle must not read as an active blue switch (R7): a checked-
-        // but-disabled control uses a muted grey track, not the accent, so a preview-
-        // only panel never looks like a live, editable setting.
-        background: props.disabled
-          ? props.checked
-            ? 'var(--st-track)'
-            : 'var(--bg-input)'
-          : props.checked
-            ? 'var(--accent)'
-            : 'var(--bg-input)',
-        cursor: props.disabled ? 'not-allowed' : 'pointer',
-        opacity: props.disabled ? 0.55 : 1,
-        padding: 0,
-        transition: 'background .12s ease',
-        flexShrink: 0
-      }}
-    >
-      <span
-        style={{
-          position: 'absolute',
-          top: 1,
-          left: props.checked ? 15 : 1,
-          width: 14,
-          height: 14,
-          borderRadius: '50%',
-          background: 'var(--bg-0)',
-          transition: 'left .12s ease'
-        }}
-      />
-    </button>
-  )
-}
-
-function Dropdown(props: {
-  value: string
-  onChange: (v: string) => void
-  options: { value: string; label: string }[]
-  disabled?: boolean
-}): JSX.Element {
-  return (
-    <div style={{ position: 'relative', width: '100%', opacity: props.disabled ? 0.5 : 1 }}>
-      <select
-        className="sv2-select"
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(e) => props.onChange(e.target.value)}
-        style={{ ...S.select, cursor: props.disabled ? 'not-allowed' : 'pointer' }}
-      >
-        {props.options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <span style={S.selectCaret} aria-hidden>
-        <Icon name="chevron" size={12} />
-      </span>
-    </div>
-  )
-}
-
-function Slider(props: {
-  min: number
-  max: number
-  step: number
-  value: number
-  onChange: (v: number) => void
-  format: (v: number) => string
-  disabled?: boolean
-}): JSX.Element {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', opacity: props.disabled ? 0.5 : 1 }}>
-      <input
-        className="sv2-range"
-        type="range"
-        min={props.min}
-        max={props.max}
-        step={props.step}
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(e) => props.onChange(Number(e.target.value))}
-        style={{ flex: 1, minWidth: 0 }}
-      />
-      <span
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 11,
-          color: 'var(--tx-2)',
-          minWidth: 46,
-          textAlign: 'right'
-        }}
-      >
-        {props.format(props.value)}
-      </span>
     </div>
   )
 }

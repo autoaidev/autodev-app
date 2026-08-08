@@ -2,7 +2,7 @@ import React from 'react'
 import { Button, StatusDot, Pill } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
 import { isAttention, attentionSummary } from '@renderer/services/model'
-import { useOfficeConnection } from '@renderer/services/officeService'
+import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
 import type { TodoItem, AgentTasks } from './useAgentTasks'
 
 /**
@@ -305,18 +305,18 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
 
   // Reconcile the Office row with the ONE live session truth (R6) so SETUP can never
   // read "connected" while the detail header shows "office session expired". Mirrors
-  // AgentDetail's `officeExpired`/`online` derivation off the same store.
+  // AgentDetail's derivation off the same store (deriveOfficeLinkStatus).
   const officeConn = useOfficeConnection()
   const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
-  const officeExpired = officeLinked && officeConn.ready && !!officeConn.authError
-  const office: React.ReactNode = officeExpired ? (
+  const officeStatus = deriveOfficeLinkStatus(officeLinked, !!agent.online, officeConn)
+  const office: React.ReactNode = officeStatus === 'reconnecting' ? (
     // Non-blocking (R7): the local loop keeps running; this is a dim status, not an
     // alarm. Reconnect only matters for watching/steering with teammates.
-    <span style={{ color: 'var(--tx-dim)' }}>disconnected · local runs</span>
+    <span style={{ color: 'var(--tx-dim)' }}>reconnecting · local runs</span>
   ) : agent.officeSlug ? (
-    agent.online ? agent.officeSlug : `${agent.officeSlug} · offline`
+    officeStatus === 'connected' ? agent.officeSlug : `${agent.officeSlug} · offline`
   ) : agent.wsUrl || agent.officeAgentSlug ? (
-    agent.online ? 'connected' : 'linked · offline'
+    officeStatus === 'connected' ? 'connected' : 'linked · offline'
   ) : (
     '—'
   )

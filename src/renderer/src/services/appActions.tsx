@@ -79,7 +79,9 @@ export interface AgentRef {
 export interface AppActions {
   navigate: (nav: NavId) => void
   openAgent: (ref: AgentRef) => void
-  newAgent: () => void
+  /** Route to the Make-app / new-agent funnel. An optional `{ path }` seed
+   *  pre-fills the target folder (e.g. "turn this session's folder into an agent"). */
+  newAgent: (seed?: AgentRef) => void
   toast: (msg: string, err?: boolean) => void
   stopAll: () => void
   /** Reveal the agents that need attention. App brings the Agents tab forward and
@@ -102,8 +104,9 @@ export interface AppActionsHandlers {
   onNavigate?: (nav: NavId) => void
   /** Bring the Agents tab forward for an openAgent (App's `go('agents')`). */
   onOpenAgentTab?: (ref: AgentRef) => void
-  /** Route to the Make-app / spawn funnel (App's `go('makeapp')`). */
-  onNewAgent?: () => void
+  /** Route to the Make-app / spawn funnel (App's `go('makeapp')`), optionally
+   *  seeded with a folder path to pre-fill. */
+  onNewAgent?: (seed?: AgentRef) => void
   /** Show the global toast (App's `setToast`). */
   onToast?: (msg: string, err?: boolean) => void
   /** Optional app-side hook that also fires on stopAll (App needs none today). */
@@ -147,8 +150,8 @@ export function AppActionsProvider(
     openAgentSubs.current.forEach((fn) => fn(ref))
   }, [])
 
-  const newAgent = useCallback(() => {
-    handlers.current.onNewAgent?.()
+  const newAgent = useCallback((seed?: AgentRef) => {
+    handlers.current.onNewAgent?.(seed)
   }, [])
 
   const toast = useCallback((msg: string, err?: boolean) => {
