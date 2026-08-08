@@ -1,0 +1,183 @@
+import React from 'react'
+import { Icon } from './Icon'
+
+/**
+ * Modal / Dialog — the scrim + centered card used for Spawn-team, agent Setup
+ * and the MCP editor. radius11, bd-strong border, shadow-modal. Header carries
+ * a title + optional mono/sans subtitle and a right slot (e.g. a Recheck
+ * button); the ✕ close affordance is built in. Closes on Escape and scrim click.
+ *
+ * For the chrome-less compositions (2g) pass `overlay={false}` to drop the
+ * scrim and render just the dialog card.
+ */
+export interface ModalProps {
+  open: boolean
+  onClose?: () => void
+  title?: React.ReactNode
+  subtitle?: React.ReactNode
+  /** monospace subtitle (paths, "applies on next task") */
+  subtitleMono?: boolean
+  /** right-aligned header slot (buttons); the ✕ is appended after it */
+  headerRight?: React.ReactNode
+  footer?: React.ReactNode
+  /** dialog width in px (default 492) */
+  width?: number
+  /** show the ✕ button (default true) */
+  closeButton?: boolean
+  /** render the darkening scrim behind the dialog (default true) */
+  overlay?: boolean
+  className?: string
+  style?: React.CSSProperties
+  children?: React.ReactNode
+}
+
+export function Modal({
+  open,
+  onClose,
+  title,
+  subtitle,
+  subtitleMono = false,
+  headerRight,
+  footer,
+  width = 492,
+  closeButton = true,
+  overlay = true,
+  className,
+  style,
+  children
+}: ModalProps): React.JSX.Element | null {
+  React.useEffect(() => {
+    if (!open || !onClose) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const dialog = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={typeof title === 'string' ? title : undefined}
+      className={className}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        width,
+        maxWidth: '100%',
+        background: 'var(--bg-panel)',
+        border: '1px solid var(--bd-strong)',
+        borderRadius: 'var(--r-modal)',
+        boxShadow: 'var(--shadow-modal)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        ...style
+      }}
+    >
+      {(title || headerRight || closeButton) && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '15px 18px 13px',
+            borderBottom: '1px solid var(--bd-card)'
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            {title && (
+              <div
+                style={{
+                  fontSize: 'var(--fs-modal-title)',
+                  fontWeight: 700,
+                  color: 'var(--tx-hi)',
+                  letterSpacing: 'var(--ls-tight)'
+                }}
+              >
+                {title}
+              </div>
+            )}
+            {subtitle && (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontFamily: subtitleMono ? 'var(--font-mono)' : 'var(--font-sans)',
+                  fontSize: subtitleMono ? 'var(--fs-section)' : 'var(--fs-meta)',
+                  color: subtitleMono ? 'var(--tx-dim)' : 'var(--tx-5)',
+                  lineHeight: 1.5
+                }}
+              >
+                {subtitle}
+              </div>
+            )}
+          </div>
+          {(headerRight || closeButton) && (
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7 }}>
+              {headerRight}
+              {closeButton && (
+                <button
+                  type="button"
+                  aria-label="Close"
+                  onClick={onClose}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 4,
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--tx-dim)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Icon name="close" size={12} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: '15px 18px', overflow: 'auto' }}>{children}</div>
+
+      {footer && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: '12px 18px',
+            borderTop: '1px solid var(--bd-card)'
+          }}
+        >
+          {footer}
+        </div>
+      )}
+    </div>
+  )
+
+  if (!overlay) return dialog
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 50,
+        background: 'var(--scrim)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 24
+      }}
+    >
+      {dialog}
+    </div>
+  )
+}
+
+export default Modal

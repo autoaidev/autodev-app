@@ -1,0 +1,178 @@
+/*
+ * AutoDev redesign v2 — design tokens (committed DARK theme).
+ * Every value is recovered verbatim from docs/redesign/DESIGN-SPEC.md /
+ * mockup-v2.html. Primitives in this folder consume ONLY these vars — no
+ * hardcoded hex. There is intentionally no light theme yet; the mockup is dark.
+ */
+:root {
+  /* ----- palette: backgrounds (layered, darkest app shell -> elevated) ----- */
+  --bg-app: #0b0d11;          /* chrome-less card backdrop (2f/2g) */
+  --bg-0: #0f1216;            /* main detail surface */
+  --bg-1: #12151a;           /* inspector / secondary panel */
+  --bg-2: #13161b;           /* faint dashed placeholder card */
+  --bg-topbar: #14171c;      /* title bar + nav bar + bottom status bar */
+  --bg-sidebar: #16191f;     /* rails, cards, panels */
+  --bg-panel: #16191f;
+  --bg-panel-alt: #171b21;   /* provider badge chip / inline error panel bg */
+  --bg-elev: #181c22;        /* floating context menu */
+  --bg-input: #1c2027;       /* inputs, secondary buttons, chips */
+  --bg-todo-active: #1a1f27; /* active todo row */
+  --bg-selected: #1e2530;    /* selected nav item / agent row */
+  --bg-sel-header: #1a2530;  /* bulk-select toolbar band */
+  --bg-accent-soft: #22303f; /* accent pill / segmented-active bg */
+  --bg-chip-idle: #22262e;   /* avatar tile / idle chip */
+
+  /* ----- palette: borders ----- */
+  --bd-strong: #2f353e;      /* menu / avatar-tile / idle track */
+  --bd-1: #2a2f38;           /* default control / card border */
+  --bd-nav: #22262e;         /* topbar + nav dividers, chrome-less card */
+  --bd-card: #262b33;        /* card / task-card / composer border */
+  --bd-2: #1c2027;           /* subtle interior divider */
+  --bd-row: #171b21;         /* table row divider */
+  --bd-accent: #2f4a6d;      /* accent pill border */
+  --bd-panel-sel: #2a3646;   /* selected panel border */
+  --bd-idle-box: #3a4049;    /* empty checkbox border */
+  --bd-icon-btn: #2f3f4f;    /* toolbar icon button border */
+  --bd-track: #3a4657;       /* inline ··· button border / mini-bar */
+
+  /* ----- palette: text tiers (high contrast -> ghost) ----- */
+  --tx-hi: #e4e8ee;
+  --tx-1: #d7dbe0;
+  --tx-2: #c3c9d2;
+  --tx-3: #9aa1ab;
+  --tx-4: #8b929c;
+  --tx-5: #7d848f;
+  --tx-dim: #6c737e;
+  --tx-faint: #5f6671;
+  --tx-ghost: #565d67;
+  --tx-gutter: #454b55;      /* log timestamp gutter / code line numbers */
+  --tx-onaccent: #08111d;    /* ink on accent-filled surfaces */
+
+  /* ----- palette: the ONE accent ----- */
+  --accent: #4a9eff;
+  --accent-ink: #9cc5f5;     /* accent text on soft-accent bg */
+  --accent-ink2: #dbe7f7;    /* own chat bubble text */
+  --accent-tint: rgba(74, 158, 255, .12);
+
+  /* ----- palette: status (reserved strictly for state) ----- */
+  --st-running: #46b17b;
+  --st-needsyou: #d8a54a;
+  --st-error: #e06a5c;
+  --st-error-bright: #f0b3aa;
+  --st-idle: #3d434c;
+  --st-track: #2f353e;
+  --st-track-bg: #222730;
+  /* status tint washes (<=7%) + soft pill backgrounds */
+  --st-running-soft: rgba(70, 177, 123, .12);
+  --st-running-bd: rgba(70, 177, 123, .28);
+  --st-running-wash: rgba(70, 177, 123, .05);
+  --st-needsyou-soft: rgba(216, 165, 74, .12);
+  --st-needsyou-bd: rgba(216, 165, 74, .3);
+  --st-needsyou-wash: rgba(216, 165, 74, .05);
+  --st-error-soft: rgba(224, 106, 92, .06);
+  --st-error-bd: rgba(224, 106, 92, .26);
+  --st-error-wash: rgba(224, 106, 92, .05);
+
+  /* ----- palette: roles + syntax + diff ----- */
+  --role-violet: #9a86e8;
+  --role-violet-2: #c3b6f0;
+  --role-blue-av-bg: #2f4a6d;
+  --role-violet-av-bg: #3a3550;
+  --role-peach: #e8b7ae;
+  --syn-key: #9cc5f5;
+  --syn-str: #a8dcbf;
+  --syn-bool: #d8a54a;
+  --syn-punct: #8b929c;
+  --diff-add: #46b17b;
+  --diff-del: #e06a5c;
+
+  /* ----- typography ----- */
+  --font-sans: 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* type sizes (px, from spec) */
+  --fs-page-title: 18px;
+  --fs-agent-name: 16px;
+  --fs-panel-title: 15px;
+  --fs-session-title: 14.5px;
+  --fs-modal-title: 14px;
+  --fs-brand: 13px;
+  --fs-office-label: 12.5px;
+  --fs-body: 12px;           /* nav + row name + tab + body */
+  --fs-meta: 11.5px;         /* meta / secondary btn / chat body */
+  --fs-mono-code: 11px;
+  --fs-desc: 10.5px;         /* chips / small btn / descriptions */
+  --fs-section: 10px;        /* UPPERCASE section labels */
+  --fs-tiny: 9.5px;          /* tiny mono ids / LIVE / kbd */
+  --fs-micro: 9px;           /* group path / avatar initials / checkbox glyph */
+
+  /* weights */
+  --fw-body: 400;
+  --fw-mono: 500;            /* mono counts + state */
+  --fw-selected: 600;       /* selected labels + names */
+  --fw-bold: 700;           /* headings + brand + primary btn + section labels */
+
+  /* letter-spacing */
+  --ls-section: .11em;
+  --ls-group: .09em;
+  --ls-state: .06em;
+  --ls-tight: -.01em;
+  --ls-tighter: -.015em;
+
+  /* ----- radii ----- */
+  --r-pill: 999px;
+  --r-modal: 11px;
+  --r-screen: 9px;
+  --r-card: 8px;
+  --r-input: 7px;
+  --r-button: 6px;
+  --r-chip: 5px;
+  --r-tiny: 4px;
+  --r-checkbox: 3px;
+  --r-bar: 2px;
+
+  /* ----- spacing / gaps ----- */
+  --gap-tight: 6px;          /* button clusters, chip rows (5-7) */
+  --gap-base: 9px;           /* list rows, header clusters (9-12) */
+  --gap-section: 14px;       /* stat tiles, form sections (14-18) */
+
+  /* ----- row heights ----- */
+  --h-agent-row: 34px;
+  --h-table-row: 40px;
+  --h-menu-item: 26px;
+  --h-server-row: 34px;
+  --h-setting-row: 46px;
+  --h-todo-row: 26px;
+
+  /* ----- structural widths ----- */
+  --w-agents-rail: 262px;
+  --w-office-rail: 282px;
+  --w-sessions-list: 352px;
+  --w-settings-nav: 208px;
+  --w-inspector: 308px;      /* agent-detail right inspector */
+  --w-office-room: 300px;
+  --w-commandbar: 210px;
+  --w-screen-card: 1280px;
+
+  /* ----- topbar / chrome heights ----- */
+  --h-titlebar: 34px;
+  --h-navbar: 46px;
+  --h-subtab: 38px;
+  --h-statusbar: 30px;
+
+  /* ----- misc sizing ----- */
+  --sz-icon-btn: 24px;       /* toolbar icon button */
+  --sz-row-btn: 18px;        /* inline row ··· button */
+  --sz-checkbox: 14px;
+  --sz-status-dot: 6px;
+  --sz-avatar: 22px;
+  --sz-avatar-office: 20px;
+  --sz-brand-square: 16px;
+  --h-progress: 3px;
+
+  /* ----- elevation ----- */
+  --shadow-menu: 0 18px 44px rgba(0, 0, 0, .6);
+  --shadow-modal: 0 24px 60px rgba(0, 0, 0, .6);
+  --shadow-card: 0 6px 24px rgba(0, 0, 0, .14);
+  --scrim: rgba(8, 10, 13, .62);
+}
