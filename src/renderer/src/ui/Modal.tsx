@@ -167,7 +167,9 @@ export function Modal({
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 50,
+        // Above the floating chrome (CliBanner + Toast sit at z-index 1000) so an
+        // open dialog is never covered by a banner/toast. Stacking: Modal > Toast/Banner > chrome.
+        zIndex: 2000,
         background: 'var(--scrim)',
         display: 'flex',
         alignItems: 'center',

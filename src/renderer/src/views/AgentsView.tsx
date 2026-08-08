@@ -44,6 +44,11 @@ export function AgentsView(): React.JSX.Element {
     const list = (await window.api.listAgents()) as AgentState[]
     setAgents(list)
     setSelected((cur) => cur ?? list[0]?.path)
+    // Prune log buffers for agents no longer in the fleet so the Map can't grow unbounded.
+    if (logsRef.current.size > list.length) {
+      const live = new Set(list.map((a) => a.path))
+      for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
+    }
   }, [])
 
   React.useEffect(() => {
@@ -81,13 +86,15 @@ export function AgentsView(): React.JSX.Element {
       const d = (e as CustomEvent).detail as { path?: string; officeSlug?: string; agentSlug?: string }
       if (!d) return
       setAgents((prev) => {
+        // office is a SOFT filter: an identity (officeAgentSlug) or folder
+        // (path ends with /agentSlug) match may stand alone, so a bound-but-
+        // offline agent whose officeSlug isn't populated locally still resolves.
+        const bySlug = (a: AgentState): boolean =>
+          !!d.agentSlug && (a.officeAgentSlug === d.agentSlug || a.path.endsWith('/' + d.agentSlug))
         const match = d.path
           ? prev.find((a) => a.path === d.path)
-          : prev.find(
-              (a) =>
-                a.officeSlug === d.officeSlug &&
-                (a.officeAgentSlug === d.agentSlug || a.path.endsWith('/' + (d.agentSlug ?? '\0')))
-            )
+          : // prefer an exact office + slug hit, else fall back to slug/folder alone
+            prev.find((a) => a.officeSlug === d.officeSlug && bySlug(a)) ?? prev.find(bySlug)
         if (match) {
           setSelected(match.path)
           setDetailTab('chat')
@@ -100,6 +107,16 @@ export function AgentsView(): React.JSX.Element {
   }, [])
 
   const current = agents.find((a) => a.path === selected)
+  // KEEP-ALIVE: AgentDetail hosts the live terminal PTYs (termPaths/TerminalTab).
+  // It must NEVER unmount on a selection change or a transient empty poll — an
+  // unmount runs ptyKill on every taken-over shell. So we keep it mounted against
+  // the last agent we showed (displayAgent) even when `current` is briefly
+  // undefined (deselect / a poll that omits the selected path), and cover it with
+  // the empty-state overlay instead. Only a truly empty fleet leaves it unmounted,
+  // and then there are no PTYs to preserve.
+  const lastAgentRef = React.useRef<AgentState | undefined>(undefined)
+  if (current) lastAgentRef.current = current
+  const displayAgent = current ?? lastAgentRef.current
   const running = agents.filter((a) => a.running).length
   const needsYou = agents.filter((a) => ATTENTION_STATES.has(a.activity)).length
 
@@ -160,6 +177,7 @@ export function AgentsView(): React.JSX.Element {
           const ok = await window.api.confirmDialog(`Remove ${agent.name}?`, `Deletes the workspace folder:\n${p}`)
           if (ok) {
             await window.api.removeAgentFolder(p)
+            logsRef.current.delete(p)
             if (selected === p) setSelected(undefined)
             void refresh()
           }
@@ -185,9 +203,9 @@ export function AgentsView(): React.JSX.Element {
   )
 
   const getLog = React.useCallback(() => {
-    if (!current) return ''
-    return logsRef.current.get(current.path) || current.lastOutput || ''
-  }, [current])
+    if (!displayAgent) return ''
+    return logsRef.current.get(displayAgent.path) || displayAgent.lastOutput || ''
+  }, [displayAgent])
 
   const openMenu = React.useCallback((e: React.MouseEvent, agent: AgentState) => {
     e.preventDefault()
@@ -218,7 +236,6 @@ export function AgentsView(): React.JSX.Element {
       rightNav={SETTINGS_NAV}
       // Top-nav routing is owned by App.tsx (Stage 3): broadcast the intent, App switches the tab.
       onNavChange={(id) => navTo(id)}
-      search
       running={running}
       needsYou={needsYou}
       style={{ height: '100vh' }}
@@ -235,35 +252,42 @@ export function AgentsView(): React.JSX.Element {
           onBulk={(action) => void onBulk(action)}
         />
 
-        {current ? (
-          <AgentDetail
-            agent={current}
-            getLog={getLog}
-            subscribeLog={subscribeLog}
-            tab={detailTab}
-            onTabChange={setDetailTab}
-            onStart={() => void start(current.path)}
-            onStop={() => void stop(current.path)}
-            onRestart={() => void restart(current.path)}
-            onOpenFolder={() => window.api.openPath(current.path)}
-            onAddTask={(text) => void addTask(current.path, text)}
-            onMenu={openMenu}
-          />
-        ) : (
-          <div
-            style={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--tx-5)',
-              fontSize: 'var(--fs-meta)',
-              background: 'var(--bg-0)'
-            }}
-          >
-            Select an agent to see its live work.
-          </div>
-        )}
+        {/* Center column. AgentDetail stays mounted against displayAgent so its
+            live terminal PTYs survive a deselect or a transient empty poll; the
+            empty state is an overlay (not a conditional unmount) when !current. */}
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', position: 'relative' }}>
+          {displayAgent && (
+            <AgentDetail
+              agent={displayAgent}
+              getLog={getLog}
+              subscribeLog={subscribeLog}
+              tab={detailTab}
+              onTabChange={setDetailTab}
+              onStart={() => void start(displayAgent.path)}
+              onStop={() => void stop(displayAgent.path)}
+              onRestart={() => void restart(displayAgent.path)}
+              onOpenFolder={() => window.api.openPath(displayAgent.path)}
+              onAddTask={(text) => void addTask(displayAgent.path, text)}
+              onMenu={openMenu}
+            />
+          )}
+          {!current && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--tx-5)',
+                fontSize: 'var(--fs-meta)',
+                background: 'var(--bg-0)'
+              }}
+            >
+              Select an agent to see its live work.
+            </div>
+          )}
+        </div>
 
         {current && (
           <Inspector

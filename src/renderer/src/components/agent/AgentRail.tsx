@@ -424,7 +424,7 @@ export function AgentRail({
           header={menu.agent.path.split('/').filter(Boolean).pop()}
           items={menuItems(menu.agent)}
           onClose={() => setMenu(null)}
-          style={{ position: 'fixed', left: Math.min(menu.x, window.innerWidth - 240), top: menu.y }}
+          style={{ position: 'fixed', left: Math.min(menu.x, window.innerWidth - 240), top: Math.min(menu.y, window.innerHeight - 360) }}
         />
       )}
     </div>

@@ -128,18 +128,33 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     }
   }, [selectedGroup, focusedId])
 
+  // Apply a freshly fetched agent list. A transient empty 200 (character/office
+  // deleted server-side, or a momentary blip) would collapse grouped→[]→
+  // selectedGroup=undefined→the placeholder branch, which unmounts <TerminalTabs>
+  // and SIGKILLs every live Operate PTY. Never tear down running terminals on an
+  // empty poll: keep the last-known list and surface a soft notice. Empty is only
+  // honored when no Operate terminals are live.
+  const applyAgents = useCallback((next: OfficeAgent[]): void => {
+    if (next.length === 0 && termsRef.current.length) {
+      setListErr('Office list came back empty — keeping your running session.')
+      return
+    }
+    setListErr('')
+    setAgents(next)
+  }, [])
+
   // ── load / poll office agents ──
   const loadAgents = useCallback(async () => {
     setLoadingAgents(true); setListErr('')
     try {
-      setAgents((await window.api.officeAgents()) as OfficeAgent[])
+      applyAgents((await window.api.officeAgents()) as OfficeAgent[])
       setLoaded(true)
     } catch (e) {
       const msg = (e as Error)?.message || 'Failed to load agents'
       if (isAuthError(msg)) {
         try {
           if (await window.api.officeAutoConnect()) {
-            setAgents((await window.api.officeAgents()) as OfficeAgent[])
+            applyAgents((await window.api.officeAgents()) as OfficeAgent[])
             setLoaded(true); setLoadingAgents(false); return
           }
         } catch { /* fall through to login */ }
@@ -150,13 +165,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
       }
     }
     setLoadingAgents(false)
-  }, [])
+  }, [applyAgents])
 
   const pollAgents = useCallback(async () => {
     if (inFlight.current) return
     inFlight.current = true
     try {
-      setAgents((await window.api.officeAgents()) as OfficeAgent[])
+      applyAgents((await window.api.officeAgents()) as OfficeAgent[])
       setLoaded(true)
     } catch (e) {
       const msg = (e as Error)?.message || ''
@@ -164,14 +179,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         let recovered = false
         try { recovered = !!(await window.api.officeAutoConnect()) } catch { /* fall through */ }
         if (recovered) {
-          try { setAgents((await window.api.officeAgents()) as OfficeAgent[]); setLoaded(true); return }
+          try { applyAgents((await window.api.officeAgents()) as OfficeAgent[]); setLoaded(true); return }
           catch { /* fall through */ }
         }
         if (termsRef.current.length) { setListErr('Office session needs reconnect — your running session is unaffected.'); return }
         setConnected(false); setLoaded(false); setErr(EXPIRED)
       }
     } finally { inFlight.current = false }
-  }, [])
+  }, [applyAgents])
 
   useEffect(() => {
     if (!connected || !visible) return

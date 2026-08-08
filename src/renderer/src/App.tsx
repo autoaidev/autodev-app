@@ -135,7 +135,7 @@ export default function App(): JSX.Element {
   }, [recheckCli])
 
   // ⌘K / Ctrl+K jumps to the searchable Agents screen — the shell-level command
-  // affordance. Focusing the search box on a content view does the same (onCommandK).
+  // affordance. This is a keyboard shortcut only; focusing a search box never navigates.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
@@ -155,6 +155,10 @@ export default function App(): JSX.Element {
   // Chrome for the content-only screens. The inner flex:1 wrapper gives each view
   // a definite box to fill under the 34+46px chrome (their roots use height:100%
   // / flex:1, which resolve against it).
+  //
+  // No search box here: these screens (Office / Sessions / Make-app / Settings)
+  // have no local list to filter, and focusing a box must never navigate. ⌘K
+  // stays available as the global keyboard shortcut below.
   const contentShell = (content: React.ReactNode): JSX.Element => (
     <AppShell
       activeNav={nav}
@@ -163,8 +167,6 @@ export default function App(): JSX.Element {
       onNavChange={(id) => go(id as NavId)}
       running={running}
       needsYou={needsYou}
-      search
-      onCommandK={() => go('agents')}
       style={{ height: '100%' }}
     >
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>{content}</div>

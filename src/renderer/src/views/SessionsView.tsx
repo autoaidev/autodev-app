@@ -123,10 +123,17 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
   const newSession = useCallback(async () => {
     const cwd = (await window.api.pickFolder()) as string | null
     if (!cwd) return
+    // Replacing a live `term` remounts the TerminalPane (new key) → its [id]
+    // cleanup runs ptyKill and the running session dies. Never do that silently:
+    // gate the replacement behind the app's native destructive-confirm dialog.
+    if (term && !(await window.api.confirmDialog(
+      `End the live "${term.name ?? 'claude'}" session?`,
+      `Starting a new session in\n${cwd}\nwill terminate the session running in\n${term.cwd}`
+    ))) return
     if (selFile.current) { await window.api.sessionClose(selFile.current); selFile.current = null }
     setSel(null); setMsgs([])
     setTerm({ id: `pty-${Date.now()}`, cwd })
-  }, [])
+  }, [term])
 
   // Resume-here: claude sessions bind into a pixel office and resume live.
   const openResume = useCallback(async () => {
@@ -149,6 +156,13 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
   const confirmResume = useCallback(async () => {
     const off = offices.find((o) => o.slug === officeSel)
     if (!off || !sel) return
+    // Resuming binds into a fresh Operate PTY that replaces `term`; if one is
+    // already live, that remount would ptyKill it. Confirm before we do the
+    // office side-effect, so a running session is never dropped silently.
+    if (term && !(await window.api.confirmDialog(
+      `End the live "${term.name ?? 'claude'}" session?`,
+      `Resuming this session will terminate the session running in\n${term.cwd}`
+    ))) return
     setConnectBusy(true); setConnectErr('')
     const r = (await window.api.officeConnectSession(off.slug, off.id, sel.cwd, sel.id, sel.title)) as {
       cwd: string; sessionId: string; agentName: string; error?: string
@@ -159,7 +173,7 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
     if (selFile.current) { await window.api.sessionClose(selFile.current); selFile.current = null }
     setSel(null); setMsgs([])
     setTerm({ id: `op-${Date.now()}`, cwd: r.cwd, command: `claude --resume ${r.sessionId}`, name: `${r.agentName} · live` })
-  }, [offices, officeSel, sel])
+  }, [offices, officeSel, sel, term])
 
   const exportTrace = useCallback(async () => {
     if (!sel) return

@@ -69,6 +69,9 @@ export function FleetView(): React.JSX.Element {
   const [now, setNow] = useState(() => Date.now())
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [bars, setBars] = useState<number[]>(() => new Array(10).fill(0))
+  // Local, non-navigating fleet filter (the nav-bar search box is wired to
+  // this — see SHARED SEARCH MODEL). Filters rows by name / office / path.
+  const [search, setSearch] = useState('')
 
   // TODO(redesign): AgentState exposes no task-start timestamp, so "elapsed" is
   // measured from when THIS session first observed the agent enter its current
@@ -137,6 +140,19 @@ export function FleetView(): React.JSX.Element {
       ATTENTION_STATES.has(a.activity) ? 0 : a.running ? 1 : 2
     return [...agents].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
   }, [agents])
+
+  // Applied filter for the table + status-bar count. Matches on agent name,
+  // office slug and workspace path (case-insensitive).
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return sorted
+    return sorted.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        (a.officeSlug ?? '').toLowerCase().includes(q) ||
+        a.path.toLowerCase().includes(q)
+    )
+  }, [sorted, search])
 
   const attention = useMemo(() => sorted.filter(isAttention), [sorted])
   const runningCount = useMemo(() => agents.filter((a) => a.running).length, [agents])
@@ -400,6 +416,8 @@ export function FleetView(): React.JSX.Element {
       rightNav={SETTINGS_NAV}
       onNavChange={(id) => navTo(id)}
       search
+      searchValue={search}
+      onSearchChange={setSearch}
       running={runningCount}
       needsYou={attention.length}
       style={{ height: '100%' }}
@@ -426,7 +444,7 @@ export function FleetView(): React.JSX.Element {
         {/* data table (scrolls) */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'var(--bg-0)', padding: '0 22px 20px' }}>
           <FleetTable
-            agents={sorted}
+            agents={filtered}
             selected={selected}
             elapsedFor={elapsedFor}
             actionFor={rowAction}
@@ -442,27 +460,26 @@ export function FleetView(): React.JSX.Element {
         <FleetStatusBar
           selectedCount={selected.size}
           verbs={bulkVerbs}
-          showing={sorted.length}
+          showing={filtered.length}
           total={agents.length}
         />
       </div>
 
-      {/* row "···" context menu */}
+      {/* row "···" context menu — position the menu itself (position:fixed in
+          its own style) so ContextMenu's zIndex:5 body renders ABOVE its own
+          zIndex:4 click-away backdrop. Wrapping it in a positioned div (as the
+          round-1 clamp did) left the menu statically stacked, so the backdrop
+          painted over it and ate every click. Mirrors AgentsView/AgentRail. */}
       {menu && menuAgent && (
-        <div
+        <ContextMenu
+          header={menuAgent.name}
+          onClose={() => setMenu(null)}
           style={{
             position: 'fixed',
-            // Clamp to the viewport so bottom/right rows don't open off-screen
-            // (mirrors AgentsView).
             left: Math.min(menu.x, window.innerWidth - 240),
-            top: Math.min(menu.y, window.innerHeight - 220),
-            zIndex: 40
+            top: Math.min(menu.y, window.innerHeight - 220)
           }}
-        >
-          <ContextMenu
-            header={menuAgent.name}
-            onClose={() => setMenu(null)}
-            items={[
+          items={[
               {
                 label: 'Add task…',
                 icon: 'plus',
@@ -504,7 +521,6 @@ export function FleetView(): React.JSX.Element {
               }
             ]}
           />
-        </div>
       )}
 
       {/* add-task modal (single agent or bulk) */}

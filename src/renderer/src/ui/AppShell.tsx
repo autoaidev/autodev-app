@@ -145,11 +145,17 @@ export interface AppShellProps {
   onNavChange?: (id: string) => void
   /** nav items (defaults to Agents / Fleet / Office / Sessions) */
   nav?: NavItemDef[]
-  /** show the ⌘K search box in the right cluster */
+  /**
+   * Render the search box in the right cluster. It is a controllable filter —
+   * pass `searchValue` + `onSearchChange` to wire it to a screen's own list.
+   * Focusing it NEVER navigates (screens with their own rail filter should not
+   * pass a box at all). The ⌘K affordance is a global keyboard shortcut owned by
+   * the router, surfaced here only as the `kbd` hint badge.
+   */
   search?: boolean
   searchValue?: string
   onSearchChange?: (v: string) => void
-  onCommandK?: () => void
+  searchPlaceholder?: string
   /** render the running/needs-you cluster */
   running?: number
   needsYou?: number
@@ -171,7 +177,7 @@ export function AppShell({
   search = false,
   searchValue,
   onSearchChange,
-  onCommandK,
+  searchPlaceholder,
   running,
   needsYou,
   connectionLabel,
@@ -251,7 +257,7 @@ export function AppShell({
               kbd="⌘K"
               value={searchValue}
               onChange={(e) => onSearchChange?.(e.target.value)}
-              onFocus={onCommandK}
+              placeholder={searchPlaceholder}
             />
           )}
           {running != null && <RunPill running={running} needsYou={needsYou} />}
