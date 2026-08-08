@@ -1,6 +1,7 @@
 import React from 'react'
 import { Button, StatusDot, Pill } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
+import { useOfficeConnection } from '@renderer/services/officeService'
 
 /**
  * Inspector — the fixed 308px right panel of the Agent-detail screen (2a). Three
@@ -142,9 +143,22 @@ function TodoSection({ agent }: { agent: AgentState }): React.JSX.Element {
   }, [agent.path])
 
   const list = items ?? []
+  const loaded = items !== null
+  // The header count and the body MUST derive from one reconciled truth so the
+  // panel can never show a nonzero "remaining" above a "No tasks" body. The parsed
+  // TODO.md `list` is the source of truth for what is actionable; `agent.tasks` is
+  // the summary. When the parse yields tasks, they agree (the pending items are the
+  // remaining count). When the parse is EMPTY we reconcile:
+  //   • agent running with remaining work → a task is in progress but tracked
+  //     outside TODO.md; surface it as an in-progress row (header keeps done/total).
+  //   • otherwise → collapse total→done so remaining reads 0, and say either
+  //     "All tasks complete" (done>0) or "No tasks in TODO.md" (nothing ever queued).
+  const inProgress = loaded && list.length === 0 && agent.running && agent.tasks.remaining > 0
+  const emptyDone = loaded && list.length === 0 && !inProgress
   const done = agent.tasks.done
-  const total = agent.tasks.total || list.length
+  const total = emptyDone ? done : agent.tasks.total || list.length
   const ratio = total > 0 ? done / total : 0
+  const remaining = agent.tasks.remaining
 
   return (
     <div style={{ padding: '13px 15px 11px', borderBottom: '1px solid var(--bd-2)' }}>
@@ -163,8 +177,20 @@ function TodoSection({ agent }: { agent: AgentState }): React.JSX.Element {
       <ProgressBar ratio={ratio} />
       <div style={{ marginTop: 10 }}>
         {items === null && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
-        {items !== null && list.length === 0 && (
-          <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>No tasks in TODO.md.</div>
+        {inProgress && (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9, padding: '5px 6px' }}>
+            <span style={{ flex: 'none', width: 11, color: 'var(--accent)', fontSize: 'var(--fs-mono-code)', lineHeight: '17px' }}>
+              ◑
+            </span>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', lineHeight: 1.4, color: 'var(--tx-hi)', fontWeight: 600 }}>
+              {remaining} task{remaining === 1 ? '' : 's'} in progress — see the Activity tab.
+            </span>
+          </div>
+        )}
+        {emptyDone && (
+          <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
+            {done > 0 ? 'All tasks complete.' : 'No tasks in TODO.md.'}
+          </div>
         )}
         {list.map((it, i) => {
           const shown: TodoItem['state'] = localDone.has(i) ? 'done' : it.state
@@ -307,7 +333,21 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
     }
   }, [agent.path, agent.provider])
 
-  const office = agent.officeSlug || (agent.wsUrl || agent.officeAgentSlug ? 'connected' : '—')
+  // Reconcile the Office row with the ONE live session truth (R6) so SETUP can never
+  // read "connected" while the detail header shows "office session expired". Mirrors
+  // AgentDetail's `officeExpired`/`online` derivation off the same store.
+  const officeConn = useOfficeConnection()
+  const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
+  const officeExpired = officeLinked && officeConn.ready && !!officeConn.authError
+  const office: React.ReactNode = officeExpired ? (
+    <span style={{ color: 'var(--st-needsyou)' }}>session expired</span>
+  ) : agent.officeSlug ? (
+    agent.online ? agent.officeSlug : `${agent.officeSlug} · offline`
+  ) : agent.wsUrl || agent.officeAgentSlug ? (
+    agent.online ? 'connected' : 'linked · offline'
+  ) : (
+    '—'
+  )
 
   return (
     <div style={{ padding: '13px 15px' }}>

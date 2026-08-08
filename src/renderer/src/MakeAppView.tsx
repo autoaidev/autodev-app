@@ -277,8 +277,8 @@ export default function MakeAppView(): JSX.Element {
   if (!connected) {
     return (
       <SignInForm
-        title="🐣 Spawn agents"
-        description="Describe what you want built and generate a team. Sign in first."
+        title="🐣 Make app"
+        description="Sign in first, then describe your app and Make app will generate a team of agents to build it."
         base={base}
         email={email}
         password={password}
@@ -314,9 +314,9 @@ export default function MakeAppView(): JSX.Element {
   return (
     <div className="legacy-app" style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto' }}>
       <div style={{ width: 620, maxWidth: '100%', padding: 24 }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>🐣 Spawn agents</h2>
+        <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>🐣 Make app</h2>
         <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>
-          Describe your idea, generate a team, tweak each agent's name and model, then spawn them locally or open the office.
+          Describe your app, generate a team, tweak each agent's name and model, then spawn them locally or open the office.
         </p>
 
         {/* Office targeting — only meaningful (and only shown) while connected. Checked:

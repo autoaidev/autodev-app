@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Icon } from '@renderer/ui'
 import { navTo } from '@renderer/nav'
-import { useOfficeMessages, steer } from '@renderer/services/officeService'
+import { useOfficeMessages, useOfficeConnection, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
 import './ChatTab.css'
 
@@ -106,6 +106,11 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const ref = agent?.officeAgentId || agent?.officeAgentSlug || ''
   const officeSlug = agent?.officeSlug || ''
 
+  // The ONE live office-session truth (shared with the detail header + SETUP panel),
+  // so Chat can state a SINGLE true reason it's unavailable instead of contradicting
+  // itself ("not connected" in the body while the composer says "agent offline").
+  const officeConn = useOfficeConnection()
+
   // The shared conversation stream — ONE poll per (office, character), SHARED with
   // OfficeView. `active: onScreen` pauses OUR contribution while hidden (the service
   // keeps the last transcript). An empty `ref` yields an inert empty snapshot.
@@ -168,26 +173,71 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     taRef.current?.focus()
   }
 
-  // Local agent with no office character — chat needs an office link. Actionable
-  // empty state: one-line explanation + a primary route to the Office tab. The
-  // composer/slash chips are intentionally NOT rendered here — inviting typing
-  // while disconnected contradicts the "not connected" message.
-  if (agent !== null && !ref) {
+  // Chat can be unavailable for exactly ONE of three reasons — pick the true one and
+  // state it once (issues 1/4/7). In every unavailable state we render the shared
+  // empty-state layout (icon + heading + one-line reason + a single CTA) and render
+  // NEITHER the composer NOR the slash chips: an affordance that can't work must not
+  // be shown. Neutral heading/desc colours (matching Activity/Terminal), never the
+  // reddish error tone.
+  let unavailable:
+    | { title: string; body: React.ReactNode; cta: string; onCta: () => void }
+    | null = null
+  if (agent !== null) {
+    if (!ref) {
+      // Local agent with no office character — chat needs an office link.
+      unavailable = {
+        title: 'Not connected to a Pixel Office',
+        body: (
+          <>
+            Chat is this agent&rsquo;s shared office conversation. A Pixel Office is an
+            optional team server — connect the agent to a character to read and steer it
+            here.
+          </>
+        ),
+        cta: 'Connect to office…',
+        onCta: () => navTo('office')
+      }
+    } else if (officeConn.ready && officeConn.authError) {
+      // Linked to a character, but the office session has expired.
+      unavailable = {
+        title: 'Office session expired',
+        body: (
+          <>
+            Your Pixel Office session ended, so this conversation is paused. Reconnect to
+            read and steer this agent again.
+          </>
+        ),
+        cta: 'Reconnect…',
+        onCta: () => navTo('office')
+      }
+    } else if (officeConn.ready && !officeConn.connected) {
+      // Linked to a character, but not currently connected to the office server.
+      unavailable = {
+        title: 'Not connected to a Pixel Office',
+        body: (
+          <>
+            This agent is linked to an office character, but you&rsquo;re not connected to
+            the office server right now. Connect to read and steer it here.
+          </>
+        ),
+        cta: 'Connect to office…',
+        onCta: () => navTo('office')
+      }
+    }
+  }
+
+  if (agent !== null && unavailable) {
     return (
       <div className="dv-chat" ref={rootRef}>
         <div className="dv-chat__empty">
           <div className="dv-chat__empty-glyph" style={{ color: 'var(--tx-dim)' }}>
             <Icon name="office" size={26} />
           </div>
-          <div className="dv-chat__empty-title">Not connected to a Pixel Office</div>
-          <div className="dv-chat__empty-body">
-            Chat is this agent&rsquo;s shared office conversation. A Pixel Office is an
-            optional team server — connect the agent to a character to read and steer it
-            here.
-          </div>
+          <div className="dv-chat__empty-title">{unavailable.title}</div>
+          <div className="dv-chat__empty-body">{unavailable.body}</div>
           <div style={{ marginTop: 14 }}>
-            <Button variant="primary" onClick={() => navTo('office')}>
-              <Icon name="office" size={12} /> Connect to office…
+            <Button variant="primary" onClick={unavailable.onCta}>
+              <Icon name="office" size={12} /> {unavailable.cta}
             </Button>
           </div>
         </div>
@@ -282,7 +332,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
           placeholder={
             agent?.online
               ? `Reply to ${agent?.name || 'the agent'}…  (Enter to send · Shift+Enter for newline)`
-              : 'Agent is offline — a steer may not be delivered until it reconnects'
+              : 'Agent is offline — your message will be queued and delivered when it reconnects'
           }
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKey}

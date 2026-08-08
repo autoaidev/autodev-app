@@ -33,6 +33,12 @@ export function Button({
   const pad = size === 'sm' ? '5px 11px' : '6px 12px'
   const fs = size === 'sm' ? 'var(--fs-desc)' : 'var(--fs-meta)'
   const isDisabled = !!rest.disabled
+  // A disabled primary must read as a clearly INERT, greyed, non-filled control —
+  // never a translucent accent (which muddies #4a9eff@50% into a "steel blue" that
+  // looks like a second active CTA AND fails label-contrast on its dark ink). So we
+  // give disabled-primary its own greyed skin at full opacity, and reserve the
+  // opacity-dim only for the non-filled variants where it reads correctly as muted.
+  const primaryDisabled = variant === 'primary' && isDisabled
 
   const base: React.CSSProperties = {
     display: block ? 'flex' : 'inline-flex',
@@ -49,19 +55,27 @@ export function Button({
     // a primary CTA can't render as a fully-saturated, clickable-looking blue while
     // it's actually inert (the Office-vs-Make-app Connect-button mismatch).
     cursor: isDisabled ? 'not-allowed' : 'pointer',
-    opacity: isDisabled ? 0.5 : 1,
+    opacity: isDisabled && !primaryDisabled ? 0.5 : 1,
     whiteSpace: 'nowrap',
     transition: 'background .12s ease, border-color .12s ease, opacity .12s ease'
   }
 
   let skin: React.CSSProperties
   if (variant === 'primary') {
-    skin = {
-      background: danger ? 'var(--st-error)' : 'var(--accent)',
-      border: '1px solid transparent',
-      color: 'var(--tx-onaccent)',
-      fontWeight: 700
-    }
+    skin = primaryDisabled
+      ? {
+          // greyed / non-filled — visibly disabled, not a second blue
+          background: 'var(--bg-input)',
+          border: '1px solid var(--bd-1)',
+          color: 'var(--tx-5)',
+          fontWeight: 700
+        }
+      : {
+          background: danger ? 'var(--st-error)' : 'var(--accent)',
+          border: '1px solid transparent',
+          color: 'var(--tx-onaccent)',
+          fontWeight: 700
+        }
   } else if (variant === 'ghost') {
     skin = {
       background: 'transparent',
