@@ -12,6 +12,7 @@ import {
   foldGroup
 } from '../components/sessions/types'
 import { useSessions, useSessionTranscript, useSessionActions } from '../services/sessionsService'
+import { useAppActions } from '../services/appActions'
 import '../components/sessions/sessions.css'
 
 /**
@@ -32,6 +33,7 @@ import '../components/sessions/sessions.css'
  * peeked) so the live PTY is never SIGKILLed by a remount.
  */
 export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.Element {
+  const { openAgent } = useAppActions()
   const [filter, setFilter] = useState<ProviderFilter>('all')
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -280,9 +282,7 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
               interjectAction={workspace && !workspace.exists
                 ? {
                     label: 'Open as agent ↗',
-                    onClick: () => window.dispatchEvent(
-                      new CustomEvent('autodev:open-agent', { detail: { path: sel.cwd } })
-                    )
+                    onClick: () => openAgent({ path: sel.cwd })
                   }
                 : undefined}
               notice={exportNote}

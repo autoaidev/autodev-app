@@ -9,6 +9,7 @@ import { SignInForm } from '../components/office/SignInForm'
 import { OfficeAgent, OfficeGroup, isAuthError } from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
+import { useAppActions } from '../services/appActions'
 
 /**
  * OfficeView — SCREEN 2c. One stream at a time (not 3 scrolling columns).
@@ -31,6 +32,8 @@ import * as termRegistry from '../services/termRegistry'
  * SIGKILLs it, so switching offices must never unmount another office's panes).
  */
 export function OfficeView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
+  // ── typed app-actions bus (stop-all subscription + open-agent dispatch) ──
+  const actions = useAppActions()
   // ── connection + office list + conversations (owned by officeService) ──
   const office = officeService.useOffice()
   // ── open Operate/log terminals (owned by termRegistry) ──
@@ -185,14 +188,12 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     setActionErr(''); termRegistry.clearNotice(); void officeService.reconnect()
   }, [])
 
-  // "Stop all" broadcast (still dispatched elsewhere): kill every Operate PTY via the
-  // registry (log terms/tracked loops untouched). The registry owns the kill now, so this
-  // works whether or not any pane is mounted.
+  // "Stop all" broadcast (FleetView → appActions.stopAll): kill every Operate PTY via
+  // the registry (log terms/tracked loops untouched). The registry owns the kill now, so
+  // this works whether or not any pane is mounted.
   useEffect(() => {
-    const h = (): void => termRegistry.stopAll()
-    window.addEventListener('office:stop-all', h)
-    return () => window.removeEventListener('office:stop-all', h)
-  }, [])
+    return actions.subscribeStopAll(() => termRegistry.stopAll())
+  }, [actions])
 
   // Operate a SINGLE character in an interactive terminal. The registry prepares the
   // workspace, focuses an existing live pane, or re-mints an ended one (owning the PTY
@@ -289,12 +290,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     finally { setCreatingOffice(false) }
   }, [newOfficeName, creatingOffice])
 
-  // Open a character in the Agents tab (2a). No routing prop on this screen —
-  // dispatch an app event Stage-3 integration wires. TODO(redesign): pass a real
-  // onOpenAgent handler from App when integrating.
+  // Open a character in the Agents tab (2a): App brings the tab forward and
+  // AgentsView resolves the office identity → local workspace and selects it.
   const openAgentTab = useCallback((a: OfficeAgent) => {
-    window.dispatchEvent(new CustomEvent('autodev:open-agent', { detail: { officeSlug: a.officeSlug, agentSlug: a.slug } }))
-  }, [])
+    actions.openAgent({ officeSlug: a.officeSlug, agentSlug: a.slug })
+  }, [actions])
 
   const openBrowser = useCallback(() => {
     // No per-office deep-link is exposed; open the office root.

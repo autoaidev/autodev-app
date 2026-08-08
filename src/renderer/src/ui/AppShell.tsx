@@ -3,6 +3,7 @@ import { SearchInput } from './SearchInput'
 import { StatusDot } from './StatusDot'
 import { CliBanner } from './CliBanner'
 import { useCliStatus } from '@renderer/services/cliStatus'
+import { useAppActions } from '@renderer/services/appActions'
 
 /**
  * AppShell — the window chrome shared by every full screen: the 34px title-bar
@@ -69,12 +70,16 @@ export function NavItem({
 export function RunPill({
   running,
   needsYou,
+  onNeedsYouClick,
   className,
   style,
   ...rest
 }: {
   running: number
   needsYou?: number
+  /** Invoked when the "N need you" tally is clicked (AppShell wires this to
+   *  useAppActions().focusAttention). Presentational otherwise — no app context. */
+  onNeedsYouClick?: () => void
 } & React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
   return (
     <div
@@ -99,10 +104,11 @@ export function RunPill({
         <>
           <span style={{ color: 'var(--st-idle)' }}>·</span>
           {/* Clickable (R5): jump to the first agent that needs attention so the
-              tally isn't a dead-end. AgentsView listens for this and selects it. */}
+              tally isn't a dead-end. AppShell wires onNeedsYouClick to
+              useAppActions().focusAttention; AgentsView subscribes and selects it. */}
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('redesign:focus-attention'))}
+            onClick={onNeedsYouClick}
             title="Show the agents that need you"
             style={{
               all: 'unset',
@@ -213,6 +219,9 @@ export function AppShell({
   // content down on EVERY screen (Agents / Sessions / Settings / …) instead of
   // floating over a header. One source of truth (context), one placement app-wide.
   const cli = useCliStatus()
+  // The "N need you" tally routes through the typed app-actions bus (was a
+  // 'redesign:focus-attention' window event); AgentsView subscribes to select.
+  const { focusAttention } = useAppActions()
 
   return (
     <div
@@ -282,7 +291,9 @@ export function AppShell({
               placeholder={searchPlaceholder}
             />
           )}
-          {running != null && <RunPill running={running} needsYou={needsYou} />}
+          {running != null && (
+            <RunPill running={running} needsYou={needsYou} onNeedsYouClick={focusAttention} />
+          )}
           {connectionLabel && <ConnectionPill label={connectionLabel} />}
           {right}
           {rightNav && (

@@ -12,7 +12,8 @@ import { FleetStatusBar, BulkVerb } from '@renderer/components/fleet/FleetStatus
 import { AgentState, ATTENTION_STATES, isAttention, formatElapsed } from '@renderer/services/model'
 import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/agentStore'
 import '@renderer/components/fleet/fleet.css'
-import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
+import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
+import { useAppActions } from '@renderer/services/appActions'
 
 /**
  * 2b · Fleet — a single triage table that answers "what needs me" across the
@@ -26,17 +27,6 @@ import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
 
 // window.api is exposed by the preload contextBridge (see src/preload/index.ts).
 const api = (): any => (window as unknown as { api: any }).api
-
-// Bulk actions here swallow per-agent errors; surface the outcome through the
-// global toast wired in App.tsx (the 'redesign:toast' receiver) so feedback that
-// previously had nowhere to go actually reaches the user.
-const toast = (msg: string, err = false): void => {
-  try {
-    window.dispatchEvent(new CustomEvent('redesign:toast', { detail: { msg, err } }))
-  } catch {
-    /* ignore */
-  }
-}
 
 const plural = (n: number): string => (n === 1 ? '' : 's')
 
@@ -63,6 +53,15 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   // ONE seed + subscribe + poll + elapsed-clock for the whole app. This view just
   // consumes the snapshot — no local fetch/subscribe/poll/merge lives here anymore.
   const agents = useAgents()
+  // Typed app-actions bus: the global toast (bulk-action outcomes surface here so
+  // feedback isn't swallowed), the stop-all fan-out, and top-nav routing. Named
+  // `appActions` to avoid colliding with the agentStore `actions` used for the
+  // lifecycle calls below.
+  const appActions = useAppActions()
+  const toast = useCallback(
+    (msg: string, err = false): void => appActions.toast(msg, err),
+    [appActions]
+  )
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -160,12 +159,9 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
         failed++
       }
     }
-    // mirror App.tsx: also kill any Operate PTYs owned by heavy views
-    try {
-      window.dispatchEvent(new Event('office:stop-all'))
-    } catch {
-      /* ignore */
-    }
+    // also kill any Operate PTYs owned by heavy views (fanned out to OfficeView →
+    // termRegistry.stopAll)
+    appActions.stopAll()
     setBusy(false)
     if (failed) toast(`Couldn't stop ${failed} of ${running.length} agent${plural(running.length)}`, true)
   }, [agents])
@@ -329,7 +325,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
       activeNav="fleet"
       nav={MAIN_NAV}
       rightNav={SETTINGS_NAV}
-      onNavChange={(id) => navTo(id)}
+      onNavChange={(id) => appActions.navigate(id as NavId)}
       search
       searchValue={search}
       onSearchChange={setSearch}

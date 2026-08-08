@@ -8,11 +8,8 @@ import { SessionsView } from '@renderer/views/SessionsView'
 import { SettingsView2 } from '@renderer/views/SettingsView2'
 import MakeAppView from './MakeAppView'
 import { useFleetCounts } from '@renderer/services/agentStore'
+import { AppActionsProvider } from '@renderer/services/appActions'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from './nav'
-
-// One vocabulary for "link this local agent to an office character", re-exported
-// so the legacy SessionsBrowser (still in the compile graph) keeps resolving it.
-export const CONNECT_LABEL = 'Connect to office'
 
 /**
  * AutoDev redesign v2 — the app shell / router.
@@ -21,18 +18,18 @@ export const CONNECT_LABEL = 'Connect to office'
  * (views/*). This file is the seam that wires them into the running Electron
  * renderer: it owns the top-nav routing state, the shell-level chrome for the
  * content-only screens, the fleet-wide running/needs-you counts fed to the nav
- * bar, and the soft-hook CustomEvents the screens dispatch. The legacy shell is
- * preserved verbatim in App.legacy.tsx for reference.
+ * bar, and the typed app-actions bus the screens talk through. The legacy shell is
+ * preserved verbatim in _archive/App.legacy.tsx for reference (out of the compile
+ * graph — see tsconfig.web.json `exclude`).
  *
  * ── Nav model ────────────────────────────────────────────────────────────────
  * Two screens (AgentsView, FleetView) render their OWN <AppShell> (they need the
  * search box + rail tied to their local state), so we render THEM directly and
- * let their embedded shell paint the nav — they broadcast `redesign:nav` on a
- * nav click (via nav.ts → navTo) and we pick it up here. The remaining
- * content-only screens (Office / Sessions / Make-app / Settings) get their
- * chrome from the <AppShell> WE wrap them in, with `onNavChange` routing straight
- * to `go()`. Both paths share MAIN_NAV + SETTINGS_NAV so the nav is identical
- * everywhere.
+ * let their embedded shell paint the nav — they call `useAppActions().navigate`
+ * on a nav click and it routes to `go()` here. The remaining content-only screens
+ * (Office / Sessions / Make-app / Settings) get their chrome from the <AppShell>
+ * WE wrap them in, with `onNavChange` routing straight to `go()`. Both paths share
+ * MAIN_NAV + SETTINGS_NAV so the nav is identical everywhere.
  *
  * ── Keep-alive terminals ─────────────────────────────────────────────────────
  * Office (Operate PTYs via TerminalTabs) and Sessions (Resume/New PTYs via
@@ -42,16 +39,20 @@ export const CONNECT_LABEL = 'Connect to office'
  * shrinks; the inactive layers render with `display:none`. This applies to every
  * view uniformly, so no live PTY is ever destroyed by navigation.
  *
- * ── Soft-hook events ─────────────────────────────────────────────────────────
- *  • 'redesign:nav'         → switch the top-nav tab (detail = nav id)
- *  • 'redesign:new-agent'   → route to the Make-app / spawn funnel
- *  • 'autodev:open-agent'   → switch to Agents; AgentsView owns the selection and
- *                             resolves the office identity → workspace path itself
- *  • 'office:stop-all'      → emitted by FleetView's Stop-all, received by the
- *                             mounted OfficeView to kill its Operate PTYs. Kept
- *                             working purely by keeping OfficeView mounted; no
- *                             App-level action is needed (documented, not dropped).
- *  • 'redesign:toast'       → global toast (detail = { msg, err? })
+ * ── App-actions bus (services/appActions) ────────────────────────────────────
+ * The screens talk to this shell through the typed <AppActionsProvider> we wrap
+ * the whole tree in — no window CustomEvents. App supplies the single-consumer
+ * handlers it owns; the provider fans the broadcast intents out to any view that
+ * subscribed (kept mounted by the keep-alive layers).
+ *  • navigate        → switch the top-nav tab (onNavigate = go)
+ *  • newAgent        → route to the Make-app / spawn funnel (go('makeapp'))
+ *  • openAgent(ref)  → bring the Agents tab forward (go('agents')); AgentsView
+ *                      subscribes and resolves the office identity → workspace path
+ *  • focusAttention  → bring the Agents tab forward; AgentsView subscribes and
+ *                      selects the first agent that needs you
+ *  • toast(msg,err)  → global toast (onToast = setToast)
+ *  • stopAll         → fanned out to the mounted OfficeView, which kills its
+ *                      Operate PTYs via termRegistry.stopAll (App wires no handler)
  */
 export default function App(): JSX.Element {
   const [nav, setNav] = useState<NavId>('agents')
@@ -68,33 +69,6 @@ export default function App(): JSX.Element {
     setNav(id)
     setOpened((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
   }, [])
-
-  // Soft-hook receivers. All three are dispatched by the screens (see nav.ts /
-  // OfficeView / AgentRail). Selection of a specific agent is AgentsView's job —
-  // it listens for 'autodev:open-agent' itself and stays mounted, so we only need
-  // to bring the Agents tab forward here.
-  useEffect(() => {
-    const onNav = (e: Event): void => {
-      const id = (e as CustomEvent).detail as NavId
-      if (id) go(id)
-    }
-    const onNewAgent = (): void => go('makeapp')
-    const onOpenAgent = (): void => go('agents')
-    const onToast = (e: Event): void => {
-      const d = (e as CustomEvent).detail as { msg: string; err?: boolean }
-      if (d?.msg) setToast(d)
-    }
-    window.addEventListener('redesign:nav', onNav)
-    window.addEventListener('redesign:new-agent', onNewAgent)
-    window.addEventListener('autodev:open-agent', onOpenAgent)
-    window.addEventListener('redesign:toast', onToast)
-    return () => {
-      window.removeEventListener('redesign:nav', onNav)
-      window.removeEventListener('redesign:new-agent', onNewAgent)
-      window.removeEventListener('autodev:open-agent', onOpenAgent)
-      window.removeEventListener('redesign:toast', onToast)
-    }
-  }, [go])
 
   // Auto-dismiss the toast (matches the legacy 4s behaviour).
   useEffect(() => {
@@ -144,6 +118,13 @@ export default function App(): JSX.Element {
 
   return (
     <CliStatusProvider>
+    <AppActionsProvider
+      onNavigate={go}
+      onOpenAgentTab={() => go('agents')}
+      onNewAgent={() => go('makeapp')}
+      onToast={(msg, err) => setToast({ msg, err })}
+      onFocusAttention={() => go('agents')}
+    >
     <div
       style={{
         height: '100vh',
@@ -205,6 +186,7 @@ export default function App(): JSX.Element {
 
       {toast && <Toast msg={toast.msg} err={toast.err} />}
     </div>
+    </AppActionsProvider>
     </CliStatusProvider>
   )
 }

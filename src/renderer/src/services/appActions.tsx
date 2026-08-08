@@ -82,8 +82,13 @@ export interface AppActions {
   newAgent: () => void
   toast: (msg: string, err?: boolean) => void
   stopAll: () => void
+  /** Reveal the agents that need attention. App brings the Agents tab forward and
+   *  every focusAttention subscriber (AgentsView) selects the first one.
+   *  (was 'redesign:focus-attention') */
+  focusAttention: () => void
   subscribeOpenAgent: (fn: (ref: AgentRef) => void) => () => void
   subscribeStopAll: (fn: () => void) => () => void
+  subscribeFocusAttention: (fn: () => void) => () => void
 }
 
 /**
@@ -103,6 +108,8 @@ export interface AppActionsHandlers {
   onToast?: (msg: string, err?: boolean) => void
   /** Optional app-side hook that also fires on stopAll (App needs none today). */
   onStopAll?: () => void
+  /** Bring the Agents tab forward for a focusAttention (App's `go('agents')`). */
+  onFocusAttention?: () => void
 }
 
 const AppActionsCtx = createContext<AppActions | null>(null)
@@ -115,18 +122,20 @@ const AppActionsCtx = createContext<AppActions | null>(null)
 export function AppActionsProvider(
   props: AppActionsHandlers & { children: React.ReactNode }
 ): JSX.Element {
-  const { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, children } = props
+  const { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention, children } =
+    props
 
   // Keep the latest handlers in a ref so the exposed methods stay referentially
   // stable (the context value never changes identity → no needless re-renders of
   // every consumer when App re-renders with fresh closures).
   const handlers = useRef<AppActionsHandlers>({})
-  handlers.current = { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll }
+  handlers.current = { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention }
 
-  // Subscriber registries for the two broadcast intents. Sets so a view can
-  // register once and unregister cleanly, mirroring add/removeEventListener.
+  // Subscriber registries for the broadcast intents. Sets so a view can register
+  // once and unregister cleanly, mirroring add/removeEventListener.
   const openAgentSubs = useRef(new Set<(ref: AgentRef) => void>())
   const stopAllSubs = useRef(new Set<() => void>())
+  const focusAttentionSubs = useRef(new Set<() => void>())
 
   const navigate = useCallback((nav: NavId) => {
     handlers.current.onNavigate?.(nav)
@@ -151,6 +160,13 @@ export function AppActionsProvider(
     stopAllSubs.current.forEach((fn) => fn())
   }, [])
 
+  const focusAttention = useCallback(() => {
+    // App brings the Agents tab forward; subscribers (AgentsView) select the
+    // first agent that needs attention.
+    handlers.current.onFocusAttention?.()
+    focusAttentionSubs.current.forEach((fn) => fn())
+  }, [])
+
   const subscribeOpenAgent = useCallback((fn: (ref: AgentRef) => void) => {
     openAgentSubs.current.add(fn)
     return () => {
@@ -165,6 +181,13 @@ export function AppActionsProvider(
     }
   }, [])
 
+  const subscribeFocusAttention = useCallback((fn: () => void) => {
+    focusAttentionSubs.current.add(fn)
+    return () => {
+      focusAttentionSubs.current.delete(fn)
+    }
+  }, [])
+
   const value = useMemo<AppActions>(
     () => ({
       navigate,
@@ -172,10 +195,22 @@ export function AppActionsProvider(
       newAgent,
       toast,
       stopAll,
+      focusAttention,
       subscribeOpenAgent,
-      subscribeStopAll
+      subscribeStopAll,
+      subscribeFocusAttention
     }),
-    [navigate, openAgent, newAgent, toast, stopAll, subscribeOpenAgent, subscribeStopAll]
+    [
+      navigate,
+      openAgent,
+      newAgent,
+      toast,
+      stopAll,
+      focusAttention,
+      subscribeOpenAgent,
+      subscribeStopAll,
+      subscribeFocusAttention
+    ]
   )
 
   return <AppActionsCtx.Provider value={value}>{children}</AppActionsCtx.Provider>

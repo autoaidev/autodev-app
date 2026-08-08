@@ -9,7 +9,8 @@ import { useAgents, getAgents, actions } from '@renderer/services/agentStore'
 import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
-import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
+import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
+import { useAppActions } from '@renderer/services/appActions'
 
 /**
  * AgentsView — screen 2a. Three columns: the AgentRail (262), the AgentDetail
@@ -25,6 +26,11 @@ import { MAIN_NAV, SETTINGS_NAV, navTo } from '@renderer/nav'
  * design wants, the nearest real value is used and marked // TODO(redesign).
  */
 export function AgentsView(): React.JSX.Element {
+  // Typed app-actions bus (replaces the window CustomEvent bus): nav routing,
+  // the new-agent funnel, the global toast, and the openAgent / focusAttention
+  // broadcasts this view subscribes to. Named `appActions` so it doesn't collide
+  // with the agentStore `actions` (lifecycle start/stop/restart/remove) below.
+  const appActions = useAppActions()
   // The live fleet comes from the shared agentStore (one seed/subscribe/poll for
   // the whole app); this view only owns selection, bulk-check and modal state.
   const agents = useAgents()
@@ -45,13 +51,12 @@ export function AgentsView(): React.JSX.Element {
     setSelected((cur) => cur ?? agents[0]?.path)
   }, [agents])
 
-  // Soft-hook: another screen (the Office view's "open this agent") asks us to
-  // reveal a specific agent. App switches the top-nav to Agents; we own the
+  // Broadcast intent: another screen (the Office view's "open this agent") asks us
+  // to reveal a specific agent. App switches the top-nav to Agents; we own the
   // selection, so we resolve the office identity to a local workspace path and
-  // select it here. Stays wired even while hidden (this view is kept mounted).
+  // select it here. Stays subscribed even while hidden (this view is kept mounted).
   React.useEffect(() => {
-    const onOpen = (e: Event): void => {
-      const d = (e as CustomEvent).detail as { path?: string; officeSlug?: string; agentSlug?: string }
+    return appActions.subscribeOpenAgent((d) => {
       if (!d) return
       // Read the latest fleet imperatively from the store so the match is a pure
       // lookup and the selection/tab/toast side-effects fire exactly once.
@@ -72,16 +77,10 @@ export function AgentsView(): React.JSX.Element {
         // No local workspace path resolved — the character runs remotely (office-
         // only, no local loop). App already switched to the Agents tab, so without
         // this the user lands on a blank/unchanged detail with no explanation.
-        window.dispatchEvent(
-          new CustomEvent('redesign:toast', {
-            detail: { msg: 'That character runs remotely — no local agent to open.', err: false }
-          })
-        )
+        appActions.toast('That character runs remotely — no local agent to open.', false)
       }
-    }
-    window.addEventListener('autodev:open-agent', onOpen)
-    return () => window.removeEventListener('autodev:open-agent', onOpen)
-  }, [])
+    })
+  }, [appActions])
 
   const current = agents.find((a) => a.path === selected)
   // KEEP-ALIVE: AgentDetail hosts the live terminal PTYs (termPaths/TerminalTab).
@@ -103,19 +102,17 @@ export function AgentsView(): React.JSX.Element {
   const todo = useAgentTasks(displayAgent)
 
   // The shell's "N need you" pill (top bar) is clickable — bring the first agent
-  // that needs attention into focus so the tally isn't a dead-end (R5).
+  // that needs attention into focus so the tally isn't a dead-end (R5). App brings
+  // the Agents tab forward (onFocusAttention = go('agents')); we own the selection.
   React.useEffect(() => {
-    const onFocusAttention = (): void => {
+    return appActions.subscribeFocusAttention(() => {
       const hit = getAgents().find((a) => ATTENTION_STATES.has(a.activity))
       if (hit) {
         setSelected(hit.path)
         setDetailTab('activity')
       }
-      navTo('agents')
-    }
-    window.addEventListener('redesign:focus-attention', onFocusAttention)
-    return () => window.removeEventListener('redesign:focus-attention', onFocusAttention)
-  }, [])
+    })
+  }, [appActions])
 
   /* ------------------------------------------------------------- lifecycle */
 
@@ -218,8 +215,8 @@ export function AgentsView(): React.JSX.Element {
       activeNav="agents"
       nav={MAIN_NAV}
       rightNav={SETTINGS_NAV}
-      // Top-nav routing is owned by App.tsx (Stage 3): broadcast the intent, App switches the tab.
-      onNavChange={(id) => navTo(id)}
+      // Top-nav routing is owned by App.tsx: call the typed action, App switches the tab.
+      onNavChange={(id) => appActions.navigate(id as NavId)}
       running={running}
       needsYou={needsYou}
       style={{ height: '100vh' }}
@@ -231,7 +228,7 @@ export function AgentsView(): React.JSX.Element {
           onSelect={setSelected}
           checked={checked}
           onCheckedChange={setChecked}
-          onNewAgent={() => window.dispatchEvent(new CustomEvent('redesign:new-agent'))}
+          onNewAgent={() => appActions.newAgent()}
           onAction={(action, agent) => void onAction(action, agent)}
           onBulk={(action) => void onBulk(action)}
         />

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Icon } from '@renderer/ui'
-import { navTo } from '@renderer/nav'
+import { useAppActions } from '@renderer/services/appActions'
 import { useOfficeMessages, useOfficeConnection, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
 import './ChatTab.css'
@@ -50,6 +50,7 @@ function initials(name: string): string {
 }
 
 export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
+  const { navigate } = useAppActions()
   const [agent, setAgent] = useState<AgentLite | null>(null)
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -195,7 +196,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
           </>
         ),
         cta: 'Connect to office…',
-        onCta: () => navTo('office')
+        onCta: () => navigate('office')
       }
     } else if (officeConn.ready && officeConn.authError) {
       // Linked to a character, but the office session has expired.
@@ -208,7 +209,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
           </>
         ),
         cta: 'Reconnect…',
-        onCta: () => navTo('office')
+        onCta: () => navigate('office')
       }
     } else if (officeConn.ready && !officeConn.connected) {
       // Linked to a character, but not currently connected to the office server.
@@ -221,7 +222,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
           </>
         ),
         cta: 'Connect to office…',
-        onCta: () => navTo('office')
+        onCta: () => navigate('office')
       }
     }
   }

@@ -11,7 +11,7 @@ import {
   attentionSummary
 } from '@renderer/services/model'
 import { useOfficeConnection } from '@renderer/services/officeService'
-import { navTo } from '@renderer/nav'
+import { useAppActions } from '@renderer/services/appActions'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
@@ -152,6 +152,7 @@ export function AgentDetail({
   onAddTask,
   onMenu
 }: AgentDetailProps): React.JSX.Element {
+  const { navigate } = useAppActions()
   const [follow, setFollow] = React.useState(true)
   const [raw, setRaw] = React.useState(false)
   const [draft, setDraft] = React.useState('')
@@ -279,7 +280,7 @@ export function AgentDetail({
                   </span>
                   <button
                     type="button"
-                    onClick={() => navTo('office')}
+                    onClick={() => navigate('office')}
                     title="Reconnect to watch and steer with teammates"
                     style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--fs-tiny)' }}
                   >
