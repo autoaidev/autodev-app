@@ -99,6 +99,15 @@ function StatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
 
 export interface AgentDetailProps {
   agent: AgentState
+  /**
+   * workspace paths of every agent currently in the live fleet. Used only to prune
+   * the keep-alive terminal hosts: an entry whose agent has left the fleet is dropped
+   * so a NEW agent that later reuses the same workspace path gets a fresh terminal
+   * host instead of colliding with the departed agent's stale `agent-term:<path>` PTY.
+   * When omitted (or empty) NOTHING is pruned — a transient empty poll must never tear
+   * down a live PTY.
+   */
+  livePaths?: string[]
   tab: DetailTab
   onTabChange: (t: DetailTab) => void
   onStart: () => void
@@ -111,6 +120,7 @@ export interface AgentDetailProps {
 
 export function AgentDetail({
   agent,
+  livePaths,
   tab,
   onTabChange,
   onStart,
@@ -142,9 +152,29 @@ export function AgentDetail({
   const markTakenOver = React.useCallback((p: string) => {
     setTermPaths((prev) => (prev.has(p) ? prev : new Set(prev).add(p)))
   }, [])
+  // Prune keep-alive hosts for agents that have left the live fleet. Without this the
+  // set only grows, and if a NEW agent later reuses a departed agent's workspace path
+  // the stable `agent-term:<path>` id would resolve to the stale host (and its dead
+  // PTY). We ONLY drop paths that are absent from `livePaths` and are not the current
+  // agent — a live agent's PTY (selected or not) is always kept. Guarded so a missing
+  // or transiently-empty `livePaths` prunes nothing, never tearing down a live PTY.
+  React.useEffect(() => {
+    if (!livePaths || livePaths.length === 0) return
+    const live = new Set(livePaths)
+    live.add(agent.path)
+    setTermPaths((prev) => {
+      let changed = false
+      const next = new Set<string>()
+      for (const p of prev) {
+        if (live.has(p)) next.add(p)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [livePaths, agent.path])
   // Render a host for the current agent (so its Take-over chrome shows) plus every
-  // agent whose PTY must stay alive. This set only grows — panes are never unmounted
-  // on agent-switch or sub-tab-switch.
+  // live agent whose PTY must stay alive. Panes are never unmounted on agent-switch or
+  // sub-tab-switch — only when their agent leaves the fleet (see the prune effect).
   const termHostPaths = React.useMemo(() => {
     const s = new Set(termPaths)
     s.add(agent.path)
@@ -240,7 +270,7 @@ export function AgentDetail({
       {/* body — keep Chat/Terminal mounted (display toggle) so their PTYs survive tab switches */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: tab === 'activity' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <ActivityStream path={agent.path} lastOutput={agent.lastOutput} follow={follow} raw={raw} />
+          <ActivityStream path={agent.path} lastOutput={agent.lastOutput} follow={follow} raw={raw} active={tab === 'activity'} />
           {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}
           <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-2)' }}>
             <div

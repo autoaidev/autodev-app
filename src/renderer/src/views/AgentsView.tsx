@@ -222,6 +222,7 @@ export function AgentsView(): React.JSX.Element {
           {displayAgent && (
             <AgentDetail
               agent={displayAgent}
+              livePaths={agents.map((a) => a.path)}
               tab={detailTab}
               onTabChange={setDetailTab}
               onStart={() => void actions.start(displayAgent.path)}

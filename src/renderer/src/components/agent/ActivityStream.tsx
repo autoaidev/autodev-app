@@ -153,9 +153,16 @@ export interface ActivityStreamProps {
   follow: boolean
   /** show the unparsed raw buffer instead of the parsed rows (Raw log link) */
   raw?: boolean
+  /**
+   * whether this pane is the on-screen sub-tab. The stream stays mounted while its
+   * sub-tab is hidden (display:none), during which its scrollTop can't track new
+   * output; re-pin to the bottom when it becomes visible again so a hidden→visible
+   * transition doesn't leave the view scrolled up.
+   */
+  active?: boolean
 }
 
-export function ActivityStream({ path, lastOutput, follow, raw = false }: ActivityStreamProps): React.JSX.Element {
+export function ActivityStream({ path, lastOutput, follow, raw = false, active = true }: ActivityStreamProps): React.JSX.Element {
   const ref = React.useRef<HTMLDivElement>(null)
 
   // Read the shared, path-scoped buffer; fall back to the agent's initial snapshot
@@ -163,10 +170,13 @@ export function ActivityStream({ path, lastOutput, follow, raw = false }: Activi
   const text = useAgentLog(path) || lastOutput || ''
   const items = React.useMemo(() => (raw ? [] : parseLog(text)), [text, raw])
 
-  // Follow: stick to the bottom on new output only while Follow is on.
+  // Follow: stick to the bottom on new output only while Follow is on AND the pane is
+  // visible. `active` is a dep so a hidden→visible transition re-pins to the bottom —
+  // otherwise output that streamed while hidden (display:none, scrollTop frozen) would
+  // leave the view scrolled up when the sub-tab is shown again.
   React.useEffect(() => {
-    if (follow && ref.current) ref.current.scrollTop = ref.current.scrollHeight
-  }, [text, follow, raw])
+    if (follow && active && ref.current) ref.current.scrollTop = ref.current.scrollHeight
+  }, [text, follow, raw, active])
 
   const empty = text.trim().length === 0
 

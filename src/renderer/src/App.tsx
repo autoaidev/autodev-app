@@ -176,7 +176,7 @@ export default function App(): JSX.Element {
       {opened.has('fleet') && (
         <div style={layer(nav === 'fleet')}>
           <ErrorBoundary resetKey={nav} label="Fleet">
-            <FleetView />
+            <FleetView visible={nav === 'fleet'} />
           </ErrorBoundary>
         </div>
       )}

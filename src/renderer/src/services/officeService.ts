@@ -91,6 +91,7 @@ const MSG_POLL_MS = 4000 // conversation cadence (tighter of OfficeView 5s / Cha
 const EXPIRED = 'Your office session expired — please sign in again.'
 const SOFT_RECONNECT = 'Office session needs reconnect — your running session is unaffected.'
 const EMPTY_KEEP = 'Office list came back empty — keeping your running session.'
+const PARTIAL_KEEP = 'Some offices didn’t load — keeping your running session.'
 
 /** Minimal shape of the preload bridge this store touches. */
 type Api = {
@@ -100,6 +101,7 @@ type Api = {
   officeLogin: (base: string, email: string, password: string) => Promise<{ ok?: boolean; error?: string }>
   officeLogout: () => Promise<unknown>
   officeAgents: () => Promise<RawOfficeAgent[]>
+  officeOffices: () => Promise<Array<{ slug: string; id: number; name: string }>>
   officeSteer: (agentId: string, text: string) => Promise<{ ok?: boolean; error?: string }>
   officeMessages: (
     officeSlug: string,
@@ -196,7 +198,7 @@ function agentsEqual(a: OfficeAgent[], b: OfficeAgent[]): boolean {
  * the data is identical so an unchanged poll triggers zero re-renders, then feeds
  * the present office slugs to termRegistry so it can advance its absence counters.
  */
-function applyAgents(raw: RawOfficeAgent[]): void {
+async function applyAgents(raw: RawOfficeAgent[]): Promise<void> {
   const next = normalizeAgents(Array.isArray(raw) ? raw : [])
   // Empty poll while live terms exist → keep the last-known list (never collapse
   // the office grid and SIGKILL a running Operate PTY on a transient empty 200).
@@ -204,12 +206,51 @@ function applyAgents(raw: RawOfficeAgent[]): void {
     if (state.listError !== EMPTY_KEEP) emit({ listError: EMPTY_KEEP })
     return
   }
-  if (agentsEqual(next, state.agents)) {
-    if (state.listError) emit({ listError: '' })
-  } else {
-    const offices = foldOffices(next)
-    emit({ agents: next, offices, listError: '' })
+
+  // Partial-poll keep-alive: a NON-empty poll that OMITS an office which still
+  // owns a live Operate PTY is almost certainly a partial/paginated response or
+  // one office's `/agents` sub-query 500ing under sqlite-lock — NOT a deletion.
+  // Confirm the omission against the authoritative `/api/offices` list before we
+  // let reconcilePresence advance its absence counters (3 straight → ptyKill):
+  // merge the omitted-but-live office's last-known agents back in + raise a soft
+  // notice, so the grid and PTY survive. Only a slug truly GONE from `/api/offices`
+  // is a confirmed deletion and may reap; if we can't confirm, we keep (never kill
+  // a live PTY on a blip). Offices without live terms fold out normally.
+  let keptSlugs: Set<string> | null = null
+  if (termRegistry.hasLiveTerms()) {
+    const nextSlugs = new Set(next.map((a) => a.officeSlug))
+    const missingLive = state.offices
+      .filter((g) => !nextSlugs.has(g.slug) && termRegistry.listForOffice(g.slug).length > 0)
+      .map((g) => g.slug)
+    if (missingLive.length) {
+      let confirmed: Set<string> | null = null
+      try {
+        confirmed = new Set((await api().officeOffices()).map((o) => o.slug))
+      } catch {
+        /* couldn't confirm the office list — keep every omitted-but-live office */
+      }
+      const keep = missingLive.filter((slug) => confirmed === null || confirmed.has(slug))
+      if (keep.length) keptSlugs = new Set(keep)
+    }
   }
+
+  const merged =
+    keptSlugs === null
+      ? next
+      : [
+          ...next,
+          ...state.offices.filter((g) => keptSlugs!.has(g.slug)).flatMap((g) => g.agents)
+        ]
+  const wantError = keptSlugs ? PARTIAL_KEEP : ''
+
+  if (agentsEqual(merged, state.agents)) {
+    if (state.listError !== wantError) emit({ listError: wantError })
+  } else {
+    const offices = foldOffices(merged)
+    emit({ agents: merged, offices, listError: wantError })
+  }
+  // Slugs kept above are present in the (merged) state.offices, so reconcilePresence
+  // never advances an absence counter for an office merely missing from a partial poll.
   termRegistry.reconcilePresence(new Set(state.offices.map((g) => g.slug)))
 }
 
@@ -219,7 +260,7 @@ let listInFlight = false
 /** Raw fetch → applyAgents. Throws on IPC/auth failure (caller handles auth). */
 async function fetchList(): Promise<void> {
   const raw = (await api().officeAgents()) as RawOfficeAgent[]
-  applyAgents(raw)
+  await applyAgents(raw)
   if (!state.loaded) emit({ loaded: true })
 }
 
@@ -499,6 +540,7 @@ interface MsgEntry {
   loadedOnce: boolean
   inFlight: boolean
   timer: ReturnType<typeof setInterval> | null
+  teardownTimer: ReturnType<typeof setTimeout> | null
   snap: MessagesSnapshot
 }
 const entries = new Map<string, MsgEntry>()
@@ -559,9 +601,18 @@ function subscribeMessages(slug: string, ref: string, cb: () => void, active: bo
       loadedOnce: false,
       inFlight: false,
       timer: null,
+      teardownTimer: null,
       snap: EMPTY_MSG_SNAP
     }
     entries.set(key, e)
+  }
+  // A pending deferred teardown (see below) means a sole subscriber is mid
+  // unsub→resub round-trip — e.g. an `active` toggle changing this hook's
+  // `subscribe` identity. Cancel it so the entry (and its transcript / optimistic
+  // steer echoes) survives instead of being wiped and re-fetched with a flash.
+  if (e.teardownTimer) {
+    clearTimeout(e.teardownTimer)
+    e.teardownTimer = null
   }
   e.listeners.add(cb)
   e.refCount++
@@ -576,9 +627,18 @@ function subscribeMessages(slug: string, ref: string, cb: () => void, active: bo
     e.refCount = Math.max(0, e.refCount - 1)
     if (active) e.activeCount = Math.max(0, e.activeCount - 1)
     ensurePolling(e)
-    if (e.refCount === 0) {
-      if (e.timer) clearInterval(e.timer)
-      entries.delete(key)
+    // Defer teardown one tick (mirror the office store's stopTimer): a synchronous
+    // unsub→resub from an `active` toggle re-enters subscribeMessages and cancels
+    // this timer before it fires, so the entry — and the accumulated transcript —
+    // is only dropped on a genuine last unmount.
+    if (e.refCount === 0 && !e.teardownTimer) {
+      e.teardownTimer = setTimeout(() => {
+        e!.teardownTimer = null
+        if (e!.refCount === 0) {
+          if (e!.timer) clearInterval(e!.timer)
+          entries.delete(key)
+        }
+      }, 0)
     }
   }
 }

@@ -58,7 +58,7 @@ interface MenuState {
   y: number
 }
 
-export function FleetView(): React.JSX.Element {
+export function FleetView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
   // The live fleet now comes from the shared agent store (services/agentStore):
   // ONE seed + subscribe + poll + elapsed-clock for the whole app. This view just
   // consumes the snapshot — no local fetch/subscribe/poll/merge lives here anymore.
@@ -74,13 +74,18 @@ export function FleetView(): React.JSX.Element {
   // Throughput sparkline sampler: roll the cumulative closed-task count into the
   // bars window on the store's poll cadence. Presentation-only (the store owns the
   // agent data); reads the live snapshot imperatively to avoid a stale closure.
+  // Gated on `visible`: the view stays mounted for keep-alive, but there's no point
+  // sampling (and re-rendering every 5s) while the Fleet tab is hidden — skip the
+  // interval entirely until it's shown again, at which point the next tick refills
+  // the bars from the live snapshot.
   useEffect(() => {
+    if (!visible) return
     const id = window.setInterval(() => {
       const closed = getAgents().reduce((s, a) => s + (a.tasks?.done ?? 0), 0)
       setBars((prev) => [...prev.slice(1), closed])
     }, 5000)
     return () => window.clearInterval(id)
-  }, [])
+  }, [visible])
 
   /* ------------------------------- derived -------------------------------- */
 
