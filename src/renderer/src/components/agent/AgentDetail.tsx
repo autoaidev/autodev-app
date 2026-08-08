@@ -165,8 +165,11 @@ export function AgentDetail({
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-0)' }}>
       {/* header */}
-      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--bd-2)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--bd-2)', overflow: 'hidden' }}>
+        {/* min-width:0 lets the name column shrink+ellipsis; flexWrap lets the button
+            cluster drop to a second line on a narrow window rather than overflowing and
+            propagating a window-wide horizontal scrollbar. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flexWrap: 'wrap' }}>
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }} title={agent.name}>
             {agent.name}
           </span>
@@ -285,7 +288,10 @@ export function AgentDetail({
         </div>
 
         <div style={{ display: tab === 'chat' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
-          <ChatTab agentPath={agent.path} />
+          {/* Key per agent so ChatTab remounts fresh on selection change — it holds NO
+              PTY, so re-keying is safe (unlike TerminalTab). This guarantees stale
+              resolvedId/msgs/error can never leak a steer to the previously-selected agent. */}
+          <ChatTab key={agent.path} agentPath={agent.path} />
         </div>
         <div style={{ display: tab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           {termHostPaths.map((p) => (

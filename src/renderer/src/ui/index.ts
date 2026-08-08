@@ -34,6 +34,9 @@ export type { ToolbarProps } from './Toolbar'
 export { ContextMenu } from './ContextMenu'
 export type { ContextMenuProps, ContextMenuItem, ContextMenuEntry } from './ContextMenu'
 
+export { ErrorBoundary } from './ErrorBoundary'
+export type { ErrorBoundaryProps } from './ErrorBoundary'
+
 export { Modal } from './Modal'
 export type { ModalProps } from './Modal'
 

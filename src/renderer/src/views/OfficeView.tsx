@@ -10,7 +10,9 @@ import {
   OfficeGroup,
   ChatMessage,
   isAuthError,
-  providerToCommand
+  providerToCommand,
+  normalizeAgents,
+  type RawOfficeAgent
 } from '../components/office/officeTypes'
 
 /**
@@ -23,6 +25,11 @@ import {
  * operating a character opens a live TerminalTabs pane in the stream area (its PTY
  * stays mounted per the keep-alive rule); spawning starts tracked loops (log panes).
  */
+// Consecutive polls (~8s each) an office owning a live Operate PTY must be absent
+// from the agent list before we treat it as truly deleted server-side (vs a transient
+// blip) and reap its orphaned terminals. Keeps the transient-absence keep-alive intact.
+const ABSENT_POLLS_TO_REAP = 3
+
 export function OfficeView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
   // ── connection / login ──
   const [connected, setConnected] = useState(false)
@@ -90,10 +97,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // Prune log buffers whose tracked loop is gone (office stopped / log pane closed)
   // so the Map can't grow unbounded across spawn/stop cycles. Mirror AgentsView:
   // always diff against the live set (live log-term paths), never a size gate.
+  // Re-run on every poll (`agents` changes each poll) as well as on `terms` change:
+  // onAgentLog can append to a path that no longer owns a term (a character that
+  // came and went without an Operate/log pane), and that buffer would otherwise
+  // linger until `terms` next changed. Pruning on poll reaps it against the live set.
   useEffect(() => {
     const live = new Set(terms.filter((t) => t.kind === 'log' && t.path).map((t) => t.path as string))
     for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
-  }, [terms])
+  }, [terms, agents])
 
   // Auth expired mid-action. NEVER swap to the login form while live Operate PTYs
   // are mounted — the login return unmounts <TerminalTabs> and SIGKILLs them.
@@ -145,6 +156,40 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     return byOffice
   }, [terms, grouped])
 
+  // Reconcile offices that own a live interactive Operate PTY but have churned out of
+  // the poll (office deleted server-side). applyAgents only rejects a FULLY-empty poll;
+  // a non-empty poll missing this office is accepted, selectedSlug resets to another
+  // office, and this office's live PTY pane gets bucketed under a now-defunct slug —
+  // rendered display:none forever with no rail card to re-select it and no way to close
+  // it short of Stop-all. So: count CONSECUTIVE absences per pty-owning slug (a single
+  // transient blip must NOT reap — that would break the keep-alive guarantee); only once
+  // an office has been absent for ABSENT_POLLS_TO_REAP straight polls do we reap its
+  // orphaned Operate PTYs (scoped to the vanished slug, mirroring closeOperatePtys) and
+  // surface a brief notice. Log terms are left untouched (stopOffice owns those).
+  const officeAbsenceRef = useRef<Map<string, number>>(new Map())
+  useEffect(() => {
+    const present = new Set(grouped.map((g) => g.slug))
+    const absence = officeAbsenceRef.current
+    for (const [slug, ots] of termsByOffice) {
+      if (slug === '__unbucketed__') continue
+      const ptyIds = ots.filter((t) => t.kind === 'pty').map((t) => t.id)
+      if (!ptyIds.length || present.has(slug)) { absence.delete(slug); continue }
+      const n = (absence.get(slug) ?? 0) + 1
+      if (n < ABSENT_POLLS_TO_REAP) { absence.set(slug, n); continue }
+      absence.delete(slug)
+      const ids = new Set(ptyIds)
+      setTerms((prev) => {
+        const next = prev.filter((t) => !ids.has(t.id))
+        setActiveTermId((cur) => (ids.has(cur) ? (next[next.length - 1]?.id ?? '') : cur))
+        return next
+      })
+      setEndedIds((prev) => { const n2 = new Set(prev); ids.forEach((id) => n2.delete(id)); return n2 })
+      setListErr('An office you were operating was removed on the server — its live terminal was closed.')
+    }
+    // Drop counters for offices that no longer own any pty term (closed / reaped).
+    for (const slug of [...absence.keys()]) if (!termsByOffice.has(slug)) absence.delete(slug)
+  }, [grouped, termsByOffice])
+
   const selectedGroup = useMemo(
     () => grouped.find((g) => g.slug === selectedSlug) ?? grouped[0],
     [grouped, selectedSlug]
@@ -170,7 +215,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // and SIGKILLs every live Operate PTY. Never tear down running terminals on an
   // empty poll: keep the last-known list and surface a soft notice. Empty is only
   // honored when no Operate terminals are live.
-  const applyAgents = useCallback((next: OfficeAgent[]): void => {
+  const applyAgents = useCallback((raw: OfficeAgent[]): void => {
+    // Coerce the backend's numeric id → string at the ingest boundary so every
+    // slug/id comparison downstream holds (officeTypes normalizer).
+    const next = normalizeAgents(raw as unknown as RawOfficeAgent[])
     if (next.length === 0 && termsRef.current.length) {
       setListErr('Office list came back empty — keeping your running session.')
       return

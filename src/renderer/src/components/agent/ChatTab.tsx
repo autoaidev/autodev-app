@@ -163,7 +163,14 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const send = useCallback(async (): Promise<void> => {
     const t = draft.trim()
     if (!t || sending) return
-    const targetId = resolvedId || agent?.officeAgentId
+    // Never let a stale resolvedId steer the wrong agent: trust resolvedId only when it
+    // matches THIS agent's officeAgentId (or when the agent has no id and was resolved by
+    // slug). Otherwise fall back to the current agent's officeAgentId. (ChatTab is also
+    // keyed per agent by the parent, so resolvedId resets on switch — this is defense in depth.)
+    const targetId =
+      resolvedId && (!agent?.officeAgentId || resolvedId === agent.officeAgentId)
+        ? resolvedId
+        : agent?.officeAgentId
     if (!targetId) return // link not resolved yet
     setSending(true)
     const r = (await window.api.officeSteer(targetId, t)) as { ok?: boolean; error?: string }

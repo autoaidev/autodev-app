@@ -49,7 +49,9 @@ export function ContextMenu({
       role="menu"
       className={className}
       style={{
-        zIndex: 5,
+        // Above the Toast/CliBanner (~1000) so an open menu is never painted
+        // over, but below Modal (2000). Stacking: Modal > ContextMenu > Toast/Banner.
+        zIndex: 1500,
         minWidth: 216,
         background: 'var(--bg-elev)',
         border: '1px solid var(--bd-strong)',
@@ -150,7 +152,7 @@ export function ContextMenu({
       <div
         aria-hidden
         onClick={onClose}
-        style={{ position: 'fixed', inset: 0, zIndex: 4 }}
+        style={{ position: 'fixed', inset: 0, zIndex: 1499 }}
       />
       {menu}
     </>

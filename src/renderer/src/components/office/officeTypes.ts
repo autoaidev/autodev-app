@@ -19,6 +19,24 @@ export interface OfficeAgent {
   model?: string
 }
 
+/**
+ * The raw shape as it actually crosses `window.api.officeAgents()`: the backend
+ * emits the character `id` as a NUMBER, so string comparisons / `startsWith` on
+ * it silently mis-match. Normalize at the boundary (see `normalizeAgent`) so the
+ * rest of the app only ever sees the string-typed `OfficeAgent` above.
+ */
+export type RawOfficeAgent = Omit<OfficeAgent, 'id'> & { id: string | number }
+
+/** Coerce one raw office agent to the string-id `OfficeAgent` contract. */
+export function normalizeAgent(raw: RawOfficeAgent): OfficeAgent {
+  return { ...raw, id: String(raw.id) }
+}
+
+/** Coerce a raw agent list at the ingest boundary (feed `officeAgents()` here). */
+export function normalizeAgents(raw: readonly RawOfficeAgent[]): OfficeAgent[] {
+  return raw.map(normalizeAgent)
+}
+
 /** One office folded from the flat agent list, with a per-office online summary. */
 export interface OfficeGroup {
   slug: string

@@ -40,6 +40,15 @@ export function AgentsView(): React.JSX.Element {
     }
   }, [])
 
+  // Read-only mirror of `agents` for event handlers (autodev:open-agent) that
+  // need the latest fleet without re-subscribing. NEVER mutate agents through
+  // this — it exists so those handlers don't have to abuse a setAgents updater
+  // (which is impure and double-fires under StrictMode) just to read state.
+  const agentsRef = React.useRef<AgentState[]>([])
+  React.useEffect(() => {
+    agentsRef.current = agents
+  }, [agents])
+
   const refresh = React.useCallback(async () => {
     const list = (await window.api.listAgents()) as AgentState[]
     setAgents(list)
@@ -85,31 +94,32 @@ export function AgentsView(): React.JSX.Element {
     const onOpen = (e: Event): void => {
       const d = (e as CustomEvent).detail as { path?: string; officeSlug?: string; agentSlug?: string }
       if (!d) return
-      setAgents((prev) => {
-        // office is a SOFT filter: an identity (officeAgentSlug) or folder
-        // (path ends with /agentSlug) match may stand alone, so a bound-but-
-        // offline agent whose officeSlug isn't populated locally still resolves.
-        const bySlug = (a: AgentState): boolean =>
-          !!d.agentSlug && (a.officeAgentSlug === d.agentSlug || a.path.endsWith('/' + d.agentSlug))
-        const match = d.path
-          ? prev.find((a) => a.path === d.path)
-          : // prefer an exact office + slug hit, else fall back to slug/folder alone
-            prev.find((a) => a.officeSlug === d.officeSlug && bySlug(a)) ?? prev.find(bySlug)
-        if (match) {
-          setSelected(match.path)
-          setDetailTab('chat')
-        } else {
-          // No local workspace path resolved — the character runs remotely (office-
-          // only, no local loop). App already switched to the Agents tab, so without
-          // this the user lands on a blank/unchanged detail with no explanation.
-          window.dispatchEvent(
-            new CustomEvent('redesign:toast', {
-              detail: { msg: 'That character runs remotely — no local agent to open.', err: false }
-            })
-          )
-        }
-        return prev
-      })
+      // Read the latest fleet from the ref (not a setAgents updater) so the match
+      // is a pure lookup and the selection/tab/toast side-effects fire exactly
+      // once — an updater would double-run them under StrictMode.
+      const list = agentsRef.current
+      // office is a SOFT filter: an identity (officeAgentSlug) or folder
+      // (path ends with /agentSlug) match may stand alone, so a bound-but-
+      // offline agent whose officeSlug isn't populated locally still resolves.
+      const bySlug = (a: AgentState): boolean =>
+        !!d.agentSlug && (a.officeAgentSlug === d.agentSlug || a.path.endsWith('/' + d.agentSlug))
+      const match = d.path
+        ? list.find((a) => a.path === d.path)
+        : // prefer an exact office + slug hit, else fall back to slug/folder alone
+          list.find((a) => a.officeSlug === d.officeSlug && bySlug(a)) ?? list.find(bySlug)
+      if (match) {
+        setSelected(match.path)
+        setDetailTab('chat')
+      } else {
+        // No local workspace path resolved — the character runs remotely (office-
+        // only, no local loop). App already switched to the Agents tab, so without
+        // this the user lands on a blank/unchanged detail with no explanation.
+        window.dispatchEvent(
+          new CustomEvent('redesign:toast', {
+            detail: { msg: 'That character runs remotely — no local agent to open.', err: false }
+          })
+        )
+      }
     }
     window.addEventListener('autodev:open-agent', onOpen)
     return () => window.removeEventListener('autodev:open-agent', onOpen)
@@ -187,6 +197,12 @@ export function AgentsView(): React.JSX.Element {
           if (ok) {
             await window.api.removeAgentFolder(p)
             logsRef.current.delete(p)
+            // The keep-alive host never unmounts a taken-over TerminalPane on
+            // switch, so a removed agent's shell PTY would leak (the agent is
+            // gone but its `agent-term:<path>` process keeps running). This is
+            // the one case where killing that specific PTY is correct — mirror
+            // TerminalPane's own [id] teardown so no zombie shell remains.
+            void window.api.ptyKill(`agent-term:${p}`)
             if (selected === p) setSelected(undefined)
             void refresh()
           }

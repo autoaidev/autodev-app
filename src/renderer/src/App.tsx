@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AppShell } from '@renderer/ui'
+import { AppShell, ErrorBoundary } from '@renderer/ui'
 import { AgentsView } from '@renderer/views/AgentsView'
 import { FleetView } from '@renderer/views/FleetView'
 import { OfficeView } from '@renderer/views/OfficeView'
@@ -192,27 +192,54 @@ export default function App(): JSX.Element {
         background: 'var(--bg-0)'
       }}
     >
+      {/* Each keep-alive layer gets its OWN ErrorBoundary so a render throw in one
+          view shows a local fallback card while SIBLING layers stay mounted and
+          their live PTYs keep running — the whole point of the keep-alive design.
+          `resetKey={nav}` (a prop, NOT React `key`) clears a caught error on the
+          next navigation without ever remounting a healthy view's shell. */}
       {/* Agents + Fleet bring their own AppShell (own search/rail state). */}
       {opened.has('agents') && (
         <div style={layer(nav === 'agents')}>
-          <AgentsView />
+          <ErrorBoundary resetKey={nav} label="Agents">
+            <AgentsView />
+          </ErrorBoundary>
         </div>
       )}
       {opened.has('fleet') && (
         <div style={layer(nav === 'fleet')}>
-          <FleetView />
+          <ErrorBoundary resetKey={nav} label="Fleet">
+            <FleetView />
+          </ErrorBoundary>
         </div>
       )}
       {/* Content-only screens get the shell from here; kept mounted for keep-alive. */}
-      {opened.has('office') && <div style={layer(nav === 'office')}>{contentShell(<OfficeView visible={nav === 'office'} />)}</div>}
+      {opened.has('office') && (
+        <div style={layer(nav === 'office')}>
+          <ErrorBoundary resetKey={nav} label="Office">
+            {contentShell(<OfficeView visible={nav === 'office'} />)}
+          </ErrorBoundary>
+        </div>
+      )}
       {opened.has('sessions') && (
-        <div style={layer(nav === 'sessions')}>{contentShell(<SessionsView active={nav === 'sessions'} />)}</div>
+        <div style={layer(nav === 'sessions')}>
+          <ErrorBoundary resetKey={nav} label="Sessions">
+            {contentShell(<SessionsView active={nav === 'sessions'} />)}
+          </ErrorBoundary>
+        </div>
       )}
       {opened.has('makeapp') && (
-        <div style={layer(nav === 'makeapp')}>{contentShell(<MakeAppView />)}</div>
+        <div style={layer(nav === 'makeapp')}>
+          <ErrorBoundary resetKey={nav} label="Make-app">
+            {contentShell(<MakeAppView />)}
+          </ErrorBoundary>
+        </div>
       )}
       {opened.has('settings') && (
-        <div style={layer(nav === 'settings')}>{contentShell(<SettingsView2 />)}</div>
+        <div style={layer(nav === 'settings')}>
+          <ErrorBoundary resetKey={nav} label="Settings">
+            {contentShell(<SettingsView2 />)}
+          </ErrorBoundary>
+        </div>
       )}
 
       {cliMissing && <CliBanner onRecheck={recheckCli} />}
