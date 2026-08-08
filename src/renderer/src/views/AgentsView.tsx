@@ -44,11 +44,11 @@ export function AgentsView(): React.JSX.Element {
     const list = (await window.api.listAgents()) as AgentState[]
     setAgents(list)
     setSelected((cur) => cur ?? list[0]?.path)
-    // Prune log buffers for agents no longer in the fleet so the Map can't grow unbounded.
-    if (logsRef.current.size > list.length) {
-      const live = new Set(list.map((a) => a.path))
-      for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
-    }
+    // Prune log buffers for agents no longer in the fleet so the Map can't grow
+    // unbounded. Always diff against the live set — a size gate would leave stale
+    // buffers behind whenever an agent is removed while another is added.
+    const live = new Set(list.map((a) => a.path))
+    for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
   }, [])
 
   React.useEffect(() => {

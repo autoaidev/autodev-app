@@ -275,7 +275,7 @@ export default function MakeAppView(): JSX.Element {
   // ── not connected: login form ──
   if (!connected) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+      <div className="legacy-app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
         <form onSubmit={(e) => { e.preventDefault(); void connect() }} style={{ width: 340, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: 20 }}>
           <h2 style={{ margin: '0 0 4px', fontSize: 16 }}>🐣 Spawn agents</h2>
           <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)' }}>Describe what you want built and generate a team. Sign in first.</p>
@@ -297,7 +297,7 @@ export default function MakeAppView(): JSX.Element {
 
   // ── connected: spawn-agents form + editable roster ──
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto' }}>
+    <div className="legacy-app" style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto' }}>
       <div style={{ width: 620, maxWidth: '100%', padding: 24 }}>
         <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>🐣 Spawn agents</h2>
         <p style={{ margin: '0 0 18px', fontSize: 12, color: 'var(--muted)' }}>

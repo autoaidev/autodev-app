@@ -109,6 +109,24 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   const onlineAgentIds = useMemo(() => new Set(agents.filter((a) => a.online).map((a) => a.id)), [agents])
 
+  // Bucket open terms by their owning office. Term ids embed the office slug
+  // (`op-<slug>-<id>` / `log-<slug>-<id>`) so the operate pane can be scoped to the
+  // SELECTED office — otherwise a global `operating` shows office A's terminals (and
+  // steers A's character) while you're viewing office B. Longest-slug-first match so
+  // an `acme` bucket never swallows an `acme-2` term. Terms whose office is no longer
+  // in the list are kept as orphans (rendered hidden) so a live PTY is never unmounted.
+  const { termsByOffice, orphanTerms } = useMemo(() => {
+    const slugs = grouped.map((g) => g.slug).sort((a, b) => b.length - a.length)
+    const byOffice = new Map<string, OpenTerm[]>()
+    const orphans: OpenTerm[] = []
+    for (const t of terms) {
+      const slug = slugs.find((s) => t.id.startsWith(`op-${s}-`) || t.id.startsWith(`log-${s}-`))
+      if (slug) { const arr = byOffice.get(slug) ?? []; arr.push(t); byOffice.set(slug, arr) }
+      else orphans.push(t)
+    }
+    return { termsByOffice: byOffice, orphanTerms: orphans }
+  }, [terms, grouped])
+
   const selectedGroup = useMemo(
     () => grouped.find((g) => g.slug === selectedSlug) ?? grouped[0],
     [grouped, selectedSlug]
@@ -450,8 +468,49 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   const running = selectedGroup ? selectedGroup.onlineCount > 0 || spawnedOffices.has(selectedGroup.slug) : false
   const total = selectedGroup?.agents.length ?? 0
   const online = selectedGroup?.onlineCount ?? 0
-  const operating = terms.length > 0
-  const activeTerm = terms.find((t) => t.id === activeTermId)
+  // Scope the operate pane to the SELECTED office (not the global term list).
+  const officeTerms = selectedGroup ? (termsByOffice.get(selectedGroup.slug) ?? []) : []
+  const operating = officeTerms.length > 0
+  // Offices with live terms — all mounted, only the selected one shown.
+  const termOffices = [...termsByOffice.keys()]
+
+  // Shared pane handlers (term ids are globally unique, so these stay office-agnostic).
+  const onTermClose = (id: string): void => {
+    setTerms((prev) => {
+      const next = prev.filter((t) => t.id !== id)
+      setActiveTermId((cur) => (cur === id ? (next[next.length - 1]?.id ?? '') : cur))
+      return next
+    })
+    setEndedIds((prev) => { const n = new Set(prev); n.delete(id); return n })
+  }
+  const onTermExit = (id: string): void => { setEndedIds((prev) => new Set(prev).add(id)); void pollAgents() }
+
+  // One TerminalTabs per office that has terms. ALL stay mounted (a mounted pty pane
+  // === a live PTY); the non-selected offices' panes are hidden with display:none so
+  // switching offices never SIGKILLs a running shell. Orphaned terms (office gone from
+  // the list) ride along in a hidden bucket for the same keep-alive reason.
+  const renderTermPane = (ots: OpenTerm[], visible: boolean, key: string): React.JSX.Element => {
+    const oActiveId = ots.some((t) => t.id === activeTermId) ? activeTermId : (ots[0]?.id ?? '')
+    const oActive = ots.find((t) => t.id === oActiveId)
+    return (
+      <div key={key} style={{ display: visible ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+        <TerminalTabs
+          terms={ots}
+          activeId={oActiveId}
+          endedIds={endedIds}
+          onlineAgentIds={onlineAgentIds}
+          getLog={getLog}
+          subscribeLog={subscribeLog}
+          onSelect={setActiveTermId}
+          onClose={onTermClose}
+          onExit={onTermExit}
+        />
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 14px', borderTop: '1px solid var(--bd-2)' }}>
+          <TermSteer disabled={!oActive} onSend={(t) => { if (oActive) void steer(oActive.agentId, t) }} name={oActive?.name.split(' · ')[0] ?? ''} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', height: '100%', minHeight: 0, background: 'var(--bg-0)', fontFamily: 'var(--font-sans)' }}>
@@ -596,31 +655,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
             {/* lower split: focused stream (or live terminal) + office room */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, borderRight: '1px solid var(--bd-2)' }}>
-                {operating ? (
-                  <>
-                    <TerminalTabs
-                      terms={terms}
-                      activeId={activeTermId}
-                      endedIds={endedIds}
-                      onlineAgentIds={onlineAgentIds}
-                      getLog={getLog}
-                      subscribeLog={subscribeLog}
-                      onSelect={setActiveTermId}
-                      onClose={(id) => {
-                        setTerms((prev) => {
-                          const next = prev.filter((t) => t.id !== id)
-                          setActiveTermId((cur) => (cur === id ? (next[next.length - 1]?.id ?? '') : cur))
-                          return next
-                        })
-                        setEndedIds((prev) => { const n = new Set(prev); n.delete(id); return n })
-                      }}
-                      onExit={(id) => { setEndedIds((prev) => new Set(prev).add(id)); void pollAgents() }}
-                    />
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '9px 14px', borderTop: '1px solid var(--bd-2)' }}>
-                      <TermSteer disabled={!activeTerm} onSend={(t) => { if (activeTerm) void steer(activeTerm.agentId, t) }} name={activeTerm?.name.split(' · ')[0] ?? ''} />
-                    </div>
-                  </>
-                ) : focusedChar ? (
+                {/* Keep every office's terminals mounted; show only the selected office's. */}
+                {termOffices.map((slug) => renderTermPane(termsByOffice.get(slug) ?? [], slug === selectedGroup.slug, `term-${slug}`))}
+                {orphanTerms.length > 0 && renderTermPane(orphanTerms, false, 'term-orphans')}
+                {/* Selected office has no live terminals → show its focused stream instead. */}
+                {!operating && (focusedChar ? (
                   <AgentStream
                     agent={focusedChar}
                     messages={messages.filter((m) => m.role === 'assistant' || m.role === 'system')}
@@ -630,7 +669,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   />
                 ) : (
                   <div style={{ margin: 'auto', color: 'var(--tx-4)', fontSize: 'var(--fs-meta)' }}>No character selected.</div>
-                )}
+                ))}
               </div>
 
               <OfficeRoom

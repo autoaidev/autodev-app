@@ -3,6 +3,16 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 
+// React.StrictMode (dev only) mounts an effect, tears it down, then re-mounts it
+// synchronously — which would ptyKill(id) then respawn the PTY on every mount,
+// churning PTYs during `npm run dev`. So a pane's cleanup DEFERS its kill by a tick
+// and the next mount CANCELS a still-pending kill for the same id: the synchronous
+// remount wins the race, the live PTY survives, and no real respawn happens. A real
+// close (no remount) still kills, just ~a tick later. Keyed by id, module-level so
+// the two invocations of the same pane share it. (No-op in the production AppImage,
+// which doesn't double-invoke effects.)
+const pendingKills = new Map<string, ReturnType<typeof setTimeout>>()
+
 /** A live terminal pane backed by a main-process PTY (runs `claude` in a folder). */
 export default function TerminalPane({
   id, cwd, command, onExit, keepShell
@@ -10,6 +20,11 @@ export default function TerminalPane({
   const hostRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
+    // A synchronous StrictMode remount lands here before the previous cleanup's
+    // deferred kill fires — cancel it so the still-alive PTY is reused, not respawned.
+    const stale = pendingKills.get(id)
+    if (stale) { clearTimeout(stale); pendingKills.delete(id) }
+
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
@@ -76,7 +91,9 @@ export default function TerminalPane({
     return () => {
       clearTimeout(t1); clearTimeout(t2)
       dispInput.dispose(); offData(); offExit(); ro.disconnect()
-      void window.api.ptyKill(id)
+      // Defer the kill so an immediate StrictMode remount can cancel it (above).
+      const timer = setTimeout(() => { pendingKills.delete(id); void window.api.ptyKill(id) }, 0)
+      pendingKills.set(id, timer)
       term.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

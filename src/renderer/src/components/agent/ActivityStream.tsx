@@ -54,6 +54,13 @@ function severityOf(text: string): LogSeverity {
   return 'info'
 }
 
+/** Cheap djb2 string hash → base36, for deriving content-stable React keys. */
+function hash(s: string): string {
+  let h = 5381
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
+}
+
 /** Parse the raw buffer into dividers + rows, folding consecutive MCP lines. */
 export function parseLog(raw: string): StreamItem[] {
   const lines = raw
@@ -64,17 +71,27 @@ export function parseLog(raw: string): StreamItem[] {
 
   const items: StreamItem[] = []
   let mcpBuf: { ts?: string; body: string }[] = []
-  let n = 0
+
+  // Content-derived keys so a row's key follows its content across front-
+  // truncation of the 20k buffer (positional ids would shift every parse and
+  // force React to re-mount/mis-diff rows). A per-parse occurrence counter
+  // disambiguates identical lines while preserving order.
+  const seen = new Map<string, number>()
+  const keyFor = (base: string): string => {
+    const c = seen.get(base) ?? 0
+    seen.set(base, c + 1)
+    return c === 0 ? base : `${base}#${c}`
+  }
 
   const flushMcp = (): void => {
     if (mcpBuf.length === 0) return
     if (mcpBuf.length === 1) {
       const only = mcpBuf[0]
-      items.push({ kind: 'row', id: `r${n++}`, ts: only.ts, severity: 'mcp', body: only.body })
+      items.push({ kind: 'row', id: keyFor('r:' + hash((only.ts ?? '') + '|' + only.body)), ts: only.ts, severity: 'mcp', body: only.body })
     } else {
       items.push({
         kind: 'row',
-        id: `f${n++}`,
+        id: keyFor('f:' + hash((mcpBuf[0].ts ?? '') + '|' + mcpBuf.map((m) => m.body).join('\n'))),
         ts: mcpBuf[0].ts,
         severity: 'mcp',
         body: 'MCP servers applied',
@@ -91,7 +108,7 @@ export function parseLog(raw: string): StreamItem[] {
     const dm = body.match(DIVIDER)
     if (dm) {
       flushMcp()
-      items.push({ kind: 'divider', id: `d${n++}`, label: `TASK ${dm[1]} OF ${dm[2]}` })
+      items.push({ kind: 'divider', id: keyFor('d:' + hash(`${dm[1]}/${dm[2]}`)), label: `TASK ${dm[1]} OF ${dm[2]}` })
       continue
     }
     const sev = severityOf(body)
@@ -100,7 +117,7 @@ export function parseLog(raw: string): StreamItem[] {
       continue
     }
     flushMcp()
-    items.push({ kind: 'row', id: `r${n++}`, ts, severity: sev, body })
+    items.push({ kind: 'row', id: keyFor('r:' + hash((ts ?? '') + '|' + body)), ts, severity: sev, body })
   }
   flushMcp()
   return items

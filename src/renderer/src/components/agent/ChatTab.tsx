@@ -60,9 +60,28 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
 
+  const rootRef = useRef<HTMLDivElement>(null)
   const feedRef = useRef<HTMLDivElement>(null)
   const atBottomRef = useRef(true)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const loadedKeyRef = useRef('')
+
+  // Is this chat actually on-screen? The parent (AgentDetail) keeps the Chat sub-tab
+  // MOUNTED but display:none when another sub-tab/agent is selected, so we self-detect
+  // visibility (offsetParent goes null under a display:none ancestor; IO fires on the
+  // toggle) and pause the 4s poll while hidden — no reason to fetch a conversation
+  // nobody is looking at.
+  const [onScreen, setOnScreen] = useState(true)
+  useEffect(() => {
+    const el = rootRef.current
+    if (!el) return
+    const compute = (): void => setOnScreen(!document.hidden && el.offsetParent !== null)
+    compute()
+    const io = new IntersectionObserver(() => compute())
+    io.observe(el)
+    document.addEventListener('visibilitychange', compute)
+    return () => { io.disconnect(); document.removeEventListener('visibilitychange', compute) }
+  }, [])
 
   // Resolve the office link off AgentState, then keep it fresh on updates.
   useEffect(() => {
@@ -112,7 +131,14 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
       }
       if (initial) setLoading(false)
     }
-    void load(true)
+    // Fetch with the spinner only the first time this office link is shown; a
+    // visibility flip (hidden→shown) does a silent refresh instead of re-flashing
+    // "Loading…". Skip fetching entirely when the tab is going hidden.
+    const key = officeSlug + '|' + ref
+    const firstForLink = loadedKeyRef.current !== key
+    loadedKeyRef.current = key
+    if (firstForLink || onScreen) void load(firstForLink)
+    if (!onScreen) return () => { alive = false } // hidden: keep the last transcript, no poll
     const timer = setInterval(() => void load(false), 4000)
     return () => {
       alive = false
@@ -121,7 +147,8 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     // Depend on the stable primitives that actually drive the fetch — NOT the
     // `agent` object identity. Every onAgentUpdated push is a new object; keying
     // the effect off it would re-run the fetch and flash "Loading…" on each poll.
-  }, [ref, officeSlug, agent !== null])
+    // `onScreen` pauses/resumes the 4s poll as the sub-tab is hidden/shown.
+  }, [ref, officeSlug, agent !== null, onScreen])
 
   // Auto-scroll to newest only when the reader is pinned to the bottom.
   useEffect(() => {
@@ -165,7 +192,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   // Local agent with no office character — chat needs an office link.
   if (agent !== null && !ref) {
     return (
-      <div className="dv-chat">
+      <div className="dv-chat" ref={rootRef}>
         <div className="dv-chat__empty">
           <div className="dv-chat__empty-glyph">💬</div>
           <div className="dv-chat__empty-title">No office conversation</div>
@@ -179,7 +206,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   }
 
   return (
-    <div className="dv-chat">
+    <div className="dv-chat" ref={rootRef}>
       <div
         className="dv-chat__feed"
         ref={feedRef}

@@ -653,7 +653,7 @@ export class PixelOfficeClient {
           : Array.isArray(ags?.agents) ? ags.agents
           : Array.isArray(ags) ? ags : []
         for (const a of arr) {
-          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: a.name, slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model })
+          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: String(a.name ?? a.slug ?? 'Agent'), slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model })
         }
       } catch (e) {
         // A 401 here means the session died mid-list — surface it, don't hide it.

@@ -82,11 +82,12 @@ export const PROVIDER_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'copilot', label: 'Copilot' }
 ]
 
-/** Two-letter avatar initials from a character name. */
-export function initials(name: string): string {
-  const parts = name.trim().split(/[\s_-]+/).filter(Boolean)
+/** Two-letter avatar initials from a character name (defensive: name may be null/undefined). */
+export function initials(name?: string): string {
+  const n = String(name ?? '').trim()
+  const parts = n.split(/[\s_-]+/).filter(Boolean)
   if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase()
-  return name.slice(0, 2).toUpperCase()
+  return n.slice(0, 2).toUpperCase() || '??'
 }
 
 /** The colored-author palette for the office room (roles reserved for people, not state). */

@@ -39,6 +39,15 @@ interface TerminalTabsProps {
   onExit: (id: string) => void
 }
 
+// These panes render inside the redesign OfficeView, OUTSIDE the .legacy-app
+// container — so the legacy bare `button` base rule (now scoped in styles.css) no
+// longer reaches them. Style the status-line close buttons inline with the same
+// look the base rule gave them so they stay self-contained (danger adds red text).
+const closeBtnStyle: React.CSSProperties = {
+  background: 'var(--bg3)', color: 'var(--fg)', border: '1px solid var(--border)',
+  borderRadius: 6, padding: '7px 13px', cursor: 'pointer', fontSize: 13
+}
+
 /**
  * Read-only live log pane for a tracked loop. Self-subscribes to the shared log
  * stream and re-renders only itself (so many panes can coexist cheaply), reading
@@ -47,15 +56,25 @@ interface TerminalTabsProps {
 function LogPane({ getText, subscribe }: { getText: () => string; subscribe: (cb: () => void) => () => void }): JSX.Element {
   const [, force] = useState(0)
   const ref = useRef<HTMLPreElement>(null)
+  // Follow the tail only while the user is already parked at/near the bottom, so a
+  // streaming loop no longer yanks the view back down when they scroll up to read.
+  // Updated on every scroll (the pre-update at-bottom state) and seeded true so a
+  // fresh pane starts pinned to the newest output. Mirrors ActivityStream's follow.
+  const followRef = useRef(true)
   useEffect(() => subscribe(() => force((t) => t + 1)), [subscribe])
+  const text = getText()
   useEffect(() => {
     const el = ref.current
-    if (el) el.scrollTop = el.scrollHeight
-  })
-  const text = getText()
+    if (el && followRef.current) el.scrollTop = el.scrollHeight
+  }, [text])
+  const onScroll = (): void => {
+    const el = ref.current
+    if (el) followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+  }
   return (
     <pre
       ref={ref}
+      onScroll={onScroll}
       style={{
         margin: 0, height: '100%', overflow: 'auto', padding: '10px 14px',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12,
@@ -130,8 +149,8 @@ export default function TerminalTabs({
           <span className="badge" title="Provider">{active.kind === 'log' ? (active.provider || 'loop') : active.command}</span>
           <div style={{ flex: 1 }} />
           {active.kind === 'log'
-            ? <button title="Close this log view — the loop keeps running (use ⏹ Stop office to stop it)" onClick={() => onClose(active.id)}>✕ Close view</button>
-            : <button className="danger" title="End this session — the character goes offline" onClick={() => onClose(active.id)}>■ Close</button>}
+            ? <button style={closeBtnStyle} title="Close this log view — the loop keeps running (use ⏹ Stop office to stop it)" onClick={() => onClose(active.id)}>✕ Close view</button>
+            : <button style={{ ...closeBtnStyle, color: 'var(--red)' }} title="End this session — the character goes offline" onClick={() => onClose(active.id)}>■ Close</button>}
           <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted,#8b949e)', fontFamily: 'monospace' }}>
             {active.kind === 'log'
               ? active.path

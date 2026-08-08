@@ -150,18 +150,24 @@ body {
 
 pre.output, pre.todo { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; max-height: 100%; overflow: auto; margin: 0; }
 
-button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 13px; cursor: pointer; font-size: 13px; }
-button:hover { border-color: var(--accent); }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-button.danger { color: var(--red); }
-button.start { background: var(--green); border-color: var(--green); color: #052e0e; font-weight: 600; }
-button:disabled { opacity: .5; cursor: default; }
+/* Legacy bare-element CONTROL rules. These used to apply app-wide and leaked the
+   old palette (--bg/--bg3/--border) into the redesign's own token-styled inputs,
+   selects, textareas and buttons, overriding them. They're now confined to the
+   .legacy-app container (MakeAppView's root) so the redesign controls render with
+   their own inline token styles unaffected. Structural resets (*, html, body) stay
+   global on purpose — the whole app depends on them. */
+.legacy-app button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 13px; cursor: pointer; font-size: 13px; }
+.legacy-app button:hover { border-color: var(--accent); }
+.legacy-app button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.legacy-app button.danger { color: var(--red); }
+.legacy-app button.start { background: var(--green); border-color: var(--green); color: #052e0e; font-weight: 600; }
+.legacy-app button:disabled { opacity: .5; cursor: default; }
 .row { display: flex; gap: 10px; align-items: center; }
 
 label.field { display: block; margin-bottom: 14px; }
 label.field .lbl { color: var(--fg2); font-size: 11px; display: block; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .4px; }
-input, select, textarea { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+.legacy-app input, .legacy-app select, .legacy-app textarea { width: 100%; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
+.legacy-app input:focus, .legacy-app select:focus, .legacy-app textarea:focus { outline: none; border-color: var(--accent); }
 
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 22px; width: 460px; max-width: 92vw; }
