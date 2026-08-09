@@ -1,8 +1,47 @@
 import React from 'react'
-import { Modal, Button, Icon } from '@renderer/ui'
+import { Modal, Button, Icon, InfoTip } from '@renderer/ui'
 import { ServerRow } from '../components/mcp/ServerRow'
 import { JsonCodeBlock } from '../components/mcp/JsonCodeBlock'
 import { summarize, metaFor, type McpServerStatus } from '../components/mcp/mcpStatus'
+
+/**
+ * Starter templates for the most common MCP servers, so "Add server" inserts a
+ * runnable entry instead of a blank {command:'',args:[]} the user has to know how
+ * to fill. `baseName` is deduped against existing keys; `config` is the value
+ * written under mcpServers. Pixel-office is normally SYNCED from the office (its
+ * URL + agent key), so its template carries placeholders + a caution — editing a
+ * synced entry can be overwritten on the next sync.
+ */
+const MCP_PRESETS: { key: string; label: string; baseName: string; hint: string; config: Record<string, unknown> }[] = [
+  {
+    key: 'memory',
+    label: 'Memory',
+    baseName: 'memory',
+    hint: 'Persistent knowledge-graph memory across sessions.',
+    config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] }
+  },
+  {
+    key: 'filesystem',
+    label: 'Filesystem',
+    baseName: 'filesystem',
+    hint: 'Read/write files under the workspace root.',
+    config: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '.'] }
+  },
+  {
+    key: 'pixel-office',
+    label: 'Pixel Office',
+    baseName: 'pixel-office',
+    hint: 'Office A2A / operate bridge — usually synced from the office; only hand-wire if you know the URL + agent key.',
+    config: { type: 'http', url: 'https://your-office.example.com/api/office-mcp', headers: { Authorization: 'Bearer agt_REPLACE_ME' } }
+  },
+  {
+    key: 'blank',
+    label: 'Blank server',
+    baseName: 'new-server',
+    hint: 'An empty stub to fill in yourself.',
+    config: { command: '', args: [] }
+  }
+]
 
 /**
  * SCREEN 2g — MCP editor · status first, JSON second.
@@ -81,6 +120,7 @@ export function McpEditorModal(props: {
   const [checking, setChecking] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [notice, setNotice] = React.useState<string | null>(null)
+  const [presetOpen, setPresetOpen] = React.useState(false)
 
   const fileName = React.useMemo(() => {
     const base = agentPath.split('/').filter(Boolean).pop() || agentPath
@@ -184,11 +224,12 @@ export function McpEditorModal(props: {
     }
   }, [json, validation.valid])
 
-  const addServer = React.useCallback((): void => {
-    // Insert a minimal, VALID stub server under mcpServers so the button does what
-    // its label says, then focus+select the new key so the user can fill it in.
-    // We only rewrite the JSON when it parses; an invalid buffer is left untouched
-    // (the user must fix syntax first) so we never clobber their edits.
+  const addServer = React.useCallback((preset: (typeof MCP_PRESETS)[number]): void => {
+    setPresetOpen(false)
+    // Insert a VALID entry (a runnable preset, or a blank stub) under mcpServers so
+    // the button does what its label says, then focus+select the new key so the user
+    // can fill it in. We only rewrite the JSON when it parses; an invalid buffer is
+    // left untouched (the user must fix syntax first) so we never clobber their edits.
     let obj: Record<string, unknown>
     try {
       const parsed = json.trim() ? JSON.parse(json) : {}
@@ -206,13 +247,17 @@ export function McpEditorModal(props: {
         ? (cur as Record<string, unknown>)
         : {}
     // pick a name that doesn't collide with an existing server
-    let name = 'new-server'
-    for (let n = 2; name in servers; n++) name = `new-server-${n}`
-    servers[name] = { command: '', args: [] }
+    let name = preset.baseName
+    for (let n = 2; name in servers; n++) name = `${preset.baseName}-${n}`
+    servers[name] = JSON.parse(JSON.stringify(preset.config))
     obj.mcpServers = servers
     const next = JSON.stringify(obj, null, 2)
     setJson(next)
-    setNotice(`Added "${name}" — set its command, then Save & recheck.`)
+    setNotice(
+      preset.key === 'blank'
+        ? `Added "${name}" — set its command, then Save & recheck.`
+        : `Added "${name}" (${preset.label}) — review its values, then Save & recheck.`
+    )
     // best-effort: focus the editor and reveal/select the new key.
     requestAnimationFrame(() => {
       const ta = document.querySelector('textarea[data-json-editor]') as HTMLTextAreaElement | null
@@ -281,8 +326,13 @@ export function McpEditorModal(props: {
       }
     >
       {/* ── CONNECTIVITY (status first) ───────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <span style={sectionLabel}>Connectivity</span>
+        <InfoTip label="MCP servers" width={280}>
+          Each server here is a tool your agent can call — a shared office, a memory store, the
+          filesystem. They live in this agent’s <code>.mcp.json</code>. Use a preset to add one
+          without knowing the exact command.
+        </InfoTip>
         <span
           style={{
             fontFamily: 'var(--font-mono)',
@@ -292,10 +342,69 @@ export function McpEditorModal(props: {
         >
           {summaryText}
         </span>
-        <button type="button" style={{ ...linkBtn, marginLeft: 'auto' }} onClick={addServer}>
-          <Icon name="plus" size={11} />
-          Add server
-        </button>
+        <div style={{ position: 'relative', marginLeft: 'auto' }}>
+          <button
+            type="button"
+            style={linkBtn}
+            onClick={() => setPresetOpen((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={presetOpen}
+          >
+            <Icon name="plus" size={11} />
+            Add server
+          </button>
+          {presetOpen && (
+            <>
+              {/* click-away backdrop */}
+              <div
+                onClick={() => setPresetOpen(false)}
+                style={{ position: 'fixed', inset: 0, zIndex: 2100 }}
+              />
+              <div
+                role="menu"
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  zIndex: 2200,
+                  minWidth: 240,
+                  background: 'var(--bg-elev)',
+                  border: '1px solid var(--bd-strong)',
+                  borderRadius: 'var(--r-card)',
+                  boxShadow: 'var(--shadow-menu)',
+                  padding: 5
+                }}
+              >
+                {MCP_PRESETS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => addServer(p)}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      background: 'transparent',
+                      border: 'none',
+                      borderRadius: 'var(--r-input)',
+                      padding: '7px 9px',
+                      cursor: 'pointer',
+                      color: 'var(--tx-1)'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-selected)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <div style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{p.label}</div>
+                    <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginTop: 2, lineHeight: 1.4 }}>
+                      {p.hint}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {statusError ? (
@@ -364,8 +473,8 @@ export function McpEditorModal(props: {
           <button type="button" style={linkBtn} onClick={formatJson} disabled={!validation.valid}>
             Format
           </button>
-          <button type="button" style={linkBtn} onClick={openInEditor}>
-            Open in editor
+          <button type="button" style={linkBtn} onClick={openInEditor} title="Opens the agent’s workspace folder; the file is .mcp.json inside it">
+            Reveal folder
           </button>
         </div>
       </div>

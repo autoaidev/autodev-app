@@ -246,6 +246,7 @@ ipcMain.handle('office:autoConnect', async () => {
   return ok
 })
 ipcMain.handle('office:status', () => office.status())
+ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // --- App preferences (non-secret; userData/app-settings.json) ---------------
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.

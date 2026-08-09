@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Pill, StatusDot } from '@renderer/ui'
+import { Button, Pill, StatusDot, InfoTip } from '@renderer/ui'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -36,11 +36,11 @@ const NAV: { id: SectionId; label: string }[] = [
 
 // Provider ids the app actually recognises (AgentState.provider). Labels frame the
 // interactive-vs-headless distinction the mockup calls out.
-const PROVIDER_OPTS: { value: string; label: string }[] = [
-  { value: 'grok-cli', label: 'Grok — interactive' },
-  { value: 'claude-tui', label: 'Claude — interactive' },
-  { value: 'opencode-sdk', label: 'OpenCode — headless' },
-  { value: 'copilot-sdk', label: 'Copilot — headless' }
+const PROVIDER_OPTS: { value: string; label: string; hint: string }[] = [
+  { value: 'grok-cli', label: 'Grok — interactive', hint: 'xAI Grok, driven through its interactive CLI. Authenticate with `grok` on this machine; tokens are refreshed automatically but can still expire.' },
+  { value: 'claude-tui', label: 'Claude — interactive', hint: 'Anthropic Claude via the Claude Code TUI. Authenticate with `claude` (subscription or API key). Subscription tokens expire periodically and need re-login.' },
+  { value: 'opencode-sdk', label: 'OpenCode — headless', hint: 'OpenCode run headless via its SDK — no terminal UI, ideal for long unattended loops.' },
+  { value: 'copilot-sdk', label: 'Copilot — headless', hint: 'GitHub Copilot via its SDK. Requires a Copilot plan that permits the model you pick.' }
 ]
 
 interface OfficeStatus {
@@ -62,6 +62,8 @@ export function SettingsView2(): JSX.Element {
   const [saving, setSaving] = useState(false)
   const [savedPulse, setSavedPulse] = useState(false)
   const [urlErr, setUrlErr] = useState('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
   // --- REAL, live connection signal for the Pixel Office card header ----------
   const [status, setStatus] = useState<OfficeStatus | null>(null)
@@ -212,6 +214,28 @@ export function SettingsView2(): JSX.Element {
     flashSaved()
   }, [flashSaved])
 
+  const testConnection = useCallback(async () => {
+    const b = base.trim()
+    if (!b) {
+      setTestResult({ ok: false, msg: 'Enter a Server URL first.' })
+      return
+    }
+    if (!looksValid(base)) {
+      setTestResult({ ok: false, msg: 'That doesn’t look like an http(s) URL.' })
+      return
+    }
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const r = (await window.api.officePing(b)) as { ok?: true; error?: string }
+      setTestResult(r?.ok ? { ok: true, msg: 'Reachable — this is a Pixel Office.' } : { ok: false, msg: r?.error || 'Could not reach that server.' })
+    } catch (e) {
+      setTestResult({ ok: false, msg: String((e as Error)?.message ?? e) })
+    } finally {
+      setTesting(false)
+    }
+  }, [base, looksValid])
+
   const urlDirty = base.trim() !== savedBase.trim()
   const urlInvalid = !looksValid(base)
 
@@ -279,18 +303,33 @@ export function SettingsView2(): JSX.Element {
             title="Providers"
             subtitle="The provider CLIs (Grok, Claude) this machine can launch — separate from the AutoDev CLI runner that drives them. Credentials are managed per provider."
           >
-            {/* TODO(redesign): no api enumerates configured providers or their auth
-                state. This mirrors the known provider ids as a static reference. */}
+            {/* TODO(redesign): no api enumerates per-provider auth state yet, so we
+                don't claim "installed". Each row explains the provider + how to
+                authenticate it; the value reads "recognized" (the app knows this id)
+                rather than asserting an install it can't verify. */}
             {PROVIDER_OPTS.map((p, i) => (
               <SettingRow
                 key={p.value}
-                label={p.label}
+                label={
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    {p.label}
+                    <InfoTip label={p.label} width={260}>
+                      {p.hint}
+                    </InfoTip>
+                  </span>
+                }
                 desc={p.value}
                 last={i === PROVIDER_OPTS.length - 1}
               >
-                <span style={S.mutedValue}>installed</span>
+                <span style={S.mutedValue}>recognized</span>
               </SettingRow>
             ))}
+            <div style={{ ...S.helpText, borderTop: 'none', paddingTop: 8 }}>
+              Each provider authenticates through its own CLI on this machine (run{' '}
+              <code>grok</code> / <code>claude</code> and follow its login). The app can’t yet
+              verify which are signed in — if an agent reports a needs-auth error, re-run that
+              provider’s login.
+            </div>
           </Section>
 
           {/* ── Pixel Office (REAL, wired) ─────────────────────────────── */}
@@ -314,8 +353,11 @@ export function SettingsView2(): JSX.Element {
                 </span>
               </div>
 
-              <label htmlFor="sv2-office-url" style={S.fieldLabel}>
+              <label htmlFor="sv2-office-url" style={{ ...S.fieldLabel, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 SERVER URL
+                <InfoTip label="Server URL" width={250}>
+                  The address of your Pixel Office server, e.g. <code>https://app.pixeloffice.org</code>. https only — http is allowed for localhost. Test it below before you sign in on the Office tab.
+                </InfoTip>
               </label>
               <input
                 id="sv2-office-url"
@@ -325,10 +367,11 @@ export function SettingsView2(): JSX.Element {
                 spellCheck={false}
                 autoCapitalize="off"
                 autoCorrect="off"
-                placeholder={defaultBase || 'https://…'}
+                placeholder={defaultBase || 'https://app.pixeloffice.org'}
                 onChange={(e) => {
                   setBase(e.target.value)
                   setUrlErr('')
+                  setTestResult(null)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && urlDirty && !urlInvalid && !saving) void saveUrl()
@@ -357,7 +400,28 @@ export function SettingsView2(): JSX.Element {
                 >
                   Reset
                 </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={!loaded || testing || urlInvalid || base.trim() === ''}
+                  onClick={() => void testConnection()}
+                >
+                  {testing ? 'Testing…' : 'Test connection'}
+                </Button>
               </div>
+
+              {testResult && (
+                <div
+                  role="status"
+                  style={{
+                    ...S.errText,
+                    color: testResult.ok ? 'var(--st-running)' : 'var(--st-error-bright)'
+                  }}
+                >
+                  {testResult.ok ? '✓ ' : ''}
+                  {testResult.msg}
+                </div>
+              )}
 
               {urlInvalid && (
                 <div role="alert" style={S.errText}>
@@ -381,14 +445,24 @@ export function SettingsView2(): JSX.Element {
           <Section
             id="mcp"
             innerRef={setRef('mcp')}
-            title="MCP"
+            title={
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                MCP
+                <InfoTip label="MCP" showHeading width={270}>
+                  Model Context Protocol — the standard that lets an agent talk to external
+                  tools/servers (a shared office, a memory store, the filesystem). Each server
+                  is an entry in the agent’s <code>.mcp.json</code>.
+                </InfoTip>
+              </span>
+            }
             subtitle="Where Model Context Protocol servers are configured."
           >
             {/* MCP config is authored per agent (.mcp.json), not app-wide — there is
                 no global MCP preference api, so point the user at the real editor. */}
             <div style={S.emptyNote}>
               MCP servers are configured per agent, not app-wide. To add or edit them, open
-              an agent on the Agents tab, then use Inspector → MCP.
+              an agent on the Agents tab, then use Inspector → MCP — the editor has presets for
+              the common servers (pixel-office, memory, filesystem) and a live connectivity check.
             </div>
           </Section>
 
@@ -443,7 +517,7 @@ export function SettingsView2(): JSX.Element {
 function Section(props: {
   id: string
   innerRef: (el: HTMLElement | null) => void
-  title: string
+  title: React.ReactNode
   subtitle: string
   tag?: string
   last?: boolean
@@ -470,7 +544,7 @@ function Section(props: {
 }
 
 function SettingRow(props: {
-  label: string
+  label: React.ReactNode
   desc?: string
   last?: boolean
   children: React.ReactNode

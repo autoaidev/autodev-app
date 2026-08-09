@@ -41,6 +41,10 @@ const api = {
   officeLogin: (baseUrl: string, email: string, password: string) => ipcRenderer.invoke('office:login', baseUrl, email, password),
   officeAutoConnect: () => ipcRenderer.invoke('office:autoConnect'),
   officeStatus: () => ipcRenderer.invoke('office:status'),
+  // Reachability probe for a candidate Server URL (Test connection) — no
+  // credentials are sent and the live session is never mutated.
+  officePing: (baseUrl: string): Promise<{ ok: true } | { error: string }> =>
+    ipcRenderer.invoke('office:ping', baseUrl),
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
   officeOperate: (officeSlug: string, agentId: string, agentSlug: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug),

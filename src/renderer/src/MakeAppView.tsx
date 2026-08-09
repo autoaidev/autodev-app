@@ -299,23 +299,6 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         loading={busy}
         error={err}
         width={340}
-        basePlaceholder="https://…"
-        footer={
-          <p style={{ margin: 0, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
-            New here?{' '}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault()
-                if (base.trim()) void window.api.openExternal(base.trim())
-              }}
-              style={{ color: 'var(--accent)' }}
-            >
-              Open the office
-            </a>{' '}
-            to create an account.
-          </p>
-        }
       />
     )
   }

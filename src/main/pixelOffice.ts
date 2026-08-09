@@ -1215,6 +1215,34 @@ export class PixelOfficeClient {
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
+  /**
+   * Lightweight reachability probe for a candidate Server URL, used by the
+   * "Test connection" affordance BEFORE any credential is entered. Hits the
+   * unauthenticated /api/csrf-token endpoint every pixel-office exposes; a 2xx
+   * means the URL is a live office server. It NEVER sends or persists a
+   * credential and NEVER mutates this client's own base/session, so probing an
+   * arbitrary URL can't disturb a live login.
+   */
+  async ping(baseUrl: string): Promise<{ ok: true } | { error: string }> {
+    const b = (baseUrl || '').trim().replace(/\/+$/, '')
+    if (!b) return { error: 'Enter a Server URL first.' }
+    let u: URL
+    try { u = new URL(b) } catch { return { error: 'That doesn’t look like a URL.' } }
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') {
+      return { error: 'Server URL must start with http:// or https://' }
+    }
+    if (!isSecureBaseUrl(b)) {
+      return { error: 'Server URL must use https:// (http is only allowed for localhost).' }
+    }
+    try {
+      const r = await fetchT(`${b}/api/csrf-token`, { headers: { Accept: 'application/json' } }, 8000)
+      if (r.ok) return { ok: true }
+      return { error: `Server responded ${r.status} — is this a Pixel Office URL?` }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
   status(): { connected: boolean; base: string; email?: string } {
     const c = this.loadConfig()
     // Fallback resolves to the user-configured base (Settings page) when there is
