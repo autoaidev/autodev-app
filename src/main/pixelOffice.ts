@@ -100,6 +100,43 @@ export interface OfficeMessage {
   /** Epoch ms — the feed is sorted ascending (newest at the bottom). */
   at: number
 }
+/** One usage/limit window for a provider credential, flattened from the
+ *  deployer's cached `meta.usage.windows` (see KeyUsage). The renderer draws each
+ *  as a progress bar. */
+export interface KeyUsageLimit {
+  /** Human window label, e.g. 'Session (5h)', 'Weekly', 'Credit'. */
+  label: string
+  /** Amount consumed (openrouter dollars); absent for %-only Claude windows. */
+  used?: number
+  /** The window's cap; absent when the provider reports only a percentage / is unlimited. */
+  limit?: number
+  /** ISO8601 when this window resets, when the provider reports one. */
+  resetAt?: string | null
+  /** 0-100 utilization the deployer already computed (higher = closer to the cap). */
+  pct?: number
+  /** Bar severity hint from the deployer ('normal'|'warning'|'critical'). */
+  severity?: string
+}
+
+/** Per-account provider key usage, normalized from the connected pixel-office's
+ *  deployer credential vault. One entry per credential that exposes a reading. */
+export interface KeyUsage {
+  /** Provider family ('claude'|'openrouter'|'copilot'|…). */
+  provider: string
+  /** The credential's display label from the vault. */
+  label?: string
+  /** The raw secret kind ('claude_token'|'openrouter'|…). */
+  kind?: string
+  /** One row per usage/limit window. */
+  limits: KeyUsageLimit[]
+  /** ISO8601 credential expiry (secret.valid_until), when known. */
+  expiresAt?: string | null
+  /** A soft error the deployer attached ('reauth_required'|'rate_limited'); UI degrades. */
+  error?: string | null
+  /** True when the provider reports no spend cap (openrouter unlimited key). */
+  unlimited?: boolean
+}
+
 interface Persisted { baseUrl: string; email: string; cookies: [string, string][] }
 
 export const DEFAULT_OFFICE_BASE = 'https://app.pixeloffice.org'
@@ -1344,6 +1381,58 @@ export class PixelOfficeClient {
       return { error: `Server responded ${r.status} — is this a Pixel Office URL?` }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
+   * Fetch per-account provider key usage/limits from the connected pixel-office's
+   * deployer credential vault. Reads GET /api/deployer/secrets (owner-scoped,
+   * session-auth — the same endpoint the office's own credentials UI lists) and
+   * maps each credential's cached `meta.usage` snapshot into the app's flat
+   * KeyUsage shape. Supported providers today: Claude subscription OAuth (5h +
+   * weekly windows), OpenRouter (credit), Copilot.
+   *
+   * Fails SOFT: any failure (not connected, deployer feature disabled, network,
+   * 401) returns [] so the UI degrades instead of crashing.
+   *
+   * Freshness: /secrets returns the LAST-CACHED usage the deployer stored on each
+   * secret (POST /secrets/{id}/usage is what refreshes it upstream). We only READ
+   * here on purpose — a read-only poll must never trigger the savagely
+   * rate-limited upstream provider usage calls.
+   */
+  async keyUsage(): Promise<KeyUsage[]> {
+    if (!this._authed) return []
+    try {
+      const res = await this.getJson('/api/deployer/secrets')
+      const list: any[] = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : []
+      const out: KeyUsage[] = []
+      for (const s of list) {
+        const usage = s?.meta?.usage
+        if (!usage || typeof usage !== 'object') continue
+        const windows: any[] = Array.isArray(usage.windows) ? usage.windows : []
+        // Nothing to render: no windows AND no soft error to surface.
+        if (!windows.length && !usage.error) continue
+        out.push({
+          provider: String(usage.provider ?? s.kind ?? 'unknown'),
+          label: typeof s.label === 'string' ? s.label : undefined,
+          kind: typeof s.kind === 'string' ? s.kind : undefined,
+          limits: windows.map((w) => ({
+            label: String(w?.label ?? w?.key ?? 'Usage'),
+            used: typeof w?.used === 'number' ? w.used : undefined,
+            limit: typeof w?.limit === 'number' ? w.limit : undefined,
+            resetAt: typeof w?.resets_at === 'string' ? w.resets_at : null,
+            pct: typeof w?.pct === 'number' ? w.pct : undefined,
+            severity: typeof w?.severity === 'string' ? w.severity : undefined
+          })),
+          expiresAt: typeof s.valid_until === 'string' ? s.valid_until : null,
+          error: usage.error ?? null,
+          unlimited: !!usage.unlimited
+        })
+      }
+      return out
+    } catch (e) {
+      dbg('keyUsage: failed (degrading to empty)', String((e as Error)?.message ?? e))
+      return []
     }
   }
 

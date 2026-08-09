@@ -11,9 +11,9 @@ export type NavId = 'agents' | 'fleet' | 'office' | 'sessions' | 'makeapp' | 'se
 
 /** Primary top-nav items (left cluster). Order = tab order. */
 export const MAIN_NAV: NavItemDef[] = [
+  { id: 'office', label: 'Office' },
   { id: 'agents', label: 'Agents' },
   { id: 'fleet', label: 'Fleet' },
-  { id: 'office', label: 'Office' },
   { id: 'sessions', label: 'Sessions' },
   { id: 'makeapp', label: 'Make app' }
 ]

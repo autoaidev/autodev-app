@@ -15,6 +15,7 @@ import {
   tasksLabel,
   washTone
 } from './fleet-helpers'
+import { stateColor } from '@renderer/services/model'
 
 /**
  * A row's left spine color: STATE first (running → green, attention → amber),
@@ -87,16 +88,11 @@ function Checkbox({
   )
 }
 
-/** Inline STATE badge — dot + mono uppercase label, no pill background. */
+/** Inline STATE badge — dot + mono uppercase label, no pill background. The label
+ *  is colored by the SHARED state map (R-E): working → green, needs-you → amber,
+ *  crashed/stalled → red, idle/stopped → dim — so a WORKING row no longer shows a
+ *  grey (--tx-2) state word indistinguishable from an idle one. */
 function StateBadge({ a }: { a: AgentState }): React.JSX.Element {
-  const attn = isAttention(a)
-  const tone = washTone(a)
-  const color =
-    tone === 'red'
-      ? 'var(--st-error)'
-      : tone === 'amber'
-        ? 'var(--st-needsyou)'
-        : 'var(--tx-3)'
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
       <StatusDot status={dotStatus(a)} />
@@ -106,7 +102,7 @@ function StateBadge({ a }: { a: AgentState }): React.JSX.Element {
           fontSize: 'var(--fs-tiny)',
           fontWeight: 500,
           letterSpacing: 'var(--ls-state)',
-          color: attn ? color : 'var(--tx-2)',
+          color: stateColor(a.activity),
           whiteSpace: 'nowrap'
         }}
       >

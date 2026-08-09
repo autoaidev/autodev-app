@@ -56,10 +56,10 @@ import { MAIN_NAV, SETTINGS_NAV, type NavId } from './nav'
  *                      Operate PTYs via termRegistry.stopAll (App wires no handler)
  */
 export default function App(): JSX.Element {
-  const [nav, setNav] = useState<NavId>('agents')
+  const [nav, setNav] = useState<NavId>('office')
   // Lazy-mount + keep-alive: a view is added on first visit and never removed, so
   // a mounted PTY survives every later tab switch (we only toggle `display`).
-  const [opened, setOpened] = useState<Set<NavId>>(() => new Set<NavId>(['agents']))
+  const [opened, setOpened] = useState<Set<NavId>>(() => new Set<NavId>(['office']))
   // Fleet-wide counts for the shell's RunPill ("N running · M need you"), fed to
   // the AppShell we wrap the content views in. Sourced from the shared agent store
   // so every consumer sees one live tally (no per-view listAgents poll).

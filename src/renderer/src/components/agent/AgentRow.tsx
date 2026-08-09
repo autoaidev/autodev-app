@@ -1,6 +1,6 @@
 import React from 'react'
 import { StatusDot, DotStatus, Icon, AgentAvatar } from '@renderer/ui'
-import { rowMeta, isDim, agentHeadline, ATTENTION_STATES } from '@renderer/services/model'
+import { rowMeta, isDim, agentHeadline, ATTENTION_STATES, stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
 import type { AgentState, MetaTone } from '@renderer/services/model'
 
@@ -28,11 +28,15 @@ export {
   isDim
 } from '@renderer/services/model'
 
-const META_COLOR: Record<MetaTone, string> = {
-  default: 'var(--tx-ghost)',
-  amber: 'var(--st-needsyou)',
-  red: 'var(--st-error)',
-  idle: 'var(--tx-dim)'
+/**
+ * The meta line's color. Its state-bearing tones now come from the SHARED
+ * stateColor map (R-E) so a stalled row reads the same red here as its STATE
+ * badge in the Fleet table (rather than a divergent amber), and needs-you reads
+ * amber, idle reads dim — one source, no per-view drift. The plain provider·id
+ * identifier line (`tone === 'default'`, not a state) stays a demoted ghost.
+ */
+function metaColor(a: AgentState, tone: MetaTone): string {
+  return tone === 'default' ? 'var(--tx-ghost)' : stateColor(a.activity)
 }
 
 /* ---------------------------------------------------------------- Checkbox -- */
@@ -183,7 +187,7 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
               marginTop: 1,
               fontFamily: meta.mono ? 'var(--font-mono)' : 'var(--font-sans)',
               fontSize: 'var(--fs-tiny)',
-              color: META_COLOR[meta.tone],
+              color: metaColor(agent, meta.tone),
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap'

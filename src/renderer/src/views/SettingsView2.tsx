@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Pill, StatusDot, InfoTip } from '@renderer/ui'
-import { providerAuthFor } from '@renderer/lib/providers'
+import { Button, Pill, StatusDot, InfoTip, Icon } from '@renderer/ui'
+import {
+  PROVIDER_GROUPS,
+  providerLabel,
+  providerAuthFor,
+  vendorOf
+} from '@renderer/lib/providers'
+import { ServerRow } from '@renderer/components/mcp/ServerRow'
+import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
  *
  * A 208px settings-nav on the left + a single scrolling, sectioned form on the
  * right. Nav items scroll to / highlight their section; every control shows a
- * REAL default so nothing reads as an empty zero.
+ * REAL value so nothing reads as an empty zero.
  *
  * Backing reality (CURRENT-APP.md §1h + §1g):
  *   - The ONLY app preference the main process persists today is `officeBaseUrl`
- *     (getSettings/setSettings). That drives the "Pixel Office" section, which is
- *     the one fully-wired, Save-gated control.
+ *     (getSettings/setSettings). That drives the "Pixel Office" section.
  *   - officeStatus()/officeOffices() give the live connection badge + office count.
- *   - Unwired preview panes (agent-defaults, notifications) have been REMOVED rather
- *     than shipped disabled behind a "not saved yet / Stage 3" disclaimer — a Settings
- *     page must not confess it's a prototype. Only sections backed by a real value
- *     remain, and the page opens on Providers.
+ *   - appVersion() (app:version) → the installed app version, shown in the footer
+ *     and About.
+ *   - officeKeyUsage() (office:keyUsage) → per-account provider key usage from the
+ *     connected office's deployer vault; FAILS SOFT to [] when not connected.
+ *   - listAgents() → the REAL tracked workspaces (Storage) + the MCP agent picker.
+ *   - agentMcpStatus(path) → the live per-agent MCP connectivity list.
  */
 
 type SectionId =
@@ -35,14 +43,67 @@ const NAV: { id: SectionId; label: string }[] = [
   { id: 'about', label: 'About' }
 ]
 
-// Provider ids the app actually recognises (AgentState.provider). Labels frame the
-// interactive-vs-headless distinction the mockup calls out.
-const PROVIDER_OPTS: { value: string; label: string; hint: string }[] = [
-  { value: 'grok-cli', label: 'Grok — interactive', hint: 'xAI Grok, driven through its interactive CLI. Authenticate with `grok` on this machine; tokens are refreshed automatically but can still expire.' },
-  { value: 'claude-tui', label: 'Claude — interactive', hint: 'Anthropic Claude via the Claude Code TUI. Authenticate with `claude` (subscription or API key). Subscription tokens expire periodically and need re-login.' },
-  { value: 'opencode-sdk', label: 'OpenCode — headless', hint: 'OpenCode run headless via its SDK — no terminal UI, ideal for long unattended loops.' },
-  { value: 'copilot-sdk', label: 'Copilot — headless', hint: 'GitHub Copilot via its SDK. Requires a Copilot plan that permits the model you pick.' }
+// Per-provider onboarding hint, keyed by the provider id. Labels come from
+// lib/providers (the single source of provider vocabulary); this only adds the
+// "how to authenticate / what it is" prose the mockup calls out. Any id not
+// listed falls back to a generic line built from its vendor.
+const PROVIDER_HINTS: Record<string, string> = {
+  'claude-tui':
+    'Anthropic Claude via the Claude Code TUI. Authenticate with `claude` (subscription or API key). Subscription tokens expire periodically and need re-login.',
+  'claude-cli':
+    'Anthropic Claude run headless (no terminal UI) for long unattended loops. Same `claude` sign-in as the interactive variant.',
+  'copilot-cli':
+    'GitHub Copilot via its CLI. Sign in with `copilot`; requires a Copilot plan that permits the model you pick.',
+  'copilot-sdk':
+    'GitHub Copilot via its SDK — headless, for unattended loops. Same `copilot` sign-in; the plan must allow the model.',
+  'opencode-cli':
+    'OpenCode via its CLI. Authenticate with `opencode auth login` on this machine.',
+  'opencode-sdk':
+    'OpenCode run headless via its SDK — no terminal UI, ideal for long unattended loops. Same `opencode auth login`.',
+  'grok-cli':
+    'xAI Grok, driven through its CLI. Authenticate with `grok`; tokens refresh automatically but can still expire.',
+  'grok-tui':
+    'xAI Grok via its interactive TUI. Same `grok` sign-in as the CLI variant.'
+}
+const providerHint = (id: string): string =>
+  PROVIDER_HINTS[id] ??
+  `${providerLabel(id)} — sign in with \`${providerAuthFor(id).cmd}\` on this machine.`
+
+// The default MCP servers the app's editor seeds (mirrors MCP_PRESETS in
+// McpEditorModal — read-only reference; kept here as display data since that
+// const is module-private). Shown as reference cards so a user knows the common
+// servers before they open an agent's editor.
+const DEFAULT_MCP: { name: string; kind: 'stdio' | 'remote'; detail: string; hint: string }[] = [
+  {
+    name: 'memory',
+    kind: 'stdio',
+    detail: 'npx -y @modelcontextprotocol/server-memory',
+    hint: 'Persistent knowledge-graph memory across sessions.'
+  },
+  {
+    name: 'filesystem',
+    kind: 'stdio',
+    detail: 'npx -y @modelcontextprotocol/server-filesystem .',
+    hint: 'Read/write files under the workspace root.'
+  },
+  {
+    name: 'pixel-office',
+    kind: 'remote',
+    detail: 'https://<office>/api/office-mcp',
+    hint: 'Office A2A / operate bridge — usually synced from the office (its URL + agent key).'
+  }
 ]
+
+// About / footer links. The app has no `homepage` in package.json, so these are
+// the canonical product URLs, opened in the system browser via openExternal.
+const LINKS = {
+  homepage: 'https://autoaidev.com',
+  docs: 'https://autoaidev.com/docs',
+  download: 'https://app.pixeloffice.org/download'
+}
+// Static package.json facts (renderer can't read package.json at runtime).
+const AUTHOR = 'Peter Ivanov <peter@microweber.com>'
+const LICENSE = 'MIT'
 
 interface OfficeStatus {
   connected: boolean
@@ -50,9 +111,40 @@ interface OfficeStatus {
   email?: string
 }
 
+// Mirror of the preload KeyUsage shape without a cross-package import — derived
+// straight from the exposed IPC signature so it can never drift.
+type KeyUsage = Awaited<ReturnType<typeof window.api.officeKeyUsage>>[number]
+type KeyUsageLimit = KeyUsage['limits'][number]
+
+type AgentLite = { path: string; name: string }
+
+/** severity → bar colour, with a pct-based fallback when the deployer sent none. */
+function sevColor(sev?: string, pct?: number): string {
+  if (sev === 'critical') return 'var(--st-error)'
+  if (sev === 'warning') return 'var(--st-needsyou)'
+  if (typeof pct === 'number') {
+    if (pct >= 90) return 'var(--st-error)'
+    if (pct >= 70) return 'var(--st-needsyou)'
+  }
+  return 'var(--st-running)'
+}
+
+/** compact relative time, e.g. "in 3h" / "5d ago" — empty for a bad/absent iso. */
+function fmtWhen(iso?: string | null): string {
+  if (!iso) return ''
+  const t = new Date(iso).getTime()
+  if (Number.isNaN(t)) return ''
+  const diff = t - Date.now()
+  const abs = Math.abs(diff)
+  let rel: string
+  if (abs < 3_600_000) rel = `${Math.max(1, Math.round(abs / 60_000))}m`
+  else if (abs < 86_400_000) rel = `${Math.round(abs / 3_600_000)}h`
+  else rel = `${Math.round(abs / 86_400_000)}d`
+  return diff >= 0 ? `in ${rel}` : `${rel} ago`
+}
+
 export function SettingsView2(): JSX.Element {
-  // Open on the Providers pane — the first section that reflects a real value, so a
-  // first-time visitor never lands on an unwired preview.
+  // Open on the Providers pane — the first section that reflects a real value.
   const [active, setActive] = useState<SectionId>('providers')
 
   // --- REAL, persisted preference: Pixel Office server URL ---------------------
@@ -71,14 +163,22 @@ export function SettingsView2(): JSX.Element {
   const [officeCount, setOfficeCount] = useState<number | null>(null)
 
   // --- REAL, resolved CLI availability for the About / footer block -----------
-  // cli:check returns { found, path } only (no version string is exposed), so the
-  // footer reports resolved availability rather than a `—` placeholder. `null`
-  // means "not resolved yet" → the block stays hidden until it is.
   const [cli, setCli] = useState<{ found: boolean; path: string } | null>(null)
 
-  // The workspace root shown (read-only) in Storage & logs. There is no persistence
-  // surface for it yet, so it's a displayed default — not an editable (unwired) control.
-  const agentsFolder = '~/.autodev-app/offices'
+  // --- REAL app version (app:version) for the footer + About ------------------
+  const [appVer, setAppVer] = useState<string>('')
+
+  // --- Per-account provider key usage (office:keyUsage; fails soft to []) ------
+  // null = still loading; [] = none available (not connected / no readable keys).
+  const [keyUsage, setKeyUsage] = useState<KeyUsage[] | null>(null)
+
+  // --- REAL tracked workspaces (listAgents) → Storage + the MCP agent picker --
+  const [agents, setAgents] = useState<AgentLite[]>([])
+
+  // --- Live per-agent MCP connectivity (agentMcpStatus) -----------------------
+  const [mcpSel, setMcpSel] = useState<string>('')
+  const [mcpData, setMcpData] = useState<{ servers: McpServerStatus[]; error?: string } | null>(null)
+  const [mcpLoading, setMcpLoading] = useState(false)
 
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
@@ -125,7 +225,7 @@ export function SettingsView2(): JSX.Element {
     void refreshStatus()
   }, [refreshStatus])
 
-  // Resolve CLI availability once for the About section + footer.
+  // Resolve CLI availability + app version once for the About section + footer.
   useEffect(() => {
     void (async () => {
       try {
@@ -135,6 +235,56 @@ export function SettingsView2(): JSX.Element {
         setCli({ found: false, path: '' })
       }
     })()
+    void (async () => {
+      try {
+        setAppVer((await window.api.appVersion()) || '')
+      } catch {
+        setAppVer('')
+      }
+    })()
+  }, [])
+
+  // Per-account key usage. officeKeyUsage() is documented to fail soft to [], but
+  // guard anyway so a rejection can never blank the page.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const u = await window.api.officeKeyUsage()
+        setKeyUsage(Array.isArray(u) ? u : [])
+      } catch {
+        setKeyUsage([])
+      }
+    })()
+  }, [status?.connected])
+
+  // Tracked workspaces (real folders) for Storage + the MCP picker.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const a = (await window.api.listAgents()) as AgentLite[]
+        setAgents(Array.isArray(a) ? a : [])
+      } catch {
+        setAgents([])
+      }
+    })()
+  }, [])
+
+  const loadMcp = useCallback(async (path: string) => {
+    setMcpSel(path)
+    setMcpData(null)
+    if (!path) return
+    setMcpLoading(true)
+    try {
+      const r = (await window.api.agentMcpStatus(path)) as {
+        servers?: McpServerStatus[]
+        error?: string
+      }
+      setMcpData({ servers: Array.isArray(r?.servers) ? r.servers : [], error: r?.error })
+    } catch (e) {
+      setMcpData({ servers: [], error: String((e as Error)?.message ?? e) })
+    } finally {
+      setMcpLoading(false)
+    }
   }, [])
 
   // Scroll-spy: highlight the nav item whose section is nearest the top.
@@ -253,6 +403,10 @@ export function SettingsView2(): JSX.Element {
       : `connected · ${connOffices} office${connOffices === 1 ? '' : 's'}`
   }, [status, connOffices])
 
+  const openLink = useCallback((url: string) => {
+    void window.api.openExternal(url)
+  }, [])
+
   return (
     <div style={S.root}>
       <style>{CSS}</style>
@@ -282,16 +436,10 @@ export function SettingsView2(): JSX.Element {
             )
           })}
         </div>
-        {/* cli:check exposes availability, not a version string — so the footer
-            reports resolved status and stays hidden until it resolves (no `—`). */}
-        {cli && (
-          <div style={S.navFooter}>
-            <div>AutoDev desktop</div>
-            {/* Matches the global banner wording exactly (R6): the missing piece is the
-                AutoDev CLI runner, distinct from the provider CLIs listed above. */}
-            <div>{cli.found ? 'AutoDev CLI ready' : 'AutoDev CLI not installed'}</div>
-          </div>
-        )}
+        <div style={S.navFooter}>
+          <div>AutoDev desktop{appVer ? ` v${appVer}` : ''}</div>
+          {cli && <div>{cli.found ? 'AutoDev CLI ready' : 'AutoDev CLI not installed'}</div>}
+        </div>
       </nav>
 
       {/* right sectioned form (flex, scrolls) */}
@@ -302,41 +450,75 @@ export function SettingsView2(): JSX.Element {
             id="providers"
             innerRef={setRef('providers')}
             title="Providers"
-            subtitle="The provider CLIs (Grok, Claude) this machine can launch — separate from the AutoDev CLI runner that drives them. Credentials are managed per provider."
+            subtitle="The provider CLIs this machine can launch — separate from the AutoDev CLI runner that drives them. Credentials are managed per provider; usage/limits below come from the connected office's key vault."
           >
-            {/* TODO(redesign): no api enumerates per-provider auth state yet, so we
-                don't claim "installed". Each row explains the provider + how to
-                authenticate it; the value reads "recognized" (the app knows this id)
-                rather than asserting an install it can't verify. */}
-            {PROVIDER_OPTS.map((p, i) => (
-              <SettingRow
-                key={p.value}
-                label={
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    {p.label}
-                    <InfoTip label={p.label} width={260}>
-                      {p.hint}
-                    </InfoTip>
-                  </span>
-                }
-                desc={p.value}
-                last={i === PROVIDER_OPTS.length - 1}
-              >
-                {/* Authentication is first-class, not buried in the tooltip: show the
-                    exact login command to run. "recognized" only means the app knows
-                    this provider id — it cannot verify the sign-in state (no probe IPC). */}
-                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                  <span style={S.mutedValue}>recognized</span>
-                  <code style={S.authCmd}>sign in:&nbsp;{providerAuthFor(p.value).cmd}</code>
-                </span>
-              </SettingRow>
-            ))}
+            {/* All eight provider variants, grouped by vendor (lib/providers is the
+                single source). Each vendor shows its one sign-in command; each
+                variant reads GREEN "recognized" — the app knows this id — without
+                asserting a sign-in state it can't yet probe. */}
+            {PROVIDER_GROUPS.map((g) => {
+              const auth = providerAuthFor(g.options[0].id)
+              return (
+                <div key={g.vendor} style={S.providerGroup}>
+                  <div style={S.providerGroupHead}>
+                    <span style={S.providerVendor}>{g.vendor}</span>
+                    <code style={S.authCmd}>sign in:&nbsp;{auth.cmd}</code>
+                  </div>
+                  {g.options.map((o, i) => (
+                    <SettingRow
+                      key={o.id}
+                      label={
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          {providerLabel(o.id)}
+                          <InfoTip label={providerLabel(o.id)} width={260}>
+                            {providerHint(o.id)}
+                          </InfoTip>
+                        </span>
+                      }
+                      desc={o.id}
+                      last={i === g.options.length - 1}
+                    >
+                      <Pill variant="green" selected style={{ fontSize: 10.5 }}>
+                        <StatusDot status="running" size={6} />
+                        recognized
+                      </Pill>
+                    </SettingRow>
+                  ))}
+                </div>
+              )
+            })}
+
+            {/* Per-account key usage from the office vault (Claude 5h+weekly,
+                OpenRouter credit, …). Degrades gracefully: loading spinner-word,
+                an honest empty state when disconnected, per-account soft errors. */}
+            <div style={S.subHead}>
+              <span style={S.subHeadTitle}>Key usage</span>
+              <InfoTip label="Key usage" width={270}>
+                Live provider key usage/limits from the connected Pixel Office’s deployer vault —
+                one card per credential. Not connected to an office ⇒ nothing to show here.
+              </InfoTip>
+            </div>
+            {keyUsage == null ? (
+              <div style={S.usageMuted}>Checking key usage…</div>
+            ) : keyUsage.length === 0 ? (
+              <div style={S.emptyNote}>
+                No provider key usage to show. Sign in to a Pixel Office on the Office tab — its
+                credential vault reports the live usage/limits for each provider account here.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {keyUsage.map((u, i) => (
+                  <KeyUsageCard key={`${u.provider}-${u.label ?? i}`} u={u} />
+                ))}
+              </div>
+            )}
+
             <div style={{ ...S.helpText, borderTop: 'none', paddingTop: 8 }}>
               <strong style={{ color: 'var(--tx-3)' }}>Authenticate each provider before you run agents.</strong>{' '}
               Every provider signs in through its own CLI on this machine — run the command shown for
-              each one and follow its login. The app can’t yet verify which are signed in, so if a
+              each vendor and follow its login. The app can’t yet verify which are signed in, so if a
               headless loop or an office “Connect all” reports a needs-auth error, re-run that
-              provider’s login here.
+              provider’s login.
             </div>
           </Section>
 
@@ -463,15 +645,97 @@ export function SettingsView2(): JSX.Element {
                 </InfoTip>
               </span>
             }
-            subtitle="Where Model Context Protocol servers are configured."
+            subtitle="The default servers the editor seeds, and a live connectivity check for any agent. MCP is configured per agent (.mcp.json), not app-wide."
           >
-            {/* MCP config is authored per agent (.mcp.json), not app-wide — there is
-                no global MCP preference api, so point the user at the real editor. */}
-            <div style={S.emptyNote}>
-              MCP servers are configured per agent, not app-wide. To add or edit them, open
-              an agent on the Agents tab, then use Inspector → MCP — the editor has presets for
-              the common servers (pixel-office, memory, filesystem) and a live connectivity check.
+            <div style={S.subHead}>
+              <span style={S.subHeadTitle}>Default servers</span>
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {DEFAULT_MCP.map((m) => (
+                <div key={m.name} style={S.mcpCard}>
+                  <div style={S.mcpCardHead}>
+                    <span style={S.mcpName}>{m.name}</span>
+                    <span style={S.transportBadge}>{m.kind === 'remote' ? 'remote' : 'stdio'}</span>
+                  </div>
+                  <code style={S.mcpDetail}>{m.detail}</code>
+                  <div style={S.mcpHint}>{m.hint}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={S.subHead}>
+              <span style={S.subHeadTitle}>Check an agent</span>
+              <InfoTip label="Connectivity check" width={270}>
+                Pick a tracked agent to probe its configured MCP servers live — ready (green),
+                failing (red) or disabled. This is the same check the agent’s Inspector → MCP runs.
+              </InfoTip>
+            </div>
+            {agents.length === 0 ? (
+              <div style={S.emptyNote}>
+                No agents added yet. Add one on the Agents tab, then pick it here to run a live
+                MCP connectivity check.
+              </div>
+            ) : (
+              <>
+                <div style={{ position: 'relative', maxWidth: 320 }}>
+                  <select
+                    className="sv2-select"
+                    aria-label="Agent to check MCP connectivity for"
+                    value={mcpSel}
+                    onChange={(e) => void loadMcp(e.target.value)}
+                    style={S.select}
+                  >
+                    <option value="">Select an agent…</option>
+                    {agents.map((a) => (
+                      <option key={a.path} value={a.path}>
+                        {a.name || a.path}
+                      </option>
+                    ))}
+                  </select>
+                  <span style={S.selectCaret}>
+                    <Icon name="chevron" size={13} />
+                  </span>
+                </div>
+
+                {mcpLoading && <div style={{ ...S.usageMuted, marginTop: 10 }}>Checking servers…</div>}
+
+                {!mcpLoading && mcpData && (
+                  <div style={{ marginTop: 10 }}>
+                    {mcpData.error ? (
+                      <div role="alert" style={S.errText}>
+                        {mcpData.error}
+                      </div>
+                    ) : mcpData.servers.length === 0 ? (
+                      <div style={S.usageMuted}>
+                        No MCP servers configured for this agent.
+                      </div>
+                    ) : (
+                      <>
+                        {(() => {
+                          const c = summarize(mcpData.servers)
+                          return (
+                            <div style={S.mcpSummary}>
+                              <span style={{ color: 'var(--st-running)' }}>{c.ready} ready</span>
+                              <span style={S.mcpSummaryDot}>·</span>
+                              <span style={{ color: c.failing ? 'var(--st-error)' : 'var(--tx-4)' }}>
+                                {c.failing} failing
+                              </span>
+                              <span style={S.mcpSummaryDot}>·</span>
+                              <span style={{ color: 'var(--tx-dim)' }}>{c.disabled} disabled</span>
+                            </div>
+                          )
+                        })()}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+                          {mcpData.servers.map((s) => (
+                            <ServerRow key={s.name} server={s} />
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </Section>
 
           {/* ── Storage & logs ─────────────────────────────────────────── */}
@@ -481,10 +745,35 @@ export function SettingsView2(): JSX.Element {
             title="Storage & logs"
             subtitle="Where this app keeps workspaces and diagnostic logs on this machine."
           >
-            {/* TODO(redesign): no api exposes log locations, sizes, or a clear action. */}
-            <SettingRow label="Agents folder" desc="Workspace root for new agents.">
-              <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>{agentsFolder}</span>
-            </SettingRow>
+            {/* REAL tracked workspaces from listAgents() — each is a folder on disk
+                you added. Replaces the former single fabricated root. */}
+            <div style={{ padding: '14px 0', borderBottom: '1px solid var(--bd-2)' }}>
+              <div style={S.rowLabel}>Agent workspaces</div>
+              <div style={S.rowDesc}>
+                The folders the app tracks — each agent lives in the workspace you added for it.
+              </div>
+              {agents.length === 0 ? (
+                <div style={{ ...S.usageMuted, marginTop: 8 }}>
+                  No workspaces yet — add an agent on the Agents tab.
+                </div>
+              ) : (
+                <div style={S.pathList}>
+                  {agents.map((a) => (
+                    <button
+                      key={a.path}
+                      type="button"
+                      className="sv2-path"
+                      title={`Open ${a.path}`}
+                      onClick={() => void window.api.openPath(a.path)}
+                      style={S.pathRow}
+                    >
+                      <Icon name="folder" size={12} />
+                      <span style={S.pathText}>{a.path}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <SettingRow label="Logs" desc="Diagnostic logs for support." last>
               <span style={S.mutedValue}>managed by the app</span>
             </SettingRow>
@@ -498,19 +787,48 @@ export function SettingsView2(): JSX.Element {
             subtitle="AutoDev desktop."
             last
           >
-            {/* cli:check resolves availability (found/path); no version string is
-                exposed, so the CLI row reports resolved status, and the path is the
-                mono technical sub-line when found. */}
             <SettingRow label="Application" desc="AutoDev desktop">
               <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>autodev-app</span>
+            </SettingRow>
+            <SettingRow label="Version" desc="Installed app build.">
+              <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>
+                {appVer ? `v${appVer}` : 'checking…'}
+              </span>
+            </SettingRow>
+            <SettingRow label="Author" desc="Maintainer.">
+              <span style={S.mutedValue}>{AUTHOR}</span>
+            </SettingRow>
+            <SettingRow label="License" desc="Distribution terms.">
+              <span style={{ ...S.mutedValue, fontFamily: 'var(--font-mono)' }}>{LICENSE}</span>
             </SettingRow>
             <SettingRow
               label="AutoDev CLI"
               desc={cli?.found ? cli.path : 'The runner that drives agents (bundled autodev CLI)'}
-              last
             >
               <span style={S.mutedValue}>
                 {cli == null ? 'checking…' : cli.found ? 'ready' : 'not installed'}
+              </span>
+            </SettingRow>
+            <SettingRow label="Links" desc="Home, docs and downloads — opens in your browser." last>
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {(
+                  [
+                    ['Homepage', LINKS.homepage],
+                    ['Docs', LINKS.docs],
+                    ['Download', LINKS.download]
+                  ] as const
+                ).map(([label, url]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className="sv2-link"
+                    onClick={() => openLink(url)}
+                    style={S.linkBtn}
+                  >
+                    {label}
+                    <Icon name="external" size={10} />
+                  </button>
+                ))}
               </span>
             </SettingRow>
           </Section>
@@ -521,6 +839,76 @@ export function SettingsView2(): JSX.Element {
 }
 
 /* ── local subcomponents ─────────────────────────────────────────────────── */
+
+function KeyUsageCard({ u }: { u: KeyUsage }): JSX.Element {
+  const title = u.label || providerLabel(u.provider) || u.provider
+  const errMsg =
+    u.error === 'reauth_required'
+      ? 'Login expired — re-authenticate this account to resume.'
+      : u.error === 'rate_limited'
+        ? 'Rate-limited by the provider — resumes when the window clears.'
+        : u.error
+  return (
+    <div style={S.usageCard}>
+      <div style={S.usageHead}>
+        <span style={S.usageLabel}>{title}</span>
+        <span style={S.usageProvider}>
+          {u.provider}
+          {u.kind ? ` · ${u.kind}` : ''}
+        </span>
+      </div>
+      {errMsg ? (
+        <div style={{ ...S.errText, marginTop: 6 }}>{errMsg}</div>
+      ) : u.unlimited ? (
+        <div style={{ ...S.usageMuted, marginTop: 6 }}>No spend cap on this key.</div>
+      ) : u.limits.length === 0 ? (
+        <div style={{ ...S.usageMuted, marginTop: 6 }}>No usage reported.</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 9 }}>
+          {u.limits.map((lim, i) => (
+            <UsageBar key={`${lim.label}-${i}`} lim={lim} />
+          ))}
+        </div>
+      )}
+      {u.expiresAt && (
+        <div style={S.usageExpiry}>
+          Key expires {fmtWhen(u.expiresAt)}
+          <span style={{ color: 'var(--tx-gutter)' }}> · {new Date(u.expiresAt).toLocaleDateString()}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UsageBar({ lim }: { lim: KeyUsageLimit }): JSX.Element {
+  const derived =
+    typeof lim.used === 'number' && typeof lim.limit === 'number' && lim.limit > 0
+      ? Math.round((lim.used / lim.limit) * 100)
+      : null
+  const raw = typeof lim.pct === 'number' ? lim.pct : derived
+  const pct = raw == null ? null : Math.max(0, Math.min(100, raw))
+  const color = sevColor(lim.severity, pct ?? undefined)
+  const value =
+    typeof lim.used === 'number' && typeof lim.limit === 'number'
+      ? `$${lim.used.toFixed(2)} / $${lim.limit.toFixed(2)}`
+      : pct != null
+        ? `${pct}%`
+        : '—'
+  return (
+    <div>
+      <div style={S.barTop}>
+        <span style={S.barLabel}>{lim.label}</span>
+        <span style={S.barVal}>{value}</span>
+      </div>
+      {pct != null && (
+        <div style={S.barTrack}>
+          <div style={{ ...S.barFill, width: `${pct}%`, background: color }} />
+        </div>
+      )}
+      {lim.resetAt && <div style={S.barReset}>resets {fmtWhen(lim.resetAt)}</div>}
+    </div>
+  )
+}
 
 function Section(props: {
   id: string
@@ -730,13 +1118,6 @@ const S: Record<string, React.CSSProperties> = {
     padding: '2px 7px',
     whiteSpace: 'nowrap'
   },
-  notPersistedNote: {
-    fontSize: 10.5,
-    color: 'var(--tx-5)',
-    lineHeight: 1.5,
-    marginTop: 12,
-    fontStyle: 'italic'
-  },
   emptyNote: {
     fontSize: 11.5,
     color: 'var(--tx-4)',
@@ -746,15 +1127,156 @@ const S: Record<string, React.CSSProperties> = {
     border: '1px solid var(--bd-nav)',
     borderRadius: 8
   },
-  previewNote: {
+  // provider grouping
+  providerGroup: { marginBottom: 6 },
+  providerGroupHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    padding: '12px 0 4px'
+  },
+  providerVendor: {
     fontSize: 11,
-    color: 'var(--tx-4)',
-    lineHeight: 1.5,
-    padding: '8px 12px',
-    marginBottom: 4,
+    fontWeight: 700,
+    letterSpacing: '.06em',
+    textTransform: 'uppercase',
+    color: 'var(--tx-4)'
+  },
+  // subsection heads (Key usage, Default servers, Check an agent)
+  subHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    margin: '20px 0 10px'
+  },
+  subHeadTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: '.08em',
+    textTransform: 'uppercase',
+    color: 'var(--tx-3)'
+  },
+  // key-usage cards
+  usageCard: {
     background: 'var(--bg-panel)',
-    border: '1px solid var(--bd-2)',
-    borderRadius: 7
+    border: '1px solid var(--bd-nav)',
+    borderRadius: 9,
+    padding: '12px 14px'
+  },
+  usageHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10
+  },
+  usageLabel: { fontSize: 12, fontWeight: 700, color: 'var(--tx-hi)' },
+  usageProvider: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    color: 'var(--tx-4)'
+  },
+  usageMuted: { fontSize: 11, color: 'var(--tx-5)' },
+  usageExpiry: {
+    marginTop: 10,
+    fontSize: 10,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--tx-4)'
+  },
+  barTop: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 4
+  },
+  barLabel: { fontSize: 11, color: 'var(--tx-2)' },
+  barVal: { fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--tx-3)' },
+  barTrack: {
+    height: 5,
+    borderRadius: 3,
+    background: 'var(--st-track-bg)',
+    overflow: 'hidden'
+  },
+  barFill: { height: '100%', borderRadius: 3, transition: 'width .3s ease' },
+  barReset: {
+    marginTop: 3,
+    fontSize: 9.5,
+    fontFamily: 'var(--font-mono)',
+    color: 'var(--tx-gutter)'
+  },
+  // default MCP cards
+  mcpCard: {
+    background: 'var(--bg-panel)',
+    border: '1px solid var(--bd-nav)',
+    borderRadius: 8,
+    padding: '10px 12px'
+  },
+  mcpCardHead: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 },
+  mcpName: { fontSize: 12, fontWeight: 700, color: 'var(--tx-1)' },
+  transportBadge: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 9.5,
+    letterSpacing: '.04em',
+    color: 'var(--tx-4)',
+    background: 'var(--bg-chip-idle)',
+    border: '1px solid var(--bd-1)',
+    borderRadius: 'var(--r-chip)',
+    padding: '1px 5px'
+  },
+  mcpDetail: {
+    display: 'block',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10.5,
+    color: 'var(--tx-dim)',
+    wordBreak: 'break-all'
+  },
+  mcpHint: { fontSize: 10.5, color: 'var(--tx-5)', lineHeight: 1.45, marginTop: 4 },
+  mcpSummary: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10.5,
+    letterSpacing: '.04em'
+  },
+  mcpSummaryDot: { color: 'var(--tx-gutter)' },
+  // storage — real workspace paths
+  pathList: { display: 'flex', flexDirection: 'column', gap: 2, marginTop: 8 },
+  pathRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+    width: '100%',
+    textAlign: 'left',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: 5,
+    padding: '4px 6px',
+    cursor: 'pointer',
+    color: 'var(--tx-3)'
+  },
+  pathText: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10.5,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  // about links
+  linkBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    background: 'var(--bg-input)',
+    border: '1px solid var(--bd-1)',
+    borderRadius: 'var(--r-button)',
+    color: 'var(--tx-2)',
+    fontFamily: 'var(--font-sans)',
+    fontSize: 11,
+    fontWeight: 600,
+    padding: '4px 9px',
+    cursor: 'pointer'
   }
 }
 
@@ -763,20 +1285,7 @@ const CSS = `
 .sv2-input:focus { border-color: var(--accent) !important; }
 .sv2-select:focus { border-color: var(--accent) !important; }
 .sv2-input::placeholder { color: var(--tx-faint); }
-.sv2-range {
-  -webkit-appearance: none; appearance: none;
-  height: 3px; border-radius: 2px;
-  background: var(--st-track-bg);
-  outline: none; cursor: pointer;
-}
-.sv2-range::-webkit-slider-thumb {
-  -webkit-appearance: none; appearance: none;
-  width: 14px; height: 14px; border-radius: 50%;
-  background: var(--accent); border: none; cursor: pointer;
-}
-.sv2-range::-moz-range-thumb {
-  width: 14px; height: 14px; border-radius: 50%;
-  background: var(--accent); border: none; cursor: pointer;
-}
 .sv2-select option { background: var(--bg-elev); color: var(--tx-1); }
+.sv2-path:hover { background: var(--bg-selected) !important; color: var(--tx-1) !important; }
+.sv2-link:hover { border-color: var(--accent) !important; color: var(--tx-1) !important; }
 `

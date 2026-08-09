@@ -1,5 +1,5 @@
 import React from 'react'
-import { AppShell, ContextMenu, ContextMenuEntry } from '@renderer/ui'
+import { AppShell, ContextMenu, ContextMenuEntry, Modal, Button } from '@renderer/ui'
 import { AgentRail, AgentAction, BulkAction } from '@renderer/components/agent/AgentRail'
 import { AgentDetail, DetailTab } from '@renderer/components/agent/AgentDetail'
 import { Inspector } from '@renderer/components/agent/Inspector'
@@ -41,6 +41,10 @@ export function AgentsView(): React.JSX.Element {
   const [configPath, setConfigPath] = React.useState<string | null>(null)
   const [mcpPath, setMcpPath] = React.useState<string | null>(null)
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
+  // Bulk "Add task" prompt: the checked agents captured at open + the one task
+  // text typed once. Non-null = the modal is open. Enqueued to every path through
+  // the SAME task path as the single-agent composer (addTask → sendAgentMessage).
+  const [taskPrompt, setTaskPrompt] = React.useState<{ paths: string[]; text: string } | null>(null)
 
   // Prune log buffers for agents no longer in the fleet so the Map can't grow
   // unbounded (diff against the live set — a size gate would strand stale buffers
@@ -133,9 +137,22 @@ export function AgentsView(): React.JSX.Element {
       const p = agent.path
       switch (action) {
         case 'openFolder':
-        case 'openEditor': // TODO(redesign): no dedicated editor-open api — opens the folder.
           window.api.openPath(p)
           break
+        case 'openEditor': {
+          // Open the workspace in an external editor via VS Code's URL handler
+          // (a genuinely different action from openFolder, which reveals it in the
+          // OS file manager). If no handler is registered — VS Code not installed —
+          // fall back to revealing the folder so the item is never a dead-end.
+          const uri = 'vscode://file' + p
+          try {
+            const r = (await window.api.openExternal(uri)) as { error?: string } | void
+            if (r && typeof r === 'object' && r.error) window.api.openPath(p)
+          } catch {
+            window.api.openPath(p)
+          }
+          break
+        }
         case 'openTerminal':
         case 'watch':
           setSelected(p)
@@ -153,11 +170,6 @@ export function AgentsView(): React.JSX.Element {
           break
         case 'restart':
           await actions.restart(p)
-          break
-        case 'connect':
-          // TODO(redesign): the connect-to-office binding flow (officeBindWorkspace)
-          // lives in a Stage-3 modal; open Setup as the nearest affordance for now.
-          setConfigPath(p)
           break
         case 'setup':
           setConfigPath(p)
@@ -181,16 +193,35 @@ export function AgentsView(): React.JSX.Element {
   const onBulk = React.useCallback(
     async (action: BulkAction) => {
       const paths = Array.from(checked)
+      if (action === 'add') {
+        // Open the shared task-prompt over the current selection; the enqueue and
+        // the selection-clear happen once the user submits (submitBulkTask).
+        if (paths.length > 0) setTaskPrompt({ paths, text: '' })
+        return
+      }
       for (const p of paths) {
         if (action === 'start') await actions.start(p)
         else if (action === 'stop') await actions.stop(p)
         else if (action === 'restart') await actions.restart(p)
-        // TODO(redesign): bulk 'add' needs a shared task-prompt UI — deferred to Stage 3.
       }
-      if (action !== 'add') setChecked(new Set())
+      setChecked(new Set())
     },
     [checked]
   )
+
+  // Enqueue the one typed task to every agent captured when the prompt opened,
+  // reusing addTask (→ window.api.sendAgentMessage) so a bulk task is delivered by
+  // the exact same path as the single-agent composer. Clears the selection after.
+  const submitBulkTask = React.useCallback(async () => {
+    const prompt = taskPrompt
+    const text = prompt?.text.trim()
+    if (!prompt || !text) return
+    await Promise.all(prompt.paths.map((p) => addTask(p, text)))
+    setTaskPrompt(null)
+    setChecked(new Set())
+    const n = prompt.paths.length
+    appActions.toast(`Queued task to ${n} agent${n === 1 ? '' : 's'}.`)
+  }, [taskPrompt, addTask, appActions])
 
   const openMenu = React.useCallback((e: React.MouseEvent, agent: AgentState) => {
     e.preventDefault()
@@ -207,7 +238,6 @@ export function AgentsView(): React.JSX.Element {
     { label: 'Stop loop', icon: 'stop', disabled: !a.running, onClick: () => void onAction('stop', a) },
     { label: 'Restart', icon: 'restart', onClick: () => void onAction('restart', a) },
     { label: 'Watch live session', icon: 'clock', onClick: () => void onAction('watch', a) },
-    { label: 'Connect to office…', icon: 'office', onClick: () => void onAction('connect', a) },
     { label: 'Setup…', icon: 'gear', onClick: () => void onAction('setup', a) },
     { separator: true },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => void onAction('remove', a) }
@@ -353,6 +383,66 @@ export function AgentsView(): React.JSX.Element {
 
       <AgentConfigModal agentPath={configPath ?? ''} open={configPath != null} onClose={() => setConfigPath(null)} />
       <McpEditorModal agentPath={mcpPath ?? ''} open={mcpPath != null} onClose={() => setMcpPath(null)} />
+
+      {/* Bulk "Add task": one task, typed once, queued to every checked agent. */}
+      <Modal
+        open={taskPrompt != null}
+        onClose={() => setTaskPrompt(null)}
+        title="Add task"
+        subtitle={
+          taskPrompt
+            ? `Queues to ${taskPrompt.paths.length} selected agent${taskPrompt.paths.length === 1 ? '' : 's'}`
+            : undefined
+        }
+        width={460}
+        footer={
+          <>
+            <span style={{ marginRight: 'auto', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>
+              ⌘⏎ to queue
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setTaskPrompt(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={!taskPrompt?.text.trim()}
+              onClick={() => void submitBulkTask()}
+            >
+              Queue task
+            </Button>
+          </>
+        }
+      >
+        <textarea
+          autoFocus
+          value={taskPrompt?.text ?? ''}
+          onChange={(e) => setTaskPrompt((cur) => (cur ? { ...cur, text: e.target.value } : cur))}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+              e.preventDefault()
+              void submitBulkTask()
+            }
+          }}
+          placeholder="Describe the task to queue for each selected agent…"
+          rows={5}
+          style={{
+            width: '100%',
+            boxSizing: 'border-box',
+            minHeight: 96,
+            resize: 'vertical',
+            padding: '8px 10px',
+            borderRadius: 'var(--r-button)',
+            background: 'var(--bg-input)',
+            border: '1px solid var(--bd-1)',
+            color: 'var(--tx-hi)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 'var(--fs-meta)',
+            lineHeight: 1.5,
+            outline: 'none'
+          }}
+        />
+      </Modal>
     </AppShell>
   )
 }

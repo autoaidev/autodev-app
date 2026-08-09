@@ -1,6 +1,19 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+/** Per-account provider key usage row (mirrors main/pixelOffice.ts KeyUsage). */
+export interface KeyUsage {
+  provider: string
+  label?: string
+  kind?: string
+  limits: Array<{ label: string; used?: number; limit?: number; resetAt?: string | null; pct?: number; severity?: string }>
+  expiresAt?: string | null
+  error?: string | null
+  unlimited?: boolean
+}
+
 const api = {
+  // The installed app version string, e.g. '0.3.1'.
+  appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   listAgents: () => ipcRenderer.invoke('agents:list'),
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
   workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
@@ -60,6 +73,9 @@ const api = {
   > => ipcRenderer.invoke('office:spawnOffice', officeSlug, overrides),
   officeStopOffice: (officeSlug: string): Promise<{ ok: true; stopped: number } | { error: string }> =>
     ipcRenderer.invoke('office:stopOffice', officeSlug),
+  // Per-account provider key usage/limits from the connected office's deployer
+  // vault (Claude 5h+weekly, OpenRouter credit, Copilot). Fails soft to [].
+  officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
   officeCreateCharacter: (officeId: number, name: string) => ipcRenderer.invoke('office:createCharacter', officeId, name),

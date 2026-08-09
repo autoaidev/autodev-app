@@ -37,7 +37,6 @@ export type AgentAction =
   | 'stop'
   | 'restart'
   | 'watch'
-  | 'connect'
   | 'setup'
   | 'remove'
 
@@ -295,6 +294,23 @@ export function AgentRail({
   const [groupBy, setGroupBy] = React.useState<GroupBy>('office')
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set())
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
+  // Installed app version for the rail footer (main-process app:version IPC).
+  // Rendered as `v<version>` so support/bug reports can name the exact build.
+  const [version, setVersion] = React.useState<string>('')
+  React.useEffect(() => {
+    let live = true
+    window.api
+      .appVersion()
+      .then((v) => {
+        if (live && v) setVersion(`v${v}`)
+      })
+      .catch(() => {
+        /* version is a nicety — a failed IPC just hides it */
+      })
+    return () => {
+      live = false
+    }
+  }, [])
 
   const runningCount = agents.filter((a) => a.running).length
   const needsCount = agents.filter((a) => ATTENTION_STATES.has(a.activity)).length
@@ -358,7 +374,6 @@ export function AgentRail({
     { label: 'Stop loop', icon: 'stop', disabled: !a.running, onClick: () => onAction('stop', a) },
     { label: 'Restart', icon: 'restart', onClick: () => onAction('restart', a) },
     { label: 'Watch live session', icon: 'clock', onClick: () => onAction('watch', a) },
-    { label: 'Connect to office…', icon: 'office', onClick: () => onAction('connect', a) },
     { label: 'Setup…', icon: 'gear', onClick: () => onAction('setup', a) },
     { separator: true },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => onAction('remove', a) }
@@ -488,7 +503,6 @@ export function AgentRail({
           </IconButton>
           <IconButton label="Restart" icon="restart" onClick={() => onBulk('restart')} />
           <IconButton label="Add task" icon="plus" onClick={() => onBulk('add')} />
-          <IconButton label="More" icon="more" />
           <IconButton label="Clear selection" icon="close" onClick={() => onCheckedChange(new Set())} />
         </Toolbar>
       )}
@@ -597,7 +611,8 @@ export function AgentRail({
       <div
         style={{
           display: 'flex',
-          gap: 6,
+          flexDirection: 'column',
+          gap: 8,
           padding: '10px 12px',
           borderTop: '1px solid var(--bd-card)'
         }}
@@ -608,6 +623,21 @@ export function AgentRail({
         <Button variant="primary" block onClick={onNewAgent}>
           <Icon name="plus" size={11} color="var(--tx-onaccent)" /> New agent
         </Button>
+        {/* Build stamp: the installed app version, so the rail footer names the
+            exact build. Hidden until the IPC resolves (never a bare "v"). */}
+        {version && (
+          <div
+            style={{
+              textAlign: 'center',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-micro)',
+              color: 'var(--tx-faint)',
+              letterSpacing: 'var(--ls-tight)'
+            }}
+          >
+            {version}
+          </div>
+        )}
       </div>
 
       {menu && (

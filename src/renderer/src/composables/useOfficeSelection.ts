@@ -1,10 +1,67 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAgents } from '../services/agentStore'
+import type { AgentState } from '../services/model'
 
 /** A pixel office as returned by the office API. */
 export interface Office {
   slug: string
   id: number
   name: string
+}
+
+/**
+ * A LOCAL "office" — a folder that already contains one or more spawned agent
+ * workspaces. Derived purely from the live fleet (agentStore), so it exists
+ * independently of any pixel-office connection: it lets the Make-app flow spawn
+ * new agents INTO a folder that already houses a team.
+ */
+export interface LocalOffice {
+  /** Full path to the containing folder — used directly as the spawn root. */
+  path: string
+  /** Prettified folder name for display. */
+  label: string
+  /** How many agents currently live in this folder. */
+  count: number
+}
+
+/** dirname of a workspace path — the containing "office" folder. */
+function parentDir(path: string): string {
+  const clean = path.replace(/\/+$/, '')
+  const i = clean.lastIndexOf('/')
+  return i > 0 ? clean.slice(0, i) : ''
+}
+
+/** Prettify a folder path's basename (mirrors AgentRail's office-folder label). */
+function prettyFolder(path: string): string {
+  const name = path.split('/').filter(Boolean).pop() || path
+  return name.replace(/[-_]+/g, ' ')
+}
+
+/**
+ * Group the fleet by its containing folder into a list of local offices — the
+ * same folder grouping the Agents rail uses (AgentRail.groupKeyFor / parent
+ * folder), but keyed on the FULL parent path so each is a concrete spawn target.
+ * Pure (no hooks) so it's unit-testable; `useLocalOffices` wraps it over the store.
+ */
+export function deriveLocalOffices(agents: AgentState[]): LocalOffice[] {
+  const counts = new Map<string, number>()
+  for (const a of agents) {
+    const dir = parentDir(a.path)
+    if (!dir) continue // a top-level workspace has no containing office folder
+    counts.set(dir, (counts.get(dir) ?? 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .map(([path, count]) => ({ path, label: prettyFolder(path), count }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/**
+ * The local offices present in the live fleet. Independent of the pixel-office
+ * connection — sourced entirely from the local agentStore.
+ */
+export function useLocalOffices(): LocalOffice[] {
+  const agents = useAgents()
+  return useMemo(() => deriveLocalOffices(agents), [agents])
 }
 
 /** Sentinel dropdown value: create a brand-new office (context-dependent). */

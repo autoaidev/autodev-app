@@ -1,5 +1,6 @@
 import React from 'react'
 import { StatusDot, AgentAvatar, IconButton } from '@renderer/ui'
+import { stateColor } from '@renderer/services/model'
 import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
@@ -141,7 +142,12 @@ export function CharacterCard({
       <div
         style={{
           fontSize: 'var(--fs-desc)',
-          color: tick === 'needs-you' ? 'var(--st-needsyou)' : 'var(--tx-4)',
+          // Status LABEL color from the shared state map (R-E): connected+working →
+          // running green, waiting-on-you → amber, offline → dim. So an online,
+          // working character no longer reads the same grey as an idle one.
+          color: !connected
+            ? 'var(--tx-4)'
+            : stateColor(tick === 'needs-you' ? 'needs-auth' : 'working'),
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis'
@@ -150,29 +156,36 @@ export function CharacterCard({
         {subtitle}
       </div>
 
-      {!connected && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onOperate()
-          }}
-          disabled={busy}
-          style={{
-            alignSelf: 'flex-start',
-            padding: 0,
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--accent)',
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--fs-desc)',
-            fontWeight: 600,
-            cursor: busy ? 'default' : 'pointer'
-          }}
-        >
-          {busy ? 'Connecting…' : 'Connect & operate'}
-        </button>
-      )}
+      {/* Operate affordance — ALWAYS present (D1). For an ONLINE character this is
+          the only way to open its live terminal; offline it doubles as connect. */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onOperate()
+        }}
+        disabled={busy}
+        aria-label={connected ? `Open console for ${agent.name}` : `Connect and operate ${agent.name}`}
+        style={{
+          alignSelf: 'flex-start',
+          padding: 0,
+          background: 'transparent',
+          border: 'none',
+          color: 'var(--accent)',
+          fontFamily: 'var(--font-sans)',
+          fontSize: 'var(--fs-desc)',
+          fontWeight: 600,
+          cursor: busy ? 'default' : 'pointer'
+        }}
+      >
+        {busy
+          ? connected
+            ? 'Opening…'
+            : 'Connecting…'
+          : connected
+            ? 'Open console'
+            : 'Connect & operate'}
+      </button>
     </div>
   )
 }

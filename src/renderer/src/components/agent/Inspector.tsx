@@ -3,6 +3,9 @@ import { Button, StatusDot, Pill } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
 import { isAttention, attentionSummary } from '@renderer/services/model'
 import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
+import { useAppActions } from '@renderer/services/appActions'
+import { useSessionActions } from '@renderer/services/sessionsService'
+import type { SessionMeta } from '@renderer/components/sessions/types'
 import type { TodoItem, AgentTasks } from './useAgentTasks'
 
 /**
@@ -26,17 +29,9 @@ function modelKeyFor(provider?: string): string {
   return MODEL_KEY[(provider || '').split('-')[0]] ?? 'claudeModel'
 }
 
-interface SessionMeta {
-  id: string
-  provider: string
-  file: string
-  cwd: string
-  title: string
-  mtime: number
-  sizeKb: number
-  msgs: number
-  live: boolean
-}
+// SessionMeta is the shared Sessions-screen type (imported above) — reusing it
+// (rather than a local subset) lets the discovered session flow straight into
+// the Sessions service's open() without a field mismatch (it carries `project`).
 
 /* --------------------------------------------------------------- primitives */
 
@@ -243,6 +238,21 @@ function TodoSection({ agent, todo }: { agent: AgentState; todo: AgentTasks }): 
 
 function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => void }): React.JSX.Element {
   const [session, setSession] = React.useState<SessionMeta | null | undefined>(undefined)
+  // Route the SESSION links into the in-app Sessions screen rather than shelling
+  // the raw .jsonl out to the OS (openPath on a trace file is a no-op / dumps
+  // JSON into an editor). navigate('sessions') swaps the top-nav tab; open(s)
+  // seeds the shared transcript store so SessionsView's TranscriptPane renders
+  // THIS session (its `sel` derives from that store), not just the global latest.
+  const { navigate } = useAppActions()
+  const { open: openSession } = useSessionActions()
+
+  const openInSessions = React.useCallback(
+    (s: SessionMeta) => {
+      navigate('sessions')
+      void openSession(s)
+    },
+    [navigate, openSession]
+  )
 
   React.useEffect(() => {
     let live = true
@@ -264,7 +274,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
 
   return (
     <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--bd-card)' }}>
-      <SectionLabel right={<LinkBtn>All sessions</LinkBtn>}>Session</SectionLabel>
+      <SectionLabel right={<LinkBtn onClick={() => navigate('sessions')}>All sessions</LinkBtn>}>Session</SectionLabel>
       {session === undefined && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
       {session === null && (
         <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>No session discovered for this workspace yet.</div>
@@ -289,7 +299,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
             <Button size="sm" block onClick={onWatch}>
               Watch live
             </Button>
-            <Button size="sm" block onClick={() => window.api.openPath(session.file)}>
+            <Button size="sm" block onClick={() => openInSessions(session)}>
               Open trace
             </Button>
           </div>

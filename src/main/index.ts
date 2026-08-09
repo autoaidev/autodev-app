@@ -181,6 +181,8 @@ ptys.on('data', (d) => broadcast('pty:data', d))
 ptys.on('exit', (d) => broadcast('pty:exit', d))
 
 // --- IPC -------------------------------------------------------------------
+// The installed app version (electron-builder stamps package.json → app.getVersion()).
+ipcMain.handle('app:version', () => app.getVersion())
 ipcMain.handle('agents:list', () => manager.list())
 ipcMain.handle('agents:add', (_e, path: string) => manager.add(path))
 ipcMain.handle('workspace:info', (_e, path: string) => manager.workspaceInfo(path))
@@ -287,6 +289,10 @@ ipcMain.handle('office:stopOffice', async (_e, officeSlug: string) => {
   void refreshOfficePresence()
   return { ok: true as const, stopped: paths.length }
 })
+// Per-account provider key usage/limits (Claude sub 5h+weekly, OpenRouter credit,
+// Copilot) read from the connected office's deployer credential vault. Fails soft
+// to [] so the UI degrades rather than crashes.
+ipcMain.handle('office:keyUsage', () => office.keyUsage())
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
 ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string) => office.createCharacter(officeId, name))

@@ -23,9 +23,9 @@ export interface NavItemDef {
 }
 
 const DEFAULT_NAV: NavItemDef[] = [
+  { id: 'office', label: 'Office' },
   { id: 'agents', label: 'Agents' },
   { id: 'fleet', label: 'Fleet' },
-  { id: 'office', label: 'Office' },
   { id: 'sessions', label: 'Sessions' }
 ]
 
@@ -98,8 +98,12 @@ export function NavItem({
       style={{
         padding: '6px 12px',
         borderRadius: 'var(--r-button)',
-        background: active ? 'var(--bg-selected)' : 'transparent',
+        // Active tab reads unmistakably: an accent-tinted fill PLUS a 2px accent
+        // underline (inset box-shadow, so it adds no layout box and never shifts the
+        // inactive items). The faint --bg-selected alone was too close to hover.
+        background: active ? 'var(--accent-tint)' : 'transparent',
         border: 'none',
+        boxShadow: active ? 'inset 0 -2px 0 0 var(--accent)' : 'none',
         color: active ? 'var(--tx-hi)' : 'var(--tx-3)',
         fontFamily: 'var(--font-sans)',
         fontSize: 'var(--fs-body)',

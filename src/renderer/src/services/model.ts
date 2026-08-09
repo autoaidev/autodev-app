@@ -122,6 +122,24 @@ export function pillVariantFor(a: Activity): PillVariant {
   return 'neutral'
 }
 
+/**
+ * The STATE color for an activity — the SINGLE source every status LABEL/badge
+ * draws from (CharacterCard subtitle, FleetTable StateBadge, AgentRow meta), so
+ * the same state never reads green in one view and grey in another (the R-E fix):
+ *   working                       → --st-running (green)
+ *   needs-auth / rate-limited     → --st-needsyou (amber)
+ *   crashed / stalled             → --st-error   (red)
+ *   idle / stopped (no live work) → --tx-4       (dim, receding)
+ * Mirrors pillVariantFor's buckets — kept as a CSS-var string so a bare text
+ * label can consume it directly without a Pill wrapper.
+ */
+export function stateColor(a: Activity): string {
+  if (a === 'working') return 'var(--st-running)'
+  if (a === 'needs-auth' || a === 'rate-limited') return 'var(--st-needsyou)'
+  if (a === 'crashed' || a === 'stalled') return 'var(--st-error)'
+  return 'var(--tx-4)'
+}
+
 /** State-badge label (mono, uppercase) for a StatusPill — same data as STATE_LABEL. */
 export function stateLabel(a: Activity): string {
   return STATE_LABEL[a]

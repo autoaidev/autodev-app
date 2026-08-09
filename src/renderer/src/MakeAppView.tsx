@@ -2,10 +2,11 @@ import { useEffect, useState, useCallback } from 'react'
 import OfficeSelector from './OfficeSelector'
 import FileBrowserCheckbox from './FileBrowserCheckbox'
 import { SignInForm } from './components/office/SignInForm'
-import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
+import { useOfficeSelection, useLocalOffices, NEW_OFFICE } from './composables/useOfficeSelection'
 import { InfoTip, Button, Pill, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
 import { useCliStatus } from '@renderer/services/cliStatus'
+import { useAgents } from '@renderer/services/agentStore'
 import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify, providerAuthFor } from '@renderer/lib/providers'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
@@ -67,6 +68,11 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // selected office) — same composable the Create dialog uses.
   const officeSel = useOfficeSelection({ defaultUseOffice: true, defaultSelection: NEW_OFFICE })
   const { connected, offices, loadOffices, useOffice, selectedOfficeId, setSelectedOfficeId } = officeSel
+  // Local offices (folders already housing a team) + the raw fleet — both sourced
+  // from the local agentStore, so they exist with or without a pixel-office session.
+  const localOffices = useLocalOffices()
+  const fleet = useAgents()
+  const hasLocalAgents = fleet.length > 0
   // The whole spawn funnel needs the AutoDev runner; read the shared status so we
   // can block Generate/Spawn before they silently no-op instead of after.
   const cli = useCliStatus()
@@ -103,6 +109,18 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // user proceed WITHOUT a Pixel Office. `localOnly` bypasses the sign-in gate and
   // forces the local roster path; office-backed generation still requires sign-in.
   const [localOnly, setLocalOnly] = useState(false)
+  // A3: once, when local agents already exist and we're not connected, default to
+  // the local path instead of forcing the full-screen sign-in. `autoLocaled` gates
+  // it to a single flip so the "Sign in to a Pixel Office" link (which sets
+  // localOnly=false) still reopens the sign-in form.
+  const [autoLocaled, setAutoLocaled] = useState(false)
+  useEffect(() => {
+    if (!autoLocaled && !connected && hasLocalAgents) {
+      setLocalOnly(true)
+      officeSel.setUseOffice(false)
+      setAutoLocaled(true)
+    }
+  }, [autoLocaled, connected, hasLocalAgents, officeSel])
   // Office generation only happens when actually connected AND opted-in; in
   // local-only mode this is false so `make` takes the local default-roster path.
   const officeMode = connected && useOffice
@@ -368,10 +386,22 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
 
   const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setSpawnTone('ok'); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false); setSpawnedOk(false) }, [])
 
+  // A2: step-2 → step-1 without wiping the form. Unlike reset() this KEEPS the
+  // description, team size, selected office and chosen folder, so a "← Back" only
+  // discards the generated roster + spawn result, not everything the user typed.
+  const back = useCallback(() => { setEdits(null); setOffice(null); setErr(''); setSpawnMsg(''); setSpawnTone('ok'); setWired(false); setSpawnedOk(false) }, [])
+
+  // A1: choosing an existing local office targets its folder as the spawn root.
+  const pickLocalOffice = useCallback((path: string) => { setFolder(path); setWired(false) }, [])
+
   // ── not connected (and not local-only): login form with an escape hatch ──
   // R: removed the DEAD-END. Signing in unlocks AI team-generation + shared
   // offices, but a user who only wants LOCAL agents can proceed without it.
-  if (!connected && !localOnly) {
+  // A3: never force this full-screen gate when local agents already exist — those
+  // users land straight on the local path (the office step becomes optional-inline
+  // via the banner + OfficeSelector below). The `autoLocaled` effect flips
+  // `localOnly` for that case, and the sign-in link can still reopen this form.
+  if (!connected && !localOnly && !hasLocalAgents) {
     return (
       <SignInForm
         title="Make app"
@@ -488,6 +518,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
           newOfficeLabel="＋ New office (from description)"
           idPrefix="makeapp"
           uncheckedNote="Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed."
+          localOffices={localOffices}
+          selectedLocalOffice={folder}
+          onSelectLocalOffice={pickLocalOffice}
         />
 
         <label style={labelStyle}>What do you want to build?</label>
@@ -531,6 +564,10 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         {edits && (
           <div style={{ marginTop: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              {/* A2: back to step 1 WITHOUT wiping the form (keeps description, team
+                  size, selected office & folder — unlike ＋ New / reset()). */}
+              <Button variant="ghost" size="sm" onClick={back} disabled={creating || spawning}
+                title="Back to describe — keeps your description, team size & office">← Back</Button>
               <strong style={{ fontSize: 'var(--fs-panel-title)', color: 'var(--tx-hi)' }}>{office ? office.name : 'Local workspaces'}</strong>
               <Pill variant="neutral">{edits.length} agents</Pill>
               <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>— edit names &amp; models below</span>
@@ -584,6 +621,24 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   <input className="makeapp-input" value={folder} onChange={(e) => { setFolder(e.target.value); setWired(false) }} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
                   <Button variant="secondary" onClick={pickFolder} disabled={spawning}>Browse</Button>
                 </div>
+                {/* A1: quick-pick a folder that already houses a team (local office),
+                    so you can spawn the new agents right alongside an existing one
+                    without retyping the path. Sourced from the fleet (agentStore). */}
+                {localOffices.length > 0 && (
+                  <select
+                    className="makeapp-input"
+                    aria-label="Spawn into an existing local office folder"
+                    value={localOffices.some((o) => o.path === folder) ? folder : ''}
+                    onChange={(e) => { if (e.target.value) pickLocalOffice(e.target.value) }}
+                    style={{ ...inp, marginTop: 8, marginBottom: 0 }}
+                    disabled={spawning}
+                  >
+                    <option value="">Or pick an existing local office…</option>
+                    {localOffices.map((o) => (
+                      <option key={o.path} value={o.path}>{o.label} — {o.count} agent{o.count === 1 ? '' : 's'}</option>
+                    ))}
+                  </select>
+                )}
                 {/* Bug 2: single-shared-folder mode. Only meaningful when the roster
                     agents are office characters — otherwise there's no office key to
                     wire, so hide it (and fall back to the per-agent path). */}

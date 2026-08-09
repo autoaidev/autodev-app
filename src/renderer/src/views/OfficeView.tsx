@@ -324,10 +324,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   }, [actions])
 
   const openBrowser = useCallback(() => {
-    // No per-office deep-link is exposed; open the office root.
-    // TODO(redesign): expose a per-office URL for a precise "Open in browser".
-    if (office.base.trim()) void window.api.openExternal(office.base.trim())
-  }, [office.base])
+    // Deep-link straight to the selected office's map (D2) instead of the server
+    // root, so "Open in browser" / "Open map" lands on THIS office. Falls back to
+    // the root only when there's no selected office to target.
+    const root = office.base.trim()
+    if (!root) return
+    const slug = selectedGroup?.slug
+    const url = slug ? `${root.replace(/\/+$/, '')}/office/${slug}` : root
+    void window.api.openExternal(url)
+  }, [office.base, selectedGroup])
 
   // The rail's error box aggregates the action error, the service's soft keep-alive
   // notice, and the registry's reap notice.
