@@ -31,6 +31,90 @@
 }
 
 :root {
+  /* =========================================================================
+   * DE-MONOTONY FOUNDATION (v3) — surfaces·depth, provider+state color, an
+   * identity palette, display type, and gradients. Added to break the unanimous
+   * 5-lens "too monotonous / one flat sheet / 29 identical grey rows" verdict.
+   * Color here is deployed with MEANING (identity, provider, state) — never
+   * decoration. The legacy --bg-* / --st-* names further down are PRESERVED and
+   * a couple are remapped onto this ladder, so existing consumers inherit the
+   * depth with no component churn (this phase ships tokens only).
+   * ========================================================================= */
+
+  /* ----- SURFACE LADDER: 5 rungs, cool STAGE <-> warm-neutral CHROME hue split.
+   * Each rung is a real perceptual step (CIE L*): stage 2.5 · stage-2 5.3 ·
+   * chrome 11.6 · card 17.9 · float 23.4. The 3 primary planes are far apart
+   * (stage->chrome dL* 9.1, chrome->card 6.3) so panes read as layered planes,
+   * not one flat sheet. STAGE is cool near-black; CHROME/CARD are warm-neutral. */
+  --surface-stage: #08090c;    /* rung 1 — cool near-black; the recessed CENTER stage */
+  --surface-stage-2: #0f1216;  /* rung 2 — recessed insets / wells inside the stage */
+  --surface-chrome: #1a1f27;   /* rung 3 — warm CHROME: left rail, pane caps, toolbars */
+  --surface-card: #262c37;     /* rung 4 — lifted CARDS sitting on the stage */
+  --surface-float: #313846;    /* rung 5 — floating: menus, popovers, tooltips */
+
+  /* ----- DEPTH: 1px inset top-highlight + readable drop shadow (composites).
+   * The app previously had ZERO of these — every plane was flat. Apply --hl-top*
+   * as an inset top edge; --depth-* bundle highlight + shadow for one box-shadow. */
+  --hl-top: inset 0 1px 0 rgba(255, 255, 255, .05);        /* faint top-lit edge (chrome) */
+  --hl-top-strong: inset 0 1px 0 rgba(255, 255, 255, .08); /* card top-highlight */
+  --depth-chrome: inset 0 1px 0 rgba(255, 255, 255, .04);
+  --depth-card: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .28);
+  --depth-float: inset 0 1px 0 rgba(255, 255, 255, .07), 0 18px 44px rgba(0, 0, 0, .6);
+
+  /* ----- GRADIENTS (also net-new): stage vignette + top-lit surfaces. ----- */
+  --grad-stage: radial-gradient(140% 100% at 50% -8%, #0d0f15 0%, var(--surface-stage) 58%); /* subtle top-center vignette */
+  --grad-chrome: linear-gradient(180deg, #1d222b 0%, var(--surface-chrome) 100%);
+  --grad-card: linear-gradient(180deg, #2b313d 0%, var(--surface-card) 100%);
+
+  /* ----- CTA: the ONE accent-filled gradient button per view. accent->accent-2,
+   * top-lit inset highlight + soft shadow. Dark ink (--tx-onaccent) stays >=5.3:1
+   * over the whole gradient. Saturated blue is reserved for THIS + the LIVE dot. */
+  --accent-2: #6f7bff;          /* indigo companion to --accent for the CTA gradient */
+  --grad-cta: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
+  --grad-cta-hover: linear-gradient(180deg, #5aa8ff 0%, #7d88ff 100%);
+  --depth-cta: inset 0 1px 0 rgba(255, 255, 255, .22), 0 2px 8px rgba(60, 90, 200, .38);
+  --accent-warm: #e8a05a;       /* warm secondary accent (brand mark 2nd color) so blue isn't the only color */
+
+  /* ----- PER-PROVIDER ACCENTS — hue answers "which tool". -fg = the brand hue
+   * (spine / avatar-ring / dot — graphical, >=3:1); -ink = lightened label text
+   * (AA >=6.5:1 on the matching -tint chip); -tint = chip / wash bg; -ring =
+   * tinted avatar-ring stroke. claude coral · grok violet · opencode teal ·
+   * copilot magenta. ----- */
+  --prov-claude: #d97757;   --prov-claude-ink: #f0a488;   --prov-claude-tint: rgba(217, 119, 87, .16);   --prov-claude-ring: rgba(217, 119, 87, .5);
+  --prov-grok: #a78bfa;     --prov-grok-ink: #c9b8ff;     --prov-grok-tint: rgba(167, 139, 250, .16);    --prov-grok-ring: rgba(167, 139, 250, .5);
+  --prov-opencode: #2fc0b5; --prov-opencode-ink: #6bdccf; --prov-opencode-tint: rgba(47, 192, 181, .16); --prov-opencode-ring: rgba(47, 192, 181, .5);
+  --prov-copilot: #e26aa8;  --prov-copilot-ink: #f2a3cb;  --prov-copilot-tint: rgba(226, 106, 168, .16);  --prov-copilot-ring: rgba(226, 106, 168, .5);
+
+  /* ----- SEMANTIC STATE — decoupled from identity; the provider/avatar hue is
+   * kept even when stopped so no screen is ever 100% grey. needs-you is the ONE
+   * state allowed to shout (loud amber wash + glowing dot). running/done share
+   * the green; active (in-progress viz) is the reserved blue; idle recedes via
+   * elevation, not a grey spine. (Base --st-running/-needsyou/-idle exist below.) */
+  --st-done: #46b17b;                          /* completed bars (green) */
+  --st-active: var(--accent);                  /* in-progress data-viz bars (blue) */
+  --st-running-spine: var(--st-running);       /* 3px row spine — running */
+  --st-needsyou-ink: #e9c078;                  /* loud amber TEXT (AA ~8:1 on chrome/card) */
+  --st-needsyou-loud: rgba(216, 165, 74, .18); /* the shout wash (louder than the .05 state washes) */
+  --st-needsyou-glow: 0 0 0 3px rgba(216, 165, 74, .22), 0 0 8px rgba(216, 165, 74, .45); /* glowing needs-you dot */
+  --st-idle-spine: var(--st-idle);             /* idle spine (recedes; hue carried by avatar, not here) */
+  --spine-w: 3px;                              /* colored row-spine width (provider / state) */
+
+  /* ----- IDENTITY avatar palette — deterministic per-agent hue tiles, the
+   * highest-impact fix (29 grey rows -> recognizable colored objects). This
+   * EXTENDS (does not replace) the role tokens CharacterCard already uses:
+   * --id-1 == the existing blue (--role-blue-av-bg / --accent-ink), --id-2 ==
+   * the existing violet (--role-violet-av-bg). The next phase hashes agent.id
+   * -> 1..8 and indexes here (see officeTypes.initials()). Every pair is AA
+   * (fg-on-bg >=5.0:1). ----- */
+  --id-1-bg: #2f4a6d; --id-1-fg: #9cc5f5;   /* blue    (existing role) */
+  --id-2-bg: #3a3550; --id-2-fg: #c9b8ff;   /* violet  (existing role) */
+  --id-3-bg: #123f3b; --id-3-fg: #7fe0d2;   /* teal    */
+  --id-4-bg: #4a2c26; --id-4-fg: #f2ad97;   /* coral   */
+  --id-5-bg: #43371c; --id-5-fg: #f0cf94;   /* amber   */
+  --id-6-bg: #47243a; --id-6-fg: #f2a3cb;   /* magenta */
+  --id-7-bg: #1c3f2d; --id-7-fg: #8fd9ab;   /* green   */
+  --id-8-bg: #2b2f52; --id-8-fg: #b4bcff;   /* indigo  */
+
   /* ----- palette: backgrounds (layered, darkest app shell -> elevated) ----- */
   --bg-app: #0b0d11;          /* chrome-less card backdrop (2f/2g) */
   --bg-0: #0f1216;            /* legacy main detail surface (kept for non-pane consumers) */
@@ -47,8 +131,8 @@
    * titled header band and divided from the stage by a strong --bd-seam. This
    * is what makes the three columns read as distinct regions (was: 3 near-equal
    * darks split by an invisible hairline). */
-  --bg-detail: #0e1116;      /* CENTER stage — darkest, recessed */
-  --bg-rail: #191d24;        /* LEFT agent rail — lifted chrome */
+  --bg-detail: var(--surface-stage);  /* CENTER stage — remapped onto the cool near-black ladder rung (was #0e1116) */
+  --bg-rail: var(--surface-chrome);   /* LEFT agent rail — remapped onto the warm CHROME rung (was #191d24) */
   --bg-inspector: #171b21;   /* RIGHT inspector — lifted chrome (a hair below the rail) */
   --bg-pane-cap: #1f242c;    /* rail / inspector titled header band (lifted above its pane) */
   --bg-detail-cap: #14171c;  /* center titled header band (lifted above the dark stage) */
@@ -150,6 +234,17 @@
   --fs-section: 11px;        /* UPPERCASE section labels */
   --fs-tiny: 11px;           /* tiny mono ids / LIVE / kbd */
   --fs-micro: 10px;          /* group path / avatar initials (decorative) */
+
+  /* DISPLAY TYPE TIER — render exactly ONE hero number per view (Fleet
+   * closed-today / agent count, agent header NNNN/NNNN done, rail 29). Mono 700
+   * + tabular figures so digits don't jitter; a real focal point above the
+   * 20px page-title tier. Use --fvn-tabular via font-feature-settings. */
+  --fs-display: 34px;        /* the hero metric */
+  --fs-metric: 26px;         /* secondary big number */
+  --lh-display: 1.04;
+  --ls-display: -.02em;
+  --fw-display: 700;
+  --fvn-tabular: 'tnum' 1, 'lnum' 1;
 
   /* line-heights */
   --lh-tight: 1.2;           /* headings / single-line labels */
