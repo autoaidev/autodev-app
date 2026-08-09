@@ -7,7 +7,7 @@
   "productName": "AutoDev",
   "description": "AutoDev desktop app — manage autonomous AI agents",
   "main": "./out/main/index.js",
-  "author": "autoaidev",
+  "author": "Peter Ivanov <peter@microweber.com>",
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",

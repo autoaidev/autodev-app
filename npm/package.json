@@ -11,7 +11,7 @@
     "autonomous"
   ],
   "license": "MIT",
-  "author": "autoaidev",
+  "author": "Peter Ivanov <peter@microweber.com>",
   "homepage": "https://autodev.code.aioffice.works",
   "bin": {
     "autodev-app": "bin/autodev-app.js"
