@@ -61,6 +61,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // ── new office (inline) ──
   const [showNewOffice, setShowNewOffice] = useState(false)
   const [newOfficeName, setNewOfficeName] = useState('')
+  const [newOfficeDesc, setNewOfficeDesc] = useState('')
+  const [genStarter, setGenStarter] = useState(false) // generate a starter team so the office isn't empty
   const [creatingOffice, setCreatingOffice] = useState(false)
 
   const [steerToast, setSteerToast] = useState('')
@@ -280,15 +282,22 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     if (!name || creatingOffice) return
     setCreatingOffice(true)
     try {
-      const r = (await window.api.officeCreateOffice(name, '')) as { ok?: boolean; office?: { slug: string }; error?: string }
-      if (r?.ok) {
-        setNewOfficeName(''); setShowNewOffice(false)
-        if (r.office?.slug) setSelectedSlug(r.office.slug)
+      const desc = newOfficeDesc.trim()
+      const r = (await window.api.officeCreateOffice(name, desc)) as { ok?: boolean; office?: { slug: string; id: number }; error?: string }
+      if (r?.ok && r.office) {
+        // Optionally seed a starter team so a fresh office isn't empty (reuses the
+        // same office-backed AI generation Make-app uses). Best-effort: a failure
+        // to generate still leaves the created office selected.
+        if (genStarter && desc && typeof r.office.id === 'number') {
+          try { await window.api.officeGenerateTeam(r.office.id, desc, 4) } catch { /* keep the empty office */ }
+        }
+        setNewOfficeName(''); setNewOfficeDesc(''); setGenStarter(false); setShowNewOffice(false)
+        if (r.office.slug) setSelectedSlug(r.office.slug)
         void officeService.refresh()
       } else setActionErr(r?.error || 'Could not create the office')
     } catch (e) { setActionErr(String((e as Error)?.message ?? e)) }
     finally { setCreatingOffice(false) }
-  }, [newOfficeName, creatingOffice])
+  }, [newOfficeName, newOfficeDesc, genStarter, creatingOffice])
 
   // Open a character in the Agents tab (2a): App brings the tab forward and
   // AgentsView resolves the office identity → local workspace and selects it.
@@ -392,22 +401,48 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
             {grouped.length} office{grouped.length === 1 ? '' : 's'} · {office.agents.length} character{office.agents.length === 1 ? '' : 's'}
           </div>
           {showNewOffice && (
-            <form onSubmit={(e) => { e.preventDefault(); void createOffice() }} style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            <form onSubmit={(e) => { e.preventDefault(); void createOffice() }} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
               <input
                 value={newOfficeName}
                 onChange={(e) => setNewOfficeName(e.target.value)}
                 placeholder="Office name…"
                 aria-label="New office name"
                 autoFocus
+                disabled={creatingOffice}
                 style={{
-                  flex: 1, minWidth: 0, padding: '6px 9px', background: 'var(--bg-input)',
+                  minWidth: 0, padding: '6px 9px', background: 'var(--bg-input)',
                   border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)', color: 'var(--tx-1)',
                   fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-meta)'
                 }}
               />
-              <Button variant="secondary" size="sm" type="submit" disabled={creatingOffice || !newOfficeName.trim()}>
-                {creatingOffice ? '…' : 'Create'}
-              </Button>
+              <textarea
+                value={newOfficeDesc}
+                onChange={(e) => setNewOfficeDesc(e.target.value)}
+                placeholder="What is this office for? (optional — used to generate a starter team)"
+                aria-label="New office description"
+                rows={2}
+                disabled={creatingOffice}
+                style={{
+                  minWidth: 0, padding: '6px 9px', background: 'var(--bg-input)', resize: 'vertical',
+                  border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)', color: 'var(--tx-1)',
+                  fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-meta)'
+                }}
+              />
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 'var(--fs-desc)', color: 'var(--tx-2)', cursor: creatingOffice ? 'default' : 'pointer' }}>
+                <input type="checkbox" checked={genStarter} disabled={creatingOffice || !newOfficeDesc.trim()} onChange={(e) => setGenStarter(e.target.checked)} style={{ marginTop: 2 }} />
+                <span>
+                  Generate a starter team from the description
+                  <span style={{ display: 'block', color: 'var(--tx-dim)' }}>Otherwise the office starts empty. Needs a description above.</span>
+                </span>
+              </label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <Button variant="primary" size="sm" type="submit" disabled={creatingOffice || !newOfficeName.trim()}>
+                  {creatingOffice ? (genStarter ? 'Creating & generating…' : 'Creating…') : 'Create office'}
+                </Button>
+                <Button variant="secondary" size="sm" type="button" disabled={creatingOffice} onClick={() => { setShowNewOffice(false); setNewOfficeDesc(''); setGenStarter(false) }}>
+                  Cancel
+                </Button>
+              </div>
             </form>
           )}
         </div>
@@ -516,8 +551,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onOperate={() => operate(a)}
                 />
               ))}
-              {/* create-character tile (preserves the in-app "new character" affordance) */}
-              <NewCharacterTile officeName={selectedGroup.name} />
+              {/* create-character tile — now a real inline create (resolves the numeric
+                  officeId on demand from officeOffices() and calls officeCreateCharacter). */}
+              <NewCharacterTile
+                officeName={selectedGroup.name}
+                officeSlug={selectedGroup.slug}
+                onError={setActionErr}
+                onCreated={() => void officeService.refresh()}
+              />
             </div>
 
             {/* lower split: focused stream (or live terminal) + office room */}
@@ -586,31 +627,88 @@ function TermSteer({ disabled, name, onSend }: { disabled: boolean; name: string
   )
 }
 
-/** Create-character dashed tile — reuses officeCreateCharacter (preserves the feature). */
-function NewCharacterTile({ officeName }: { officeName: string }): React.JSX.Element {
-  // Kept lightweight: the tile is informational + a hint, since creating a
-  // character needs the numeric officeId which the folded list doesn't carry.
-  // TODO(redesign): thread officeId through OfficeGroup to enable inline create.
+/**
+ * Create-character dashed tile — now a REAL inline create. The folded OfficeGroup
+ * doesn't carry the numeric officeId that officeCreateCharacter needs, so we resolve
+ * it on demand from officeOffices() (matched by slug) rather than threading it through
+ * every layer. Click → name input → create → refresh.
+ */
+function NewCharacterTile({
+  officeName,
+  officeSlug,
+  onCreated,
+  onError
+}: {
+  officeName: string
+  officeSlug: string
+  onCreated: () => void
+  onError: (msg: string) => void
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const create = useCallback(async () => {
+    const n = name.trim()
+    if (!n || busy) return
+    setBusy(true)
+    onError('')
+    try {
+      const list = (await window.api.officeOffices()) as Array<{ slug: string; id: number }>
+      const off = Array.isArray(list) ? list.find((o) => o.slug === officeSlug) : undefined
+      if (!off) { onError('Could not resolve this office to add a character.'); return }
+      const r = (await window.api.officeCreateCharacter(off.id, n)) as { ok?: boolean; id?: string; error?: string }
+      if (r?.error || !r?.id) { onError(r?.error || 'Could not create the character.'); return }
+      setName(''); setEditing(false)
+      onCreated()
+    } catch (e) { onError(String((e as Error)?.message ?? e)) }
+    finally { setBusy(false) }
+  }, [name, busy, officeSlug, onCreated, onError])
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        title={`Add a character to ${officeName}`}
+        style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 6, padding: '10px 11px', borderRadius: 'var(--r-card)', background: 'var(--bg-2)',
+          border: '1px dashed var(--bd-idle-box)', color: 'var(--tx-4)', minHeight: 78, cursor: 'pointer'
+        }}
+      >
+        <Icon name="plus" size={14} />
+        <span style={{ fontSize: 'var(--fs-desc)' }}>New character</span>
+      </button>
+    )
+  }
+
   return (
-    <div
-      title={`Add a character to ${officeName} from the office web app`}
+    <form
+      onSubmit={(e) => { e.preventDefault(); void create() }}
       style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        padding: '10px 11px',
-        borderRadius: 'var(--r-card)',
-        background: 'var(--bg-2)',
-        border: '1px dashed var(--bd-idle-box)',
-        color: 'var(--tx-4)',
-        minHeight: 78
+        display: 'flex', flexDirection: 'column', gap: 6, padding: '9px 10px', borderRadius: 'var(--r-card)',
+        background: 'var(--bg-2)', border: '1px solid var(--bd-1)', minHeight: 78, justifyContent: 'center'
       }}
     >
-      <Icon name="plus" size={14} />
-      <span style={{ fontSize: 'var(--fs-desc)' }}>New character</span>
-    </div>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Character name…"
+        aria-label={`New character in ${officeName}`}
+        autoFocus
+        disabled={busy}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setEditing(false); setName('') } }}
+        style={{
+          minWidth: 0, padding: '5px 8px', background: 'var(--bg-input)', border: '1px solid var(--bd-1)',
+          borderRadius: 'var(--r-input)', color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-meta)'
+        }}
+      />
+      <div style={{ display: 'flex', gap: 5 }}>
+        <Button variant="primary" size="sm" type="submit" disabled={busy || !name.trim()}>{busy ? '…' : 'Add'}</Button>
+        <Button variant="secondary" size="sm" type="button" disabled={busy} onClick={() => { setEditing(false); setName('') }}>Cancel</Button>
+      </div>
+    </form>
   )
 }
 
