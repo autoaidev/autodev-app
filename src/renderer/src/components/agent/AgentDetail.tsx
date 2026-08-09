@@ -59,7 +59,7 @@ function FollowToggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =>
             width: 11,
             height: 11,
             borderRadius: '50%',
-            background: 'var(--bg-0)',
+            background: 'var(--bg-detail)',
             transition: 'left .12s ease'
           }}
         />
@@ -230,9 +230,10 @@ export function AgentDetail({
   }
 
   return (
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-0)' }}>
-      {/* header */}
-      <div style={{ padding: '14px 18px 12px', borderBottom: '1px solid var(--bd-2)', overflow: 'hidden' }}>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-detail)' }}>
+      {/* header — the center pane's titled cap (agent name), on a lifted band with a
+          strong seam so the stage announces itself as the primary work surface */}
+      <div style={{ padding: '14px 18px 12px', background: 'var(--bg-detail-cap)', borderBottom: '1px solid var(--bd-seam)', overflow: 'hidden' }}>
         {/* min-width:0 lets the name column shrink+ellipsis; flexWrap lets the button
             cluster drop to a second line on a narrow window rather than overflowing and
             propagating a window-wide horizontal scrollbar. */}
@@ -358,7 +359,7 @@ export function AgentDetail({
       )}
 
       {/* sub-tab bar */}
-      <div style={{ padding: '0 18px', borderBottom: '1px solid var(--bd-2)' }}>
+      <div style={{ padding: '0 18px', borderBottom: '1px solid var(--bd-card)' }}>
         <SegmentedTabs
           tabs={[
             { id: 'activity', label: 'Activity' },
@@ -401,7 +402,7 @@ export function AgentDetail({
             onStart={onStart}
           />
           {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}
-          <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-2)' }}>
+          <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-card)' }}>
             <div
               style={{
                 display: 'flex',

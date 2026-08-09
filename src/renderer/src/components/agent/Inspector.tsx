@@ -86,10 +86,35 @@ function ProgressBar({ ratio, tone = 'accent' }: { ratio: number; tone?: 'accent
 }
 
 function KeyValueRow({ k, v, suffix }: { k: string; v: React.ReactNode; suffix?: React.ReactNode }): React.JSX.Element {
+  // Field name is the quieter tier by CASE + tracking (uppercase micro-label), the
+  // value the emphasized tier (primary text) — so a scan separates key from value
+  // at a glance rather than reading two same-size greys.
   return (
-    <div style={{ display: 'flex', gap: 10, padding: '5px 0', fontSize: 'var(--fs-meta)' }}>
-      <span style={{ flex: 'none', width: 74, color: 'var(--tx-dim)' }}>{k}</span>
-      <span style={{ flex: 1, minWidth: 0, color: 'var(--tx-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '5px 0' }}>
+      <span
+        style={{
+          flex: 'none',
+          width: 74,
+          fontSize: 'var(--fs-section)',
+          fontWeight: 500,
+          letterSpacing: 'var(--ls-state)',
+          textTransform: 'uppercase',
+          color: 'var(--tx-4)'
+        }}
+      >
+        {k}
+      </span>
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: 'var(--fs-meta)',
+          color: 'var(--tx-hi)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }}
+      >
         {v}
         {suffix}
       </span>
@@ -121,7 +146,7 @@ function TodoSection({ agent, todo }: { agent: AgentState; todo: AgentTasks }): 
   const attention = isAttention(agent) ? attentionSummary(agent) : null
 
   return (
-    <div style={{ padding: '13px 15px 11px', borderBottom: '1px solid var(--bd-2)' }}>
+    <div style={{ padding: '13px 15px 11px', borderBottom: '1px solid var(--bd-card)' }}>
       <SectionLabel
         right={
           <>
@@ -238,7 +263,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
   }, [agent.path])
 
   return (
-    <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--bd-2)' }}>
+    <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--bd-card)' }}>
       <SectionLabel right={<LinkBtn>All sessions</LinkBtn>}>Session</SectionLabel>
       {session === undefined && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
       {session === null && (
@@ -370,10 +395,41 @@ export function Inspector({ agent, todo, onEditSetup, onEditMcp, onWatch }: Insp
         flexDirection: 'column',
         minHeight: 0,
         overflow: 'auto',
-        background: 'var(--bg-1)',
-        borderLeft: '1px solid var(--bd-nav)'
+        // Lifted chrome (mirror of the left rail): distinct fill, strong seam, and
+        // a top inner highlight so it reads as raised over the darker center stage.
+        background: 'var(--bg-inspector)',
+        borderLeft: '1px solid var(--bd-seam)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.03)'
       }}
     >
+      {/* pane cap — titles the column as the Inspector so it can't blur into the
+          center stage (consistent with the rail's 'Agents' cap) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 40,
+          flex: 'none',
+          position: 'sticky',
+          top: 0,
+          zIndex: 1,
+          padding: '0 15px',
+          background: 'var(--bg-pane-cap)',
+          borderBottom: '1px solid var(--bd-seam)'
+        }}
+      >
+        <span
+          style={{
+            fontSize: 'var(--fs-panel-title)',
+            fontWeight: 'var(--fw-selected)',
+            color: 'var(--tx-hi)',
+            letterSpacing: 'var(--ls-tight)'
+          }}
+        >
+          Inspector
+        </span>
+      </div>
       <TodoSection agent={agent} todo={todo} />
       <SessionSection agent={agent} onWatch={onWatch} />
       <SetupSection agent={agent} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />

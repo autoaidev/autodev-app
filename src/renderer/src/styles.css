@@ -23,8 +23,13 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, sans-serif;
+  /* ONE app-wide sans: the shared --font-sans (Inter) from theme.css, so any text
+     that inherits body renders in the same face as the token-styled components. */
+  font-family: var(--font-sans);
   background: var(--bg); color: var(--fg); font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 .app { display: grid; grid-template-columns: 300px 1fr; grid-template-rows: minmax(0, 1fr); height: 100vh; }
 

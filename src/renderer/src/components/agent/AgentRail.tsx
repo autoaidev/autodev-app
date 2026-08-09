@@ -148,50 +148,65 @@ function GroupHeader({
   onToggleCheck: () => void
 }): React.JSX.Element {
   const running = agents.filter((a) => a.running).length
+  const [hover, setHover] = React.useState(false)
+  // The WHOLE band is the disclosure control (role=button + aria-expanded): a
+  // leading chevron + folder glyph, the name in a readable weight, and the count
+  // — so a user can click anywhere on the header to fold/unfold, and it can never
+  // be mistaken for one of the Inspector's static uppercase SECTION captions.
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 7px 7px' }}>
-      <Checkbox
-        checked={groupChecked === 'all'}
-        indeterminate={groupChecked === 'some'}
-        onChange={onToggleCheck}
-        label={`Select ${label}`}
-      />
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        aria-expanded={expanded}
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
+      aria-label={`${label} folder, ${agents.length} agents`}
+      onClick={onToggleExpand}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onToggleExpand()
+        }
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: '7px 9px',
+        background: hover ? 'var(--bg-selected)' : 'var(--bg-group-header)',
+        border: '1px solid var(--bd-2)',
+        borderRadius: 'var(--r-chip)',
+        cursor: 'pointer',
+        transition: 'background .12s ease'
+      }}
+    >
+      {/* disclosure chevron — leads, far left, higher-contrast, rotates on expand */}
+      <span
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           width: 12,
           height: 12,
-          padding: 0,
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--tx-4)',
-          cursor: 'pointer',
+          flex: 'none',
+          color: 'var(--tx-2)',
           transform: expanded ? 'rotate(90deg)' : 'none',
           transition: 'transform .12s ease'
         }}
       >
-        <Icon name="caret" size={9} />
-      </button>
-      {/* The office name is what a folder header exists to show, so it gets width
-          priority: it takes the row's flex space and grows, while the (identical-
-          across-groups) repo-path `sub` yields first (high flex-shrink) — so at
-          262px the full "EPICMOVIES" / "MOVIE STUDIO" shows and only the path
-          ellipsizes. The name ellipsizes last, and only when truly too long. */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 7 }}>
+        <Icon name="caret" size={10} />
+      </span>
+      <Icon name="folder" size={14} color="var(--tx-3)" style={{ flex: 'none' }} />
+      {/* The office name gets the whole first line + width priority; the repo-path
+          `sub` is a smaller second line so the full "EPICMOVIES" always shows and
+          the name ellipsizes last, only when truly too long. */}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
         <span
           style={{
-            flex: '1 1 auto',
             minWidth: 0,
-            fontSize: 'var(--fs-section)',
-            fontWeight: 700,
-            letterSpacing: 'var(--ls-group)',
-            color: 'var(--tx-4)',
-            textTransform: 'uppercase',
+            fontSize: 'var(--fs-office-label)',
+            fontWeight: 'var(--fw-selected)',
+            color: 'var(--tx-hi)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
@@ -199,22 +214,23 @@ function GroupHeader({
         >
           {label}
         </span>
-        <span
-          style={{
-            flex: '0 8 auto',
-            minWidth: 0,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-micro)',
-            color: 'var(--tx-ghost)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          {sub}
-        </span>
+        {sub && (
+          <span
+            style={{
+              minWidth: 0,
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-micro)',
+              color: 'var(--tx-faint)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {sub}
+          </span>
+        )}
       </div>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 'none' }}>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 'none' }}>
         {providerLabel && (
           <span
             style={{
@@ -230,10 +246,18 @@ function GroupHeader({
             {providerLabel}
           </span>
         )}
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-micro)', color: 'var(--tx-dim)' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
           {running}/{agents.length}
         </span>
         <StatusDot status={worst(agents)} size={5} />
+        {/* checkbox kept as a separate nested control — it stops propagation so
+            ticking a folder never also toggles its fold state */}
+        <Checkbox
+          checked={groupChecked === 'all'}
+          indeterminate={groupChecked === 'some'}
+          onChange={onToggleCheck}
+          label={`Select ${label}`}
+        />
       </span>
     </div>
   )
@@ -339,12 +363,51 @@ export function AgentRail({
         display: 'flex',
         flexDirection: 'column',
         minHeight: 0,
-        background: 'var(--bg-sidebar)',
-        borderRight: '1px solid var(--bd-nav)'
+        // Lifted chrome rail (see the three-pane elevation model in theme.css): a
+        // clearly-separated fill, a strong structural seam against the darker center
+        // stage, and a 1px top inner highlight so the rail reads as raised.
+        background: 'var(--bg-rail)',
+        borderRight: '1px solid var(--bd-seam)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,.03)'
       }}
     >
+      {/* pane cap — titles the rail as the fleet list so it can't blur into its
+          neighbour (every pane now carries a weighted, banded top edge) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          height: 40,
+          flex: 'none',
+          padding: '0 14px',
+          background: 'var(--bg-pane-cap)',
+          borderBottom: '1px solid var(--bd-seam)'
+        }}
+      >
+        <span
+          style={{
+            fontSize: 'var(--fs-panel-title)',
+            fontWeight: 'var(--fw-selected)',
+            color: 'var(--tx-hi)',
+            letterSpacing: 'var(--ls-tight)'
+          }}
+        >
+          Agents
+        </span>
+        <span
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--fs-tiny)',
+            color: 'var(--tx-dim)'
+          }}
+        >
+          {agents.length}
+        </span>
+      </div>
+
       {/* filter header */}
-      <div style={{ padding: '11px 12px 9px', borderBottom: '1px solid var(--bd-2)' }}>
+      <div style={{ padding: '11px 12px 9px', borderBottom: '1px solid var(--bd-card)' }}>
         <SearchInput
           width="100%"
           placeholder={`Filter ${agents.length} agents`}
@@ -492,18 +555,30 @@ export function AgentRail({
                 groupChecked={groupCheckState(g.agents)}
                 onToggleCheck={() => toggleGroup(g.agents)}
               />
-              {expanded &&
-                g.agents.map((a) => (
-                  <AgentRow
-                    key={a.path}
-                    agent={a}
-                    selected={a.path === selectedPath}
-                    checked={checked.has(a.path)}
-                    onSelect={() => onSelect(a.path)}
-                    onToggleCheck={() => toggleCheck(a.path)}
-                    onMenu={openMenu}
-                  />
-                ))}
+              {expanded && (
+                // Indent + a 1px guide line so the rows visibly nest INSIDE the
+                // folder (the parent→child cue that makes it read as folder-of-agents).
+                <div
+                  style={{
+                    marginLeft: 14,
+                    paddingLeft: 6,
+                    marginTop: 2,
+                    borderLeft: '1px solid var(--bd-2)'
+                  }}
+                >
+                  {g.agents.map((a) => (
+                    <AgentRow
+                      key={a.path}
+                      agent={a}
+                      selected={a.path === selectedPath}
+                      checked={checked.has(a.path)}
+                      onSelect={() => onSelect(a.path)}
+                      onToggleCheck={() => toggleCheck(a.path)}
+                      onMenu={openMenu}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}
@@ -515,7 +590,7 @@ export function AgentRail({
           display: 'flex',
           gap: 6,
           padding: '10px 12px',
-          borderTop: '1px solid var(--bd-2)'
+          borderTop: '1px solid var(--bd-card)'
         }}
       >
         {/* Single entry to the add-agent flow. A second control here (previously a

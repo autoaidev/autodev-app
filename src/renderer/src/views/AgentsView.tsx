@@ -267,7 +267,7 @@ export function AgentsView(): React.JSX.Element {
                 gap: 12,
                 padding: 24,
                 textAlign: 'center',
-                background: 'var(--bg-0)'
+                background: 'var(--bg-detail)'
               }}
             >
               {agents.length === 0 ? (

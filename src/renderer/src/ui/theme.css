@@ -4,16 +4,56 @@
  * mockup-v2.html. Primitives in this folder consume ONLY these vars — no
  * hardcoded hex. There is intentionally no light theme yet; the mockup is dark.
  */
+/*
+ * Inter — the app UI face, self-hosted (CSP: default-src 'self' → the bundled
+ * woff2 is same-origin). Variable weight axis (100–900) so one file covers every
+ * weight token. Replaces the old 'Helvetica Neue' stack that silently fell to
+ * Arial on the Electron/Linux target.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-var.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('../assets/fonts/inter-latin-ext-var.woff2') format('woff2');
+  unicode-range: U+0100-024F, U+0259, U+1E00-1EFF, U+2020, U+20A0-20AB,
+    U+20AD-20CF, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
   /* ----- palette: backgrounds (layered, darkest app shell -> elevated) ----- */
   --bg-app: #0b0d11;          /* chrome-less card backdrop (2f/2g) */
-  --bg-0: #0f1216;            /* main detail surface */
-  --bg-1: #12151a;           /* inspector / secondary panel */
+  --bg-0: #0f1216;            /* legacy main detail surface (kept for non-pane consumers) */
+  --bg-1: #12151a;           /* legacy inspector / secondary panel */
   --bg-2: #13161b;           /* faint dashed placeholder card */
   --bg-topbar: #14171c;      /* title bar + nav bar + bottom status bar */
   --bg-sidebar: #16191f;     /* rails, cards, panels */
   --bg-panel: #16191f;
   --bg-panel-alt: #171b21;   /* provider badge chip / inline error panel bg */
+
+  /* ----- three-pane elevation model (Agent-detail 2a): chrome vs stage -----
+   * The center detail is the recessed STAGE (darkest); the left rail + right
+   * inspector are lifted CHROME on a clearly-separated rung, each capped by a
+   * titled header band and divided from the stage by a strong --bd-seam. This
+   * is what makes the three columns read as distinct regions (was: 3 near-equal
+   * darks split by an invisible hairline). */
+  --bg-detail: #0e1116;      /* CENTER stage — darkest, recessed */
+  --bg-rail: #191d24;        /* LEFT agent rail — lifted chrome */
+  --bg-inspector: #171b21;   /* RIGHT inspector — lifted chrome (a hair below the rail) */
+  --bg-pane-cap: #1f242c;    /* rail / inspector titled header band (lifted above its pane) */
+  --bg-detail-cap: #14171c;  /* center titled header band (lifted above the dark stage) */
+  --bg-group-header: #1d222a;/* office-folder group header band in the rail */
+  --bg-group-guide: transparent;
   --bg-elev: #181c22;        /* floating context menu */
   --bg-input: #1c2027;       /* inputs, secondary buttons, chips */
   --bg-todo-active: #1a1f27; /* active todo row */
@@ -23,6 +63,7 @@
   --bg-chip-idle: #22262e;   /* avatar tile / idle chip */
 
   /* ----- palette: borders ----- */
+  --bd-seam: #2f353e;        /* STRUCTURAL pane seams (rail↔stage↔inspector) — visible */
   --bd-strong: #2f353e;      /* menu / avatar-tile / idle track */
   --bd-1: #2a2f38;           /* default control / card border */
   --bd-field: #6c737e;       /* interactive input / checkbox / primary-outline border (>=3:1) */
@@ -37,8 +78,8 @@
   --bd-track: #3a4657;       /* inline ··· button border / mini-bar */
 
   /* ----- palette: text tiers (high contrast -> ghost) ----- */
-  --tx-hi: #e4e8ee;
-  --tx-1: #d7dbe0;
+  --tx-hi: #eef1f5;          /* brightened primary — headings / selected names */
+  --tx-1: #d5dae1;           /* body */
   --tx-2: #c3c9d2;
   --tx-3: #9aa1ab;
   --tx-4: #8f96a0;           /* raised to ~4.8:1 for informational meta text */
@@ -88,24 +129,31 @@
   --diff-del: #e06a5c;
 
   /* ----- typography ----- */
-  --font-sans: 'Helvetica Neue', Helvetica, Arial, system-ui, sans-serif;
+  --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  /* type sizes (px, from spec) */
-  --fs-page-title: 18px;
-  --fs-agent-name: 16px;
-  --fs-panel-title: 15px;
-  --fs-session-title: 14.5px;
+  /* type sizes — collapsed to a clean integer scale (no more half-pixel steps).
+   * The token NAMES are kept so every existing consumer remaps automatically;
+   * only the VALUES changed. Real, visible steps: 20 / 16 / 15 / 14 / 13 / 12 /
+   * 11 / 10, with 13 as the body floor for content and 11 for uppercase labels. */
+  --fs-page-title: 20px;     /* page / welcome titles */
+  --fs-agent-name: 16px;     /* agent name (detail header) */
+  --fs-panel-title: 15px;    /* pane header caps (Agents / Inspector) */
+  --fs-session-title: 14px;
   --fs-modal-title: 14px;
   --fs-brand: 13px;
-  --fs-office-label: 12.5px;
-  --fs-body: 12px;           /* nav + row name + tab + body */
-  --fs-meta: 11.5px;         /* meta / secondary btn / chat body */
-  --fs-mono-code: 11px;
-  --fs-desc: 10.5px;         /* chips / small btn / descriptions */
-  --fs-section: 10px;        /* UPPERCASE section labels */
-  --fs-tiny: 9.5px;          /* tiny mono ids / LIVE / kbd */
-  --fs-micro: 9px;           /* group path / avatar initials / checkbox glyph */
+  --fs-office-label: 13px;   /* office-folder group label */
+  --fs-body: 13px;           /* nav + row name + tab + body */
+  --fs-meta: 12px;           /* meta / secondary btn / chat body */
+  --fs-mono-code: 12px;
+  --fs-desc: 12px;           /* chips / small btn / descriptions */
+  --fs-section: 11px;        /* UPPERCASE section labels */
+  --fs-tiny: 11px;           /* tiny mono ids / LIVE / kbd */
+  --fs-micro: 10px;          /* group path / avatar initials (decorative) */
+
+  /* line-heights */
+  --lh-tight: 1.2;           /* headings / single-line labels */
+  --lh-body: 1.5;            /* multi-line body + chat */
 
   /* weights */
   --fw-body: 400;
