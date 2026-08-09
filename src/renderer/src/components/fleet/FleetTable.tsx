@@ -1,5 +1,6 @@
 import React from 'react'
-import { Icon, StatusDot } from '@renderer/ui'
+import { Icon, StatusDot, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { providerAccent } from '@renderer/services/identity'
 import {
   AgentState,
   STATE_LABEL,
@@ -14,6 +15,17 @@ import {
   tasksLabel,
   washTone
 } from './fleet-helpers'
+
+/**
+ * A row's left spine color: STATE first (running → green, attention → amber),
+ * else a receding PROVIDER hue so an idle row still carries its tool color and no
+ * row is ever fully grey. Mirrors the Agents-rail AgentRow spine logic exactly.
+ */
+function rowSpine(a: AgentState): string {
+  if (a.running || a.activity === 'working') return 'var(--st-running-spine)'
+  if (isAttention(a)) return 'var(--st-needsyou)'
+  return providerAccent(a.provider).ring
+}
 
 /**
  * Grid template shared by the header row and every data row. The ELAPSED column
@@ -115,16 +127,20 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
   const running = a.running || a.activity === 'working'
   const tone = washTone(a)
   const complete = total > 0 && a.tasks.done >= total
+  // Data-viz color: done → green (--st-done), in-progress → blue (--st-active),
+  // empty → grey track. Attention states override with amber/red.
   const fill =
     tone === 'red'
       ? 'var(--st-error)'
       : tone === 'amber'
         ? 'var(--st-needsyou)'
-        : running
-          ? 'var(--st-running)'
-          : complete
-            ? 'var(--accent)' // all done, idle — distinct from running green (R7)
-            : 'var(--st-track)' // partial idle progress
+        : complete
+          ? 'var(--st-done)' // all tasks closed — green
+          : running
+            ? 'var(--st-active)' // in-progress — blue
+            : total > 0
+              ? 'var(--st-done)' // partial-but-idle done portion still reads green
+              : 'var(--st-track)' // no tasks — bare grey track
   // Proportional fill; an empty TODO (no tasks) leaves the bare track visible.
   const width = total === 0 ? '0%' : `${Math.round(frac * 100)}%`
   return (
@@ -257,40 +273,65 @@ function FleetRow({
         alignItems: 'center',
         padding: ROW_PAD,
         borderBottom: '1px solid var(--bd-row)',
+        // State/provider spine (inline so it survives, overriding the CSS selected
+        // spine); selected adds a hairline ring on top so identity color is kept.
+        boxShadow:
+          `inset var(--spine-w) 0 0 ${rowSpine(agent)}` +
+          (selected ? ', inset 0 0 0 1px var(--bd-panel-sel)' : ''),
         cursor: 'pointer'
       }}
     >
       <Checkbox checked={selected} onChange={onToggleSelect} label={`Select ${agent.name}`} />
 
-      {/* AGENT: canonical human headline (agentHeadline) + dim mono slug-hash meta,
-          applied identically here and in the Agents rail so the list never mixes
-          human names with slug-hash folder ids. */}
-      <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--fs-body)',
-            fontWeight: 600,
-            color: nameColor,
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
-          }}
+      {/* AGENT: colored identity avatar (same hue + provider ring the agent carries
+          in the rail & its detail header) + human headline + a provider chip. The
+          avatar turns the column from a grey name-list into recognizable objects. */}
+      <div style={{ minWidth: 0, display: 'flex', alignItems: 'center', gap: 9 }}>
+        <AgentAvatar
+          name={agentHeadline(agent)}
+          idKey={agent.path}
+          provider={agent.provider}
+          size={22}
+          dim={!(agent.running || agent.activity === 'working' || isAttention(agent))}
           title={agent.name}
-        >
-          {agentHeadline(agent)}
-        </div>
-        <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-micro)',
-            color: 'var(--tx-ghost)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
-          }}
-        >
-          {agent.provider ? `${agent.provider} · ${agentSlugId(agent)}` : agentSlugId(agent)}
+        />
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: 'var(--fs-body)',
+              fontWeight: 600,
+              color: nameColor,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+            title={agent.name}
+          >
+            {agentHeadline(agent)}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              minWidth: 0
+            }}
+          >
+            <ProviderChip provider={agent.provider} compact />
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--fs-micro)',
+                color: 'var(--tx-ghost)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {agentSlugId(agent)}
+            </span>
+          </div>
         </div>
       </div>
 

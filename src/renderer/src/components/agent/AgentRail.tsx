@@ -173,9 +173,15 @@ function GroupHeader({
         alignItems: 'center',
         gap: 7,
         padding: '7px 9px',
-        background: hover ? 'var(--bg-selected)' : 'var(--bg-group-header)',
+        // Warm cap: a subtle warm top-lit gradient + a warm top-highlight edge so
+        // the office-folder band reads as a distinct, slightly-lifted chrome header
+        // (and introduces the secondary warm accent — not everything is blue).
+        background: hover
+          ? 'var(--bg-selected)'
+          : 'linear-gradient(180deg, rgba(232,160,90,.06) 0%, var(--bg-group-header) 100%)',
         border: '1px solid var(--bd-2)',
         borderRadius: 'var(--r-chip)',
+        boxShadow: 'inset 0 1px 0 rgba(232,160,90,.10)',
         cursor: 'pointer',
         transition: 'background .12s ease'
       }}
@@ -196,7 +202,10 @@ function GroupHeader({
       >
         <Icon name="caret" size={10} />
       </span>
+      {/* keep the folder glyph, plus a warm office glyph so a group reads as an
+          office-of-agents (the warm accent mark) rather than a bare folder */}
       <Icon name="folder" size={14} color="var(--tx-3)" style={{ flex: 'none' }} />
+      <Icon name="office" size={12} color="var(--accent-warm)" style={{ flex: 'none' }} />
       {/* The office name gets the whole first line + width priority; the repo-path
           `sub` is a smaller second line so the full "EPICMOVIES" always shows and
           the name ellipsizes last, only when truly too long. */}

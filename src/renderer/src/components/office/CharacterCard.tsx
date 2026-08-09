@@ -1,6 +1,6 @@
 import React from 'react'
-import { StatusDot } from '@renderer/ui'
-import { OfficeAgent, initials, tickFor } from './officeTypes'
+import { StatusDot, AgentAvatar } from '@renderer/ui'
+import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
  * CharacterCard — one tile in the 4-col character grid (2c).
@@ -76,25 +76,18 @@ export function CharacterCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div
-          style={{
-            width: 'var(--sz-avatar)',
-            height: 'var(--sz-avatar)',
-            flex: 'none',
-            borderRadius: 'var(--r-chip)',
-            background: 'var(--role-blue-av-bg)',
-            color: 'var(--accent-ink)',
-            border: connected ? '1px solid transparent' : '1px dashed var(--bd-idle-box)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-micro)',
-            fontWeight: 700
-          }}
-        >
-          {initials(agent.name)}
-        </div>
+        {/* shared identity tile — per-character hue + provider ring (same system the
+            Agents rail / Fleet table use), so every office character is a distinct
+            colored object instead of the same fixed blue square. */}
+        <AgentAvatar
+          name={agent.name}
+          idKey={agent.id}
+          provider={agent.provider}
+          size={22}
+          disconnected={!connected}
+          dim={!connected}
+          title={agent.name}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{

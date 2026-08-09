@@ -1,5 +1,6 @@
 import React from 'react'
 import { StatusDot } from '@renderer/ui'
+import { providerAccent } from '@renderer/services/identity'
 import { AgentState, ACTIVITY_LABEL, dotStatus, providerFamily } from './fleet-helpers'
 
 /** Uppercase section label shared by all three tiles. */
@@ -39,11 +40,15 @@ function SectionLabel({
   )
 }
 
+// Lifted CARD (rung 4): a top-lit gradient fill + composite depth shadow + inset
+// top-highlight, so the stat tiles read as raised cards on the stage rather than
+// flat sheets sharing the background.
 const tileBase: React.CSSProperties = {
-  background: 'var(--bg-panel)',
-  border: '1px solid var(--bd-nav)',
+  background: 'var(--grad-card)',
+  border: '1px solid var(--bd-card)',
   borderRadius: 'var(--r-screen)',
-  padding: '13px 15px'
+  padding: '13px 15px',
+  boxShadow: 'var(--depth-card)'
 }
 
 /* --------------------------------- NEEDS YOU -------------------------------- */
@@ -95,11 +100,12 @@ export function NeedsYouTile({ agents, actionFor }: NeedsYouTileProps): React.JS
       style={{
         ...tileBase,
         // Dominant but capped — grows twice as fast as the two info tiles rather
-        // than swallowing the whole band.
+        // than swallowing the whole band. needs-you is the ONE tile allowed to
+        // shout: the loud amber wash (louder than the .05 state washes elsewhere).
         flex: 2,
         minWidth: 0,
         border: `1px solid var(--st-needsyou-bd)`,
-        background: 'var(--st-needsyou-wash)'
+        background: 'var(--st-needsyou-loud)'
       }}
     >
       <SectionLabel tone="amber">
@@ -192,8 +198,18 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
         aria-hidden
       >
         {bars.map((v, i) => {
-          const recent = i >= n - 3
           const h = Math.max(3, Math.round((v / max) * 34))
+          const isLast = i === n - 1
+          // Gradient across time: older bars green (--st-done) ramping to accent
+          // blue at the newest, with the latest bar bright + softly glowing so the
+          // eye lands on "right now". Empty samples stay a faint track.
+          const pct = n > 1 ? Math.round((i / (n - 1)) * 100) : 100
+          const background =
+            v === 0
+              ? 'var(--st-track-bg)'
+              : isLast
+                ? 'var(--accent)'
+                : `color-mix(in srgb, var(--st-done), var(--accent) ${pct}%)`
           return (
             <div
               key={i}
@@ -201,7 +217,8 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
                 flex: 1,
                 height: h,
                 borderRadius: 'var(--r-checkbox)',
-                background: recent ? 'var(--accent)' : 'var(--bd-panel-sel)'
+                background,
+                boxShadow: isLast && v > 0 ? '0 0 6px rgba(74,158,255,.55)' : undefined
               }}
             />
           )
@@ -247,41 +264,75 @@ export function ProvidersTile({ agents }: ProvidersTileProps): React.JSX.Element
     counts.set(fam, (counts.get(fam) ?? 0) + 1)
   }
   const rows = Array.from(counts.entries()).sort((x, y) => y[1] - x[1])
+  const max = Math.max(1, ...rows.map(([, c]) => c))
 
   return (
     <div style={{ ...tileBase, flex: '1 1 224px', minWidth: 200 }}>
       <SectionLabel>Providers</SectionLabel>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
         {rows.length === 0 && (
           <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-4)' }}>No agents</div>
         )}
-        {rows.map(([fam, count]) => (
-          <div
-            key={fam}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
-          >
-            <span
-              style={{
-                fontFamily: 'var(--font-sans)',
-                fontSize: 'var(--fs-meta)',
-                color: 'var(--tx-2)',
-                textTransform: 'capitalize'
-              }}
-            >
-              {fam}
-            </span>
-            <span
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--fs-meta)',
-                fontWeight: 500,
-                color: 'var(--tx-hi)'
-              }}
-            >
-              {count}
-            </span>
-          </div>
-        ))}
+        {rows.map(([fam, count]) => {
+          // Per-provider colored bar (answers "which tools are running my fleet"):
+          // the bar width is proportional to the count and painted in the tool's
+          // brand hue, so the mix is legible at a glance instead of a number list.
+          const accent = providerAccent(fam)
+          const width = `${Math.round((count / max) * 100)}%`
+          return (
+            <div key={fam} style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+              <span
+                style={{
+                  width: 62,
+                  flex: 'none',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 'var(--fs-desc)',
+                  fontWeight: 600,
+                  color: accent.ink,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {accent.label}
+              </span>
+              <span
+                style={{
+                  position: 'relative',
+                  flex: 1,
+                  minWidth: 0,
+                  height: 6,
+                  borderRadius: 'var(--r-bar)',
+                  background: 'var(--st-track-bg)',
+                  overflow: 'hidden'
+                }}
+                aria-hidden
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width,
+                    borderRadius: 'var(--r-bar)',
+                    background: accent.fg
+                  }}
+                />
+              </span>
+              <span
+                style={{
+                  flex: 'none',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--fs-meta)',
+                  fontWeight: 500,
+                  color: 'var(--tx-hi)',
+                  fontFeatureSettings: 'var(--fvn-tabular)'
+                }}
+              >
+                {count}
+              </span>
+            </div>
+          )
+        })}
       </div>
     </div>
   )

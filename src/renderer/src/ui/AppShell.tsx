@@ -29,6 +29,53 @@ const DEFAULT_NAV: NavItemDef[] = [
   { id: 'sessions', label: 'Sessions' }
 ]
 
+/**
+ * PixelMark — the small pixel-art AutoDev brand glyph (a robot head) that
+ * replaces the flat solid-blue square. Painted from a tiny char grid: `b` = the
+ * accent blue body, `w` = the warm secondary accent (the eyes) — which is how the
+ * warm accent enters the chrome so blue isn't the only color on screen. Purely
+ * decorative (aria-hidden); the wordmark beside it carries the name.
+ */
+const PIXEL_GRID = [
+  '.bbbbb.',
+  'bbbbbbb',
+  'bwbbbwb',
+  'bbbbbbb',
+  'bbbbbbb',
+  '.bbbbb.',
+  '..b.b..'
+]
+function PixelMark({ size = 18 }: { size?: number }): React.JSX.Element {
+  const cols = PIXEL_GRID[0].length
+  const rows = PIXEL_GRID.length
+  const cell = 2
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${cols * cell} ${rows * cell}`}
+      aria-hidden
+      focusable={false}
+      style={{ flex: 'none', shapeRendering: 'crispEdges' }}
+    >
+      {PIXEL_GRID.flatMap((line, y) =>
+        line.split('').map((ch, x) =>
+          ch === '.' ? null : (
+            <rect
+              key={`${x}-${y}`}
+              x={x * cell}
+              y={y * cell}
+              width={cell}
+              height={cell}
+              fill={ch === 'w' ? 'var(--accent-warm)' : 'var(--accent)'}
+            />
+          )
+        )
+      )}
+    </svg>
+  )
+}
+
 /** A single top-nav item (also exported for standalone use). */
 export function NavItem({
   label,
@@ -248,14 +295,7 @@ export function AppShell({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 16 }}>
-          <div
-            style={{
-              width: 'var(--sz-brand-square)',
-              height: 'var(--sz-brand-square)',
-              borderRadius: 'var(--r-tiny)',
-              background: 'var(--accent)'
-            }}
-          />
+          <PixelMark size={18} />
           <div
             style={{
               fontSize: 'var(--fs-brand)',

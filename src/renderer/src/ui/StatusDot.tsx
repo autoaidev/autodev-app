@@ -33,11 +33,18 @@ const COLOR: Record<DotStatus, string> = {
   accent: 'var(--accent)'
 }
 
+// needs-you is the ONE state allowed to shout: it gets the loud glowing amber ring
+// (--st-needsyou-glow) so an agent asking for you is impossible to miss, while
+// running keeps a calm green halo. The soft attention aliases share the loud glow.
 const GLOW: Partial<Record<DotStatus, string>> = {
   running: '0 0 0 3px rgba(70,177,123,.16)',
   working: '0 0 0 3px rgba(70,177,123,.16)',
-  'needs-you': '0 0 0 3px rgba(216,165,74,.16)',
-  error: '0 0 0 3px rgba(224,106,92,.16)'
+  'needs-you': 'var(--st-needsyou-glow)',
+  'needs-auth': 'var(--st-needsyou-glow)',
+  'rate-limited': 'var(--st-needsyou-glow)',
+  stalled: 'var(--st-needsyou-glow)',
+  error: '0 0 0 3px rgba(224,106,92,.16)',
+  crashed: '0 0 0 3px rgba(224,106,92,.16)'
 }
 
 export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {

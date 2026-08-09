@@ -42,8 +42,9 @@ export function FleetHeader({
   const offices = derivedOffices > 0 ? derivedOffices : (officeCount ?? 0)
 
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`
+  // The hero number (agent count) is pulled out as the view's ONE focal metric, so
+  // the subtitle carries only the remaining context.
   const subtitle = [
-    plural(agentCount, 'agent'),
     plural(offices, 'office'),
     `${openTasks} open`,
     `${closedToday} closed today`
@@ -63,17 +64,38 @@ export function FleetHeader({
           style={{
             margin: 0,
             fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--fs-page-title)',
+            fontSize: 'var(--fs-section)',
             fontWeight: 700,
-            color: 'var(--tx-hi)',
-            letterSpacing: 'var(--ls-tight)'
+            letterSpacing: 'var(--ls-section)',
+            textTransform: 'uppercase',
+            color: 'var(--tx-4)'
           }}
         >
           Fleet
         </h1>
+        {/* HERO metric — the single focal number of the Fleet view (display tier,
+            mono + tabular). */}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 2 }}>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-display)',
+              fontWeight: 'var(--fw-display)',
+              lineHeight: 'var(--lh-display)',
+              letterSpacing: 'var(--ls-display)',
+              color: 'var(--tx-hi)',
+              fontFeatureSettings: 'var(--fvn-tabular)'
+            }}
+          >
+            {agentCount}
+          </span>
+          <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', color: 'var(--tx-dim)' }}>
+            {agentCount === 1 ? 'agent' : 'agents'}
+          </span>
+        </div>
         <div
           style={{
-            marginTop: 5,
+            marginTop: 4,
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--fs-desc)',
             fontWeight: 500,
@@ -88,10 +110,12 @@ export function FleetHeader({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 'none' }}>
-        <Button variant="secondary" size="sm" onClick={onStartAllIdle} disabled={busy}>
+        {/* ONE primary CTA per view — Start all idle is the accent-gradient hero;
+            Stop all is demoted to ghost. */}
+        <Button variant="cta" size="sm" onClick={onStartAllIdle} disabled={busy}>
           Start all idle
         </Button>
-        <Button variant="secondary" size="sm" onClick={onStopAll} disabled={busy}>
+        <Button variant="ghost" size="sm" onClick={onStopAll} disabled={busy}>
           Stop all
         </Button>
       </div>

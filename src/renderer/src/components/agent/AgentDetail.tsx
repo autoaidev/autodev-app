@@ -1,8 +1,7 @@
 import React from 'react'
-import { SegmentedTabs, Button, Pill, StatusDot, Icon } from '@renderer/ui'
+import { SegmentedTabs, Button, Pill, StatusDot, Icon, AgentAvatar, ProviderChip } from '@renderer/ui'
 import {
   AgentState,
-  providerShort,
   agentIdHash,
   pillVariantFor,
   stateLabelForAgent,
@@ -230,7 +229,7 @@ export function AgentDetail({
   }
 
   return (
-    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--bg-detail)' }}>
+    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--grad-stage)' }}>
       {/* header — the center pane's titled cap (agent name), on a lifted band with a
           strong seam so the stage announces itself as the primary work surface */}
       <div style={{ padding: '14px 18px 12px', background: 'var(--bg-detail-cap)', borderBottom: '1px solid var(--bd-seam)', overflow: 'hidden' }}>
@@ -238,39 +237,67 @@ export function AgentDetail({
             cluster drop to a second line on a narrow window rather than overflowing and
             propagating a window-wide horizontal scrollbar. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flexWrap: 'wrap' }}>
+          {/* identity avatar — same hue + provider ring this agent carries in the
+              rail and the Fleet table, so the header is recognizably the same object */}
+          <AgentAvatar name={agent.name} idKey={agent.path} provider={agent.provider} size={28} title={agent.name} />
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }} title={agent.name}>
             {agent.name}
           </span>
           <StatusPill agent={agent} />
-          {/* TODO(redesign): AgentState has no task-elapsed timestamp — showing task progress instead of "14m in task". */}
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
-            {count.done}/{count.total} done
+          {/* hero metric — the ONE big number for this view: NNNN/NNNN done, mono +
+              tabular so the digits don't jitter as counters tick. */}
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'baseline',
+              gap: 6,
+              marginLeft: 4
+            }}
+            title="Tasks done / total"
+          >
+            <span
+              style={{
+                fontFamily: 'var(--font-mono)',
+                fontSize: 'var(--fs-metric)',
+                fontWeight: 'var(--fw-display)',
+                lineHeight: 1,
+                letterSpacing: 'var(--ls-display)',
+                color: 'var(--tx-hi)',
+                fontFeatureSettings: 'var(--fvn-tabular)'
+              }}
+            >
+              {count.done}<span style={{ color: 'var(--tx-dim)' }}>/{count.total}</span>
+            </span>
+            <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>done</span>
           </span>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* ONE primary CTA per view — Start is the accent-gradient hero; every
+                other header action is demoted to ghost so the eye lands on Start. */}
             {agent.running ? (
-              <Button size="sm" onClick={onStop} disabled={agent.external}>
+              <Button size="sm" variant="secondary" onClick={onStop} disabled={agent.external}>
                 <Icon name="stop" size={10} /> Stop
               </Button>
             ) : (
-              <Button size="sm" onClick={onStart}>
-                <Icon name="play" size={10} /> Start
+              <Button size="sm" variant="cta" onClick={onStart}>
+                <Icon name="play" size={10} color="var(--tx-onaccent)" /> Start
               </Button>
             )}
-            <Button size="sm" onClick={onRestart}>
+            <Button size="sm" variant="ghost" onClick={onRestart}>
               <Icon name="restart" size={11} /> Restart
             </Button>
-            <Button size="sm" onClick={onOpenFolder}>
+            <Button size="sm" variant="ghost" onClick={onOpenFolder}>
               <Icon name="folder" size={12} /> Open folder
             </Button>
-            <Button size="sm" onClick={(e) => onMenu(e as unknown as React.MouseEvent, agent)} aria-label="More actions">
+            <Button size="sm" variant="ghost" onClick={(e) => onMenu(e as unknown as React.MouseEvent, agent)} aria-label="More actions">
               <Icon name="more" size={12} />
             </Button>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
           <PathChip agent={agent} onOpen={onOpenFolder} />
+          <ProviderChip provider={agent.provider} />
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
-            {providerShort(agent.provider)} · {agentIdHash(agent.path)}
+            {agentIdHash(agent.path)}
           </span>
           {officeLinked &&
             (officeStatus === 'reconnecting' ? (

@@ -1,6 +1,7 @@
 import React from 'react'
-import { StatusDot, DotStatus, Icon } from '@renderer/ui'
-import { rowMeta, isDim, agentHeadline } from '@renderer/services/model'
+import { StatusDot, DotStatus, Icon, AgentAvatar } from '@renderer/ui'
+import { rowMeta, isDim, agentHeadline, ATTENTION_STATES } from '@renderer/services/model'
+import { providerAccent } from '@renderer/services/identity'
 import type { AgentState, MetaTone } from '@renderer/services/model'
 
 /**
@@ -97,7 +98,28 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
   const dim = isDim(agent)
   const dot: DotStatus = agent.activity
   const showCount = !(agent.activity === 'idle' && agent.tasks.remaining === 0)
-  const glow = selected && agent.running
+  const running = agent.running || agent.activity === 'working'
+  const attention = ATTENTION_STATES.has(agent.activity)
+  const glow = (selected && agent.running) || attention
+
+  // Colored row spine (STATE first, then a receding PROVIDER hue so an idle row is
+  // never fully grey): running → green, needs-you → amber, else the provider's
+  // faint ring hue. Identity + provider also live in the avatar tile, so state and
+  // identity never fight for the same pixel.
+  const spine = running
+    ? 'var(--st-running-spine)'
+    : attention
+      ? 'var(--st-needsyou)'
+      : providerAccent(agent.provider).ring
+  // Selection = brighter background + a hairline inset ring; the spine stays state/
+  // provider-colored so selecting a row never erases its identity.
+  const bg = selected
+    ? 'var(--bg-selected)'
+    : attention
+      ? 'var(--st-needsyou-wash)'
+      : 'transparent'
+  const boxShadow =
+    `inset var(--spine-w) 0 0 ${spine}` + (selected ? ', inset 0 0 0 1px var(--bd-panel-sel)' : '')
 
   return (
     <div
@@ -116,22 +138,32 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
         display: 'flex',
         alignItems: 'center',
         gap: 9,
-        padding: '7px 8px',
+        padding: '6px 8px 6px 10px',
         borderRadius: 'var(--r-button)',
-        background: selected ? 'var(--bg-selected)' : 'transparent',
-        boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
+        background: bg,
+        boxShadow,
         cursor: 'pointer'
       }}
     >
       <Checkbox checked={checked} onChange={onToggleCheck} label={`Select ${agent.name}`} />
-      <StatusDot status={dot} glow={glow} />
+      {/* identity tile — stable hue + initials (IDENTITY) with a provider-accent
+          ring (which tool); state is carried by the spine + the dot on the right. */}
+      <AgentAvatar
+        name={agentHeadline(agent)}
+        idKey={agent.path}
+        provider={agent.provider}
+        size={22}
+        dim={dim}
+        title={agent.name}
+      />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
             fontFamily: 'var(--font-sans)',
             fontSize: 'var(--fs-body)',
-            fontWeight: selected ? 600 : 400,
+            // name is the bold scan anchor of the row (meta below is demoted)
+            fontWeight: 'var(--fw-selected)',
             color: dim ? 'var(--tx-3)' : selected ? 'var(--tx-hi)' : 'var(--tx-1)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -171,6 +203,9 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
             {agent.tasks.remaining}
           </span>
         )}
+        {/* state dot — the one place STATE color lives on the right; needs-you /
+            running glow so attention rows shout while identity stays in the tile. */}
+        <StatusDot status={dot} glow={glow} />
         {selected && (
           <button
             type="button"

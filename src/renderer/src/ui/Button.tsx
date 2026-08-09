@@ -1,13 +1,19 @@
 import React from 'react'
 
 /**
- * Button — text button in three variants matching the mockup:
+ * Button — text button in four variants matching the mockup:
+ *   cta       — the ONE hero action per view: accent→accent-2 gradient fill, top
+ *               inset highlight + soft blue shadow (Start / Start-all-idle).
  *   primary   — accent-filled, ink text, 700 weight (New agent, Spawn & run)
  *   secondary — bg-input + border, tx-2, 600 weight (Stop, Restart, Cancel)
  *   ghost     — transparent, tx-2 (menu-adjacent / inline)
  * `danger` recolours to the error status (destructive confirm actions).
+ *
+ * De-monotony rule: reserve `cta` for the single primary action on a screen and
+ * demote everything else to secondary/ghost, so each view has one obvious focal
+ * action. Saturated accent gradient is spent here (and on the LIVE indicator) only.
  */
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost'
+export type ButtonVariant = 'cta' | 'primary' | 'secondary' | 'ghost'
 export type ButtonSize = 'sm' | 'md'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -38,7 +44,9 @@ export function Button({
   // looks like a second active CTA AND fails label-contrast on its dark ink). So we
   // give disabled-primary its own greyed skin at full opacity, and reserve the
   // opacity-dim only for the non-filled variants where it reads correctly as muted.
-  const primaryDisabled = variant === 'primary' && isDisabled
+  // The gradient CTA, like primary, gets a greyed inert skin when disabled rather
+  // than a translucent gradient (which would read as a dimmed-but-live CTA).
+  const primaryDisabled = (variant === 'primary' || variant === 'cta') && isDisabled
 
   const base: React.CSSProperties = {
     display: block ? 'flex' : 'inline-flex',
@@ -61,7 +69,24 @@ export function Button({
   }
 
   let skin: React.CSSProperties
-  if (variant === 'primary') {
+  if (variant === 'cta') {
+    skin = primaryDisabled
+      ? {
+          background: 'var(--bg-input)',
+          border: '1px solid var(--bd-1)',
+          color: 'var(--tx-5)',
+          fontWeight: 700
+        }
+      : {
+          // accent→accent-2 gradient fill with a top inset highlight + soft blue
+          // drop shadow (the ONE hero action per view).
+          background: danger ? 'var(--st-error)' : 'var(--grad-cta)',
+          border: '1px solid transparent',
+          color: 'var(--tx-onaccent)',
+          fontWeight: 700,
+          boxShadow: danger ? undefined : 'var(--depth-cta)'
+        }
+  } else if (variant === 'primary') {
     skin = primaryDisabled
       ? {
           // greyed / non-filled — visibly disabled, not a second blue

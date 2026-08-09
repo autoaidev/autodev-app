@@ -13,6 +13,9 @@ export type { IconName, IconProps } from './Icon'
 export { StatusDot } from './StatusDot'
 export type { StatusDotProps, DotStatus } from './StatusDot'
 
+export { AgentAvatar, ProviderChip } from './AgentAvatar'
+export type { AgentAvatarProps, ProviderChipProps } from './AgentAvatar'
+
 export { Pill } from './Pill'
 export type { PillProps, PillVariant } from './Pill'
 

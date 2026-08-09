@@ -13,6 +13,7 @@ import {
 } from '../components/sessions/types'
 import { useSessions, useSessionTranscript, useSessionActions } from '../services/sessionsService'
 import { useAppActions } from '../services/appActions'
+import { providerAccent } from '../services/identity'
 import '../components/sessions/sessions.css'
 
 /**
@@ -138,6 +139,16 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
             {(['all', ...PROVIDERS] as ProviderFilter[]).map((f) => {
               const isActive = filter === f
               const n = providerCount(f)
+              const isProv = f !== 'all'
+              const accent = isProv ? providerAccent(f) : null
+              // Provider chips carry their tool's brand hue: a leading brand dot
+              // always (identity even when unselected), and when active the whole
+              // chip fills with the provider tint + ink so the filter reads as "the
+              // Claude filter", not a generic blue pill.
+              const provStyle: React.CSSProperties =
+                accent && isActive
+                  ? { background: accent.tint, border: `1px solid ${accent.ring}`, color: accent.ink }
+                  : {}
               return (
                 <Pill
                   key={f}
@@ -148,9 +159,15 @@ export function SessionsView({ active = true }: { active?: boolean } = {}): JSX.
                   role="button"
                   tabIndex={0}
                   aria-pressed={isActive}
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: 'pointer', ...provStyle }}
                 >
-                  {f === 'all' ? 'All' : f}
+                  {accent && (
+                    <span
+                      aria-hidden
+                      style={{ width: 6, height: 6, borderRadius: '50%', background: accent.fg, flex: 'none' }}
+                    />
+                  )}
+                  {f === 'all' ? 'All' : accent!.label}
                   <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.7, marginLeft: 4 }}>{n}</span>
                 </Pill>
               )
