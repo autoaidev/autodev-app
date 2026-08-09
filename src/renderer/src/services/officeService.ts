@@ -72,7 +72,7 @@
  * The interactive Operate/log terminals are owned by services/termRegistry; the
  * streamed log TEXT buffer by services/logBuffer.
  */
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useSyncExternalStore } from 'react'
 import {
   normalizeAgents,
   isAuthError,
@@ -786,6 +786,64 @@ export function useOfficeMessages(
     [officeSlug, ref, inert]
   )
   return useSyncExternalStore(sub, snap)
+}
+
+/* ===========================================================================
+ * ROOM (UNIFIED STREAM) — every character's conversation merged into one feed
+ * ======================================================================== */
+
+/** One row of the unified office-room feed: a message tagged with its SOURCE
+ *  character `ref` (so the view can render its real avatar / name / color). */
+export interface RoomEntry {
+  key: string // stable React key (`ref|msgId`)
+  ref: string // the source character ref (office-agent slug) this line came from
+  msg: ChatMessage
+}
+
+/** ms epoch for chronological sort (defensive across ISO / epoch-ms / undefined). */
+function atMs(at?: string | number): number {
+  if (at == null) return 0
+  const n = typeof at === 'number' ? at : Date.parse(at)
+  return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * useOfficeRoom(officeSlug, refs, { active }) — the UNIFIED office-room feed: the
+ * conversations of EVERY character in one office merged into ONE chronological,
+ * per-character-tagged stream. It reuses the SAME shared per-(office,character)
+ * message store as useOfficeMessages (subscribe-many, fetch-once) — so a character
+ * the focused AgentStream is already watching is NOT polled twice, and steer's
+ * optimistic echo flows into the room too. `active:false` pauses THIS consumer's
+ * contribution to each shared poll while keeping the last transcripts. An empty
+ * `refs` yields an inert empty feed (no subscription).
+ */
+export function useOfficeRoom(
+  officeSlug: string,
+  refs: string[],
+  opts?: { active?: boolean }
+): { entries: RoomEntry[]; loading: boolean } {
+  const active = opts?.active ?? true
+  const refsKey = refs.join(',')
+  const [version, bump] = useReducer((n: number) => n + 1, 0)
+  useEffect(() => {
+    if (!officeSlug || refs.length === 0) return
+    const unsubs = refs.map((ref) => subscribeMessages(officeSlug, ref, bump, active))
+    return () => unsubs.forEach((u) => u())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [officeSlug, refsKey, active])
+  return useMemo(() => {
+    const rows: RoomEntry[] = []
+    let loading = false
+    for (const ref of refs) {
+      const snap = getMessagesSnapshot(officeSlug, ref)
+      if (snap.loading && snap.messages.length === 0) loading = true
+      for (const m of snap.messages) rows.push({ key: `${ref}|${m.id}`, ref, msg: m })
+    }
+    // Oldest → newest; a stable key tiebreak keeps same-timestamp rows deterministic.
+    rows.sort((a, b) => atMs(a.msg.at) - atMs(b.msg.at) || a.key.localeCompare(b.key))
+    return { entries: rows, loading }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [officeSlug, refsKey, version])
 }
 
 /**

@@ -32,6 +32,8 @@ import { useAppActions } from '../services/appActions'
  * and display-toggled by selection (a mounted pty pane === a live PTY; unmounting one
  * SIGKILLs it, so switching offices must never unmount another office's panes).
  */
+const EMPTY_AGENTS: OfficeAgent[] = []
+
 export function OfficeView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
   // ── typed app-actions bus (stop-all subscription + open-agent dispatch) ──
   const actions = useAppActions()
@@ -48,6 +50,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // ── selection ──
   const [selectedSlug, setSelectedSlug] = useState('')
   const [focusedId, setFocusedId] = useState('')
+
+  // ── office sub-view: the per-character "Team" workspace vs the unified "Room" ──
+  const [officeTab, setOfficeTab] = useState<'team' | 'room'>('team')
 
   // ── per-character SETTINGS editor (provider / model / name) ──
   const [settingsCharId, setSettingsCharId] = useState('')
@@ -171,6 +176,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     { active: visible }
   )
   const messages = conv.messages
+
+  // ── unified ROOM feed — EVERY character's conversation merged into one
+  //    chronological, per-character-tagged stream (shares the same per-character
+  //    poll as the focused stream above; polls only while the Room tab is shown). ──
+  const roomAgents = selectedGroup?.agents ?? EMPTY_AGENTS
+  const roomRefs = useMemo(() => roomAgents.map((a) => a.slug).filter(Boolean), [roomAgents])
+  const room = officeService.useOfficeRoom(selectedGroup?.slug ?? '', roomRefs, {
+    active: visible && officeTab === 'room'
+  })
 
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate
@@ -515,6 +529,31 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   {total} character{total === 1 ? '' : 's'} · {online} connected
                 </div>
               </div>
+              {/* Team | Room sub-view toggle — Room is the unified all-character stream */}
+              <div role="tablist" aria-label="Office view" style={{ display: 'flex', gap: 2, padding: 2, background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-card)' }}>
+                {(['team', 'room'] as const).map((t) => (
+                  <button
+                    key={t}
+                    role="tab"
+                    aria-selected={officeTab === t}
+                    onClick={() => setOfficeTab(t)}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: 'var(--r-input)',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: officeTab === t ? 'var(--bg-panel)' : 'transparent',
+                      color: officeTab === t ? 'var(--tx-hi)' : 'var(--tx-4)',
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: 'var(--fs-meta)',
+                      fontWeight: 600,
+                      boxShadow: officeTab === t ? 'inset 0 0 0 1px var(--bd-panel-sel)' : undefined
+                    }}
+                  >
+                    {t === 'team' ? 'Team' : 'Room'}
+                  </button>
+                ))}
+              </div>
               <div style={{ flex: 1 }} />
               {steerToast && (
                 <span style={{ fontSize: 'var(--fs-desc)', color: steerToast.startsWith('⚡') ? 'var(--st-running)' : 'var(--st-error)', whiteSpace: 'nowrap' }}>{steerToast}</span>
@@ -533,10 +572,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               </Button>
             </div>
 
-            {/* character grid */}
+            {/* character grid — a Team-view concern (hidden in the Room stream) */}
             <div
               style={{
-                display: 'grid',
+                display: officeTab === 'team' ? 'grid' : 'none',
                 gridTemplateColumns: 'repeat(4, 1fr)',
                 gap: 10,
                 padding: '12px 18px',
@@ -566,9 +605,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               />
             </div>
 
-            {/* lower split: focused stream (or live terminal) + office room */}
+            {/* lower area: TEAM (focused stream / live terminals) or the unified ROOM.
+                The Team container is kept MOUNTED (display-toggled) so switching to the
+                Room tab never unmounts — and SIGKILLs — a live Operate PTY. */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, borderRight: '1px solid var(--bd-2)' }}>
+              <div style={{ display: officeTab === 'team' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
                 {/* Keep every office's terminals mounted; show only the selected office's.
                     Each bucket carries a stable `term-<slug>` key (offices that churned
                     out of the poll keep their own bucket) so switching/polling never
@@ -588,14 +629,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 ))}
               </div>
 
-              <OfficeRoom
-                officeName={selectedGroup.name}
-                messages={messages.filter((m) => m.role === 'user' || m.role === 'a2a' || m.role === 'assistant')}
-                targetName={focusedChar?.name ?? ''}
-                disabled={!focusedChar}
-                onSend={(t) => focusedChar && steer(focusedChar.id, t)}
-                note={focusedChar && !focusedChar.online ? 'Character is offline — messages queue as a live steer once it connects.' : undefined}
-              />
+              {officeTab === 'room' && (
+                <OfficeRoom
+                  officeName={selectedGroup.name}
+                  agents={selectedGroup.agents}
+                  entries={room.entries}
+                  loading={room.loading}
+                  onSend={(agentId, t) => steer(agentId, t)}
+                />
+              )}
             </div>
           </>
         )}
