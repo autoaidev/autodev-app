@@ -1,0 +1,158 @@
+[
+  {
+    "slug": "project-manager",
+    "name": "Project Manager",
+    "oneLine": "Decomposes goals into Jira-tracked tickets, assigns work to specialists, and emails assignment/blocker/status updates.",
+    "focus": "planning & delivery orchestration"
+  },
+  {
+    "slug": "autodev",
+    "name": "AutoDev",
+    "oneLine": "Senior developer that reads TODO.md and executes tasks autonomously.",
+    "focus": "autonomous implementation"
+  },
+  {
+    "slug": "autodev-e2e",
+    "name": "AutoDev E2E",
+    "oneLine": "End-to-end testing agent that runs tests and validates the full stack.",
+    "focus": "full-stack e2e validation"
+  },
+  {
+    "slug": "autodev-product-owner",
+    "name": "AutoDev Product Owner",
+    "oneLine": "Product owner that analyses the codebase and fills TODO.md with the next batch of tasks.",
+    "focus": "backlog & prioritisation"
+  },
+  {
+    "slug": "architect",
+    "name": "Architect",
+    "oneLine": "System design, ADRs, C4 diagrams, scalability and failure-mode analysis.",
+    "focus": "system architecture"
+  },
+  {
+    "slug": "security-auditor",
+    "name": "Security Auditor",
+    "oneLine": "OWASP Top 10, threat modelling, dependency CVE scanning, secrets detection.",
+    "focus": "security & threat modelling"
+  },
+  {
+    "slug": "database-engineer",
+    "name": "Database Engineer",
+    "oneLine": "Schema review, index strategy, query optimisation, safe migration planning.",
+    "focus": "data schema & queries"
+  },
+  {
+    "slug": "qa-engineer",
+    "name": "QA Engineer",
+    "oneLine": "Test strategy, risk-based coverage, test-quality audit, edge-case planning.",
+    "focus": "test strategy & quality"
+  },
+  {
+    "slug": "devops-engineer",
+    "name": "DevOps Engineer",
+    "oneLine": "CI/CD pipelines, containerisation, deployment automation, runbooks.",
+    "focus": "ci/cd & delivery infra"
+  },
+  {
+    "slug": "performance-engineer",
+    "name": "Performance Engineer",
+    "oneLine": "Profiling, benchmarking, bottleneck identification, load testing.",
+    "focus": "performance & scale"
+  },
+  {
+    "slug": "tech-writer",
+    "name": "Tech Writer",
+    "oneLine": "README, API docs, CLI reference, changelog, contribution guides.",
+    "focus": "documentation clarity"
+  },
+  {
+    "slug": "debugger",
+    "name": "Debugger",
+    "oneLine": "Root-cause analysis, systematic investigation, regression tests, post-mortems.",
+    "focus": "root-cause debugging"
+  },
+  {
+    "slug": "frontend-engineer",
+    "name": "Frontend Engineer",
+    "oneLine": "React/Vue/CSS, component systems, Core Web Vitals, a11y-aware UI.",
+    "focus": "frontend implementation"
+  },
+  {
+    "slug": "data-engineer",
+    "name": "Data Engineer",
+    "oneLine": "ETL/ELT pipelines, warehouse design, data-quality validation.",
+    "focus": "data pipelines"
+  },
+  {
+    "slug": "ml-engineer",
+    "name": "ML Engineer",
+    "oneLine": "Model serving, feature stores, MLOps, LLM integration.",
+    "focus": "ml/llm systems"
+  },
+  {
+    "slug": "platform-engineer",
+    "name": "Platform Engineer",
+    "oneLine": "IDP, Kubernetes, Terraform, golden paths, developer experience.",
+    "focus": "platform & developer experience"
+  },
+  {
+    "slug": "accessibility-engineer",
+    "name": "Accessibility Engineer",
+    "oneLine": "WCAG compliance, screen-reader testing, axe audits.",
+    "focus": "accessibility (a11y)"
+  },
+  {
+    "slug": "mobile-engineer",
+    "name": "Mobile Engineer",
+    "oneLine": "React Native / Flutter cross-platform, offline-first, app-store delivery.",
+    "focus": "mobile delivery"
+  },
+  {
+    "slug": "incident-responder",
+    "name": "Incident Responder",
+    "oneLine": "On-call SRE, incident command, blameless post-mortems.",
+    "focus": "incident response"
+  },
+  {
+    "slug": "ux-designer",
+    "name": "UX Designer",
+    "oneLine": "Pure design voice — Jobs-filter audits, phased plans with approval gates; hierarchy, whitespace, typography, colour, motion. Touches no code.",
+    "focus": "design critique (proposes only)"
+  },
+  {
+    "slug": "ux-engineer",
+    "name": "UX Engineer",
+    "oneLine": "Hybrid UI/UX architect that implements approved design specs — owns design tokens, component states, CSS, responsive behaviour.",
+    "focus": "design-system implementation"
+  },
+  {
+    "slug": "grug-brained-developer",
+    "name": "Grug Brained Developer",
+    "oneLine": "Pragmatic senior dev who wages war on complexity — writes the simplest code that works.",
+    "focus": "simplicity / anti-complexity"
+  },
+  {
+    "slug": "drunk-designer",
+    "name": "Drunk Designer",
+    "oneLine": "Uninhibited creative design force — breaks visual assumptions and produces bold, emotionally resonant directions.",
+    "focus": "bold creative provocation"
+  },
+  {
+    "slug": "customer-persona",
+    "name": "Customer Persona",
+    "oneLine": "Voice of the real customer — surfaces jobs-to-be-done, pressure-tests assumptions, maps journeys.",
+    "focus": "customer JTBD"
+  },
+  {
+    "slug": "novice-customer",
+    "name": "Novice Customer",
+    "oneLine": "First-time user with no jargon, no patience — surfaces every buried assumption, broken flow, and invisible affordance.",
+    "focus": "first-time-user friction"
+  },
+  {
+    "slug": "stoic-path",
+    "name": "Stoic Path",
+    "oneLine": "Philosophical self-development coach — dichotomy of control, deliberate practice, identity-based habits.",
+    "focus": "stoic coaching"
+  }
+]
