@@ -3,15 +3,19 @@ import OfficeSelector from './OfficeSelector'
 import FileBrowserCheckbox from './FileBrowserCheckbox'
 import { SignInForm } from './components/office/SignInForm'
 import { useOfficeSelection, NEW_OFFICE } from './composables/useOfficeSelection'
-import { InfoTip } from '@renderer/ui'
+import { InfoTip, Button, Pill, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
-import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify } from '@renderer/lib/providers'
+import { useCliStatus } from '@renderer/services/cliStatus'
+import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify, providerAuthFor } from '@renderer/lib/providers'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
 /** Per-agent editable fields the user can tweak before spawning. `id`/`slug` are
  *  the office character identity (present on the office-backed path) — needed to
  *  fetch each agent's MCP credentials for the single-shared-folder spawn. */
 interface AgentEdit { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; provider: string; model: string }
+
+/** Tone of the spawn result line — an honest signal, not always success-green. */
+type SpawnTone = 'ok' | 'partial' | 'error'
 
 /**
  * Generic team blueprint used when the user opts OUT of a pixel office. Team
@@ -51,12 +55,22 @@ function deriveName(desc: string): string {
  * agent's NAME and MODEL, then either open the office in the browser OR spawn the
  * team as LOCAL autodev agents into a folder you pick (one workspace per agent).
  * Reuses the pixel-office connection (prompts login first if not connected).
+ *
+ * Styling: 0.2.0 theme.css tokens + the shared <Button>/<Pill> primitives (same
+ * system as Help/Settings/SignInForm) — no legacy palette, so the funnel matches
+ * the rest of the app. Success/error feedback is tone-accurate (never green on a
+ * total failure), and both Generate and Spawn are gated on the AutoDev CLI being
+ * present so a novice is blocked BEFORE a silent no-op, not after.
  */
 export default function MakeAppView({ initialFolder }: { initialFolder?: string } = {}): JSX.Element {
   // Shared pixel-office selection state (connection probe, office list, checkbox,
   // selected office) — same composable the Create dialog uses.
   const officeSel = useOfficeSelection({ defaultUseOffice: true, defaultSelection: NEW_OFFICE })
   const { connected, offices, loadOffices, useOffice, selectedOfficeId, setSelectedOfficeId } = officeSel
+  // The whole spawn funnel needs the AutoDev runner; read the shared status so we
+  // can block Generate/Spawn before they silently no-op instead of after.
+  const cli = useCliStatus()
+  const cliMissing = cli.missing
   // Seeded from officeStatus().base on mount (below), which resolves to the
   // user-configured Settings base when no session is live — so no hardcoded host.
   const [base, setBase] = useState('')
@@ -76,6 +90,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   const [fileBrowser, setFileBrowser] = useState(false)   // enable the office file-browser for EVERY spawned agent (both modes)
   const [spawning, setSpawning] = useState(false)
   const [spawnMsg, setSpawnMsg] = useState('')
+  const [spawnTone, setSpawnTone] = useState<SpawnTone>('ok') // colour the result line by outcome
   const [wired, setWired] = useState(false)          // shared-folder .mcp.json was written → offer "add to sidebar"
   const [addingSidebar, setAddingSidebar] = useState(false)
   const [spawnedOk, setSpawnedOk] = useState(false)  // a real spawn/add succeeded → offer a "Go to Agents" CTA
@@ -230,7 +245,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   const spawnLocal = useCallback(async (run = false) => {
     if (!edits?.length) return
     if (!folder) { setErr('Pick a folder to spawn the agents into first.'); return }
-    setSpawning(true); setErr(''); setSpawnMsg('')
+    if (cliMissing) { setErr('The AutoDev CLI isn’t installed — install it (see the banner at the top), then spawn.'); return }
+    setSpawning(true); setErr(''); setSpawnMsg(''); setSpawnTone('ok')
 
     // ── Single shared folder: merge one MCP server per character into folder/.mcp.json. ──
     if (shareMode && office) {
@@ -241,10 +257,22 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         fileBrowser
       )) as { ok?: boolean; wired?: number; missing?: string[]; error?: string }
       setSpawning(false)
-      if (res?.error) { setErr(res.error); return }
-      const miss = res?.missing?.length ? ` (${res.missing.length} could not be matched)` : ''
+      if (res?.error) { setSpawnTone('error'); setSpawnMsg(res.error); setWired(false); return }
+      const wiredN = res?.wired ?? 0
+      const missN = res?.missing?.length ?? 0
+      const cleanFolder = folder.replace(/\/+$/, '')
+      // Nothing wired is a FAILURE, not a green "done" — say so plainly.
+      if (wiredN === 0) {
+        setWired(false)
+        setSpawnTone('error')
+        setSpawnMsg(`Couldn’t wire any of the ${edits.length} agent${edits.length === 1 ? '' : 's'} into ${cleanFolder}/.mcp.json${missN ? ` — ${missN} could not be matched to an office character` : ''}. Nothing was written.`)
+        return
+      }
       setWired(true)
-      setSpawnMsg(`Wired ${res?.wired ?? 0}/${edits.length} agent${edits.length === 1 ? '' : 's'} from “${office.name}” into ${folder.replace(/\/+$/, '')}/.mcp.json${miss}. Add it to the sidebar below to run one loop that drives them all, or open the folder in claude yourself.`)
+      const partial = wiredN < edits.length
+      setSpawnTone(partial ? 'partial' : 'ok')
+      const miss = missN ? ` (${missN} could not be matched)` : ''
+      setSpawnMsg(`Wired ${wiredN}/${edits.length} agent${edits.length === 1 ? '' : 's'} from “${office.name}” into ${cleanFolder}/.mcp.json${miss}. Add it to the sidebar below to run one loop that drives them all, or open the folder in claude yourself.`)
       return
     }
 
@@ -252,19 +280,21 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     let ok = 0
     let started = 0
     let bound = 0
+    const fails: string[] = [] // capture the first stderr/error per failed agent (no silent `continue`)
     for (let i = 0; i < edits.length; i++) {
       const e = edits[i]
       const path = `${folder.replace(/\/+$/, '')}/${slugify(e.name, i)}`
       const args = ['init', path, '--provider', e.provider]
       if (e.name.trim()) args.push('--session-name', e.name.trim())
       const r = await window.api.runCli(args)
-      if (r.code !== 0) continue
+      if (r.code !== 0) { fails.push(`${e.name}: ${r.stderr?.trim() || `init failed (exit ${r.code})`}`); continue }
       if (e.model.trim()) await window.api.runCli(['config', 'set', modelKeyFor(e.provider), e.model.trim(), path])
       // Enable the file browser per-workspace via the settings key (the init-flow
       // way the Create dialog uses) so each spawned agent gets the Files tab.
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       const added = await window.api.addAgent(path)
-      if ((added as { error?: string })?.error) continue
+      const addErr = (added as { error?: string })?.error
+      if (addErr) { fails.push(`${e.name}: ${addErr}`); continue }
       ok++
       // Office-backed spawn: `autodev init` writes NO office binding, so bind each
       // fresh workspace to its office character (presence + office-MCP) BEFORE we
@@ -283,11 +313,28 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     setSpawning(false)
     setSpawnedOk(ok > 0)
     const where = office ? `Team from “${office.name}”.` : 'Local only — not attached to a pixel office.'
-    const connected = office ? `, connected ${bound} to office` : ''
+    const connectedNote = office ? `, connected ${bound} to office` : ''
+    const cleanFolder = folder.replace(/\/+$/, '')
+
+    // Total failure: NOT green, and don't claim agents are in the sidebar.
+    if (ok === 0) {
+      setSpawnTone('error')
+      setSpawnMsg(`Couldn’t spawn any of the ${edits.length} agent${edits.length === 1 ? '' : 's'} into ${cleanFolder}. ${fails[0] ? `First error — ${fails[0]}.` : ''} Nothing was added to your sidebar.`.trim())
+      return
+    }
+    // Partial failure: amber, name the count + first reason.
+    if (ok < edits.length) {
+      const failedN = edits.length - ok
+      setSpawnTone('partial')
+      setSpawnMsg(`Spawned ${ok}/${edits.length}${connectedNote}${run ? `, started ${started}` : ''} into ${cleanFolder}. ${failedN} failed${fails[0] ? ` — e.g. ${fails[0]}` : ''}. The rest are in your sidebar${run ? ' and running' : ' — Start them there'}.`)
+      return
+    }
+    // Full success.
+    setSpawnTone('ok')
     setSpawnMsg(run
-      ? `Spawned ${ok}/${edits.length}${connected}, started ${started} agent${started === 1 ? '' : 's'} into ${folder}. ${where} They're running in your sidebar.`
-      : `Spawned ${ok}/${edits.length}${connected} agent${edits.length === 1 ? '' : 's'} into ${folder}. ${where} They're in your sidebar — Start them there.`)
-  }, [edits, folder, office, shareMode, fileBrowser])
+      ? `Spawned ${ok}/${edits.length}${connectedNote}, started ${started} agent${started === 1 ? '' : 's'} into ${cleanFolder}. ${where} They’re running in your sidebar.`
+      : `Spawned ${ok}/${edits.length}${connectedNote} agent${edits.length === 1 ? '' : 's'} into ${cleanFolder}. ${where} They’re in your sidebar — Start them there.`)
+  }, [edits, folder, office, shareMode, fileBrowser, cliMissing])
 
   // After a shared-folder wire, register that ONE folder as a single startable
   // workspace in the left sidebar. `autodev init` only writes TODO.md +
@@ -297,18 +344,19 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // the team. Provider = the top-level Default provider (the operator's model).
   const addSharedAsAgent = useCallback(async () => {
     if (!folder || !office) return
-    setAddingSidebar(true); setErr(''); setSpawnMsg('')
+    setAddingSidebar(true); setErr(''); setSpawnMsg(''); setSpawnTone('ok')
     try {
       const path = folder.replace(/\/+$/, '')
       const r = await window.api.runCli(['init', path, '--provider', defaultProvider, '--session-name', office.name])
-      if (r.code !== 0) { setErr(`Could not init the workspace at ${path}.${r.stderr ? ' ' + r.stderr.trim() : ''}`); return }
+      if (r.code !== 0) { setSpawnTone('error'); setSpawnMsg(`Could not init the workspace at ${path}.${r.stderr ? ' ' + r.stderr.trim() : ''}`); return }
       // Re-wire (idempotent merge) so the shared .mcp.json is guaranteed intact
       // even if init wrote a .gitignore or the folder shifted underneath us.
       await window.api.officeWriteSharedMcp(path, office.slug, edits!.map((e) => ({ id: e.id, slug: e.slug, name: e.name })), fileBrowser)
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       const added = await window.api.addAgent(path)
-      if ((added as { error?: string })?.error) { setErr((added as { error: string }).error); return }
+      if ((added as { error?: string })?.error) { setSpawnTone('error'); setSpawnMsg((added as { error: string }).error); return }
       setSpawnedOk(true)
+      setSpawnTone('ok')
       setSpawnMsg(`Added “${office.name}” to your sidebar as one workspace at ${path}. Start it there — the single loop drives all ${edits!.length} agents via the shared .mcp.json.`)
     } finally { setAddingSidebar(false) }
   }, [folder, office, edits, defaultProvider, fileBrowser])
@@ -318,7 +366,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     window.api.openExternal(`${base.replace(/\/+$/, '')}/office/${office.slug}/setup`)
   }, [base, office])
 
-  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false); setSpawnedOk(false) }, [])
+  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setSpawnTone('ok'); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false); setSpawnedOk(false) }, [])
 
   // ── not connected (and not local-only): login form with an escape hatch ──
   // R: removed the DEAD-END. Signing in unlocks AI team-generation + shared
@@ -339,13 +387,13 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         error={err}
         width={340}
         footer={
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            block
             onClick={() => { setLocalOnly(true); officeSel.setUseOffice(false); setErr('') }}
-            style={{ width: '100%', background: 'transparent', border: '1px solid var(--border)', color: 'var(--fg)', padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
           >
             Continue without an office (local agents only) →
-          </button>
+          </Button>
         }
       />
     )
@@ -354,45 +402,64 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // Current wizard step for the progress indicator: 1 Describe → 2 Team → 3 Spawn.
   const step = edits ? (spawnedOk ? 3 : 2) : 1
 
+  // The distinct providers in the current roster — surfaced in the pre-flight
+  // auth advisory so the user knows exactly which CLIs to log in before spawning.
+  const rosterProviders = edits ? Array.from(new Set(edits.map((e) => e.provider))) : []
+
   // ── connected: spawn-agents form + editable roster ──
   return (
-    <div className="legacy-app" style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto', background: 'var(--bg-0)', fontFamily: 'var(--font-sans)' }}>
+      <style>{`.makeapp-input:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-tint)}`}</style>
       <div style={{ width: 620, maxWidth: '100%', padding: 24 }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 18 }}>
+        <h2 style={{ margin: '0 0 4px', fontSize: 'var(--fs-page-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>
           <span aria-hidden style={{ marginRight: 6 }}>🐣</span>Make app
         </h2>
-        <p style={{ margin: '0 0 14px', fontSize: 12, color: 'var(--muted)' }}>
-          Describe your app, generate a team, tweak each agent's name and model, then spawn them locally or open the office.
+        <p style={{ margin: '0 0 14px', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>
+          Describe your app, generate a team, tweak each agent&rsquo;s name and model, then spawn them locally or open the office.
         </p>
 
         {/* Step indicator — this is a genuine 3-stage wizard; show where you are. */}
         <Steps current={step} />
 
+        {/* CLI-missing gate: the whole spawn funnel needs the AutoDev runner, so warn
+            up-front (and disable the spawn actions below) instead of letting a spawn
+            no-op silently. */}
+        {cliMissing && (
+          <div role="alert" style={warnBox}>
+            <Icon name="external" size={12} />
+            <span>
+              The AutoDev CLI isn&rsquo;t installed on this machine, so spawning agents won&rsquo;t work yet.
+              Install it (see the banner at the top of the window), then Recheck — you can still
+              generate and edit a team in the meantime.
+            </span>
+          </div>
+        )}
+
         {/* Have an existing project? Skip the whole AI funnel and register it as one
             agent — no office login required (removes the "forced through AI team-gen"
             dead-end from the audit). */}
-        <details style={{ margin: '0 0 16px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg2)' }}>
-          <summary style={{ padding: '10px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--fg)' }}>
+        <details style={{ margin: '0 0 16px', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', background: 'var(--bg-panel)' }}>
+          <summary style={{ padding: '10px 12px', cursor: 'pointer', fontSize: 'var(--fs-meta)', color: 'var(--tx-2)' }}>
             Already have a project folder? Add it as one agent
           </summary>
           <div style={{ padding: '0 12px 12px' }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              <input className="fld-input" value={existingFolder} onChange={(e) => { setExistingFolder(e.target.value); setExistingErr(''); setExistingMsg('') }}
+              <input className="makeapp-input" value={existingFolder} onChange={(e) => { setExistingFolder(e.target.value); setExistingErr(''); setExistingMsg('') }}
                 placeholder="/path/to/existing/project" style={{ ...inp, margin: 0, flex: 1 }} disabled={addingExisting} />
-              <button onClick={pickExisting} disabled={addingExisting}>Browse</button>
+              <Button variant="secondary" onClick={pickExisting} disabled={addingExisting}>Browse</Button>
             </div>
-            <label className="fld" style={{ marginTop: 10 }}>Provider</label>
-            <select className="fld-input" value={existingProvider} onChange={(e) => setExistingProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={addingExisting}>
+            <label style={{ ...labelStyle, marginTop: 10 }}>Provider</label>
+            <select className="makeapp-input" value={existingProvider} onChange={(e) => setExistingProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={addingExisting}>
               {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
             </select>
-            {existingErr && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, marginTop: 8 }}>{existingErr}</div>}
-            <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={addingExisting || !existingFolder.trim()} onClick={addExisting}>
+            {existingErr && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', marginTop: 8 }}>{existingErr}</div>}
+            <Button variant="primary" block style={{ marginTop: 10 }} disabled={addingExisting || !existingFolder.trim() || cliMissing} onClick={addExisting}>
               {addingExisting ? 'Adding…' : '➕ Add folder as one agent'}
-            </button>
+            </Button>
             {existingMsg && (
-              <div role="status" style={{ color: 'var(--green)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+              <div role="status" style={{ color: 'var(--st-running)', fontSize: 'var(--fs-desc)', marginTop: 8, lineHeight: 1.5 }}>
                 {existingMsg}
-                <button className="primary" style={{ display: 'block', marginTop: 8 }} onClick={() => app.navigate('agents')}>Go to Agents →</button>
+                <Button variant="primary" size="sm" style={{ display: 'flex', marginTop: 8 }} onClick={() => app.navigate('agents')}>Go to Agents →</Button>
               </div>
             )}
           </div>
@@ -401,9 +468,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         {/* Local-only banner — shown when a user chose to skip sign-in. Offers a way
             back into the office flow so the choice is never a trap. */}
         {!connected && (
-          <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            <strong style={{ color: 'var(--fg)' }}>Local agents only.</strong> Not connected to a Pixel Office — a generic default team is used (AI team-generation is office-backed).{' '}
-            <a href="#" onClick={(e) => { e.preventDefault(); setLocalOnly(false) }} style={{ color: 'var(--accent, #6ea8fe)' }}>Sign in to a Pixel Office</a> for an AI-generated team and shared offices.
+          <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
+            <strong style={{ color: 'var(--tx-2)' }}>Local agents only.</strong> Not connected to a Pixel Office — a generic default team is used (AI team-generation is office-backed).{' '}
+            <a href="#" onClick={(e) => { e.preventDefault(); setLocalOnly(false) }} style={{ color: 'var(--accent)' }}>Sign in to a Pixel Office</a> for an AI-generated team and shared offices.
           </div>
         )}
 
@@ -423,72 +490,72 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
           uncheckedNote="Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed."
         />
 
-        <label className="fld">What do you want to build?</label>
-        <textarea className="fld-input" value={desc} onChange={(e) => setDesc(e.target.value)}
+        <label style={labelStyle}>What do you want to build?</label>
+        <textarea className="makeapp-input" value={desc} onChange={(e) => setDesc(e.target.value)}
           placeholder="e.g. A recipe app that suggests meals from ingredients I have at home"
           rows={4} style={{ ...inp, resize: 'vertical', minHeight: 90 }} disabled={creating} />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
           <div>
-            <label className="fld" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               Team size
-              <InfoTip label="Team size" width={230}>
+              <InfoTip label="Team size" width={230} side="left">
                 How many agents to generate. Each becomes its own workspace (or office character) — more agents means more parallel work but more setup and cost. 1–12.
               </InfoTip>
             </label>
-            <input className="fld-input" type="number" min={1} max={12} value={count}
+            <input className="makeapp-input" type="number" min={1} max={12} value={count}
               onChange={(e) => changeCount(parseInt(e.target.value) || 1)}
               style={{ ...inp, width: 90, marginBottom: 0 }} disabled={creating} />
           </div>
           <div style={{ flex: 1 }}>
-            <label className="fld" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <label style={{ ...labelStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               Default provider (editable per agent)
-              <InfoTip label="Provider" width={260}>
+              <InfoTip label="Provider" width={260} side="left">
                 Which engine each agent runs on — Claude, Copilot, OpenCode or Grok — and how: <strong>interactive</strong> (a live terminal), <strong>headless/CLI</strong> (a background loop), or <strong>SDK</strong>. You can change it per agent below.
               </InfoTip>
             </label>
-            <select className="fld-input" value={defaultProvider} onChange={(e) => setDefaultProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={creating}>
+            <select className="makeapp-input" value={defaultProvider} onChange={(e) => setDefaultProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={creating}>
               {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
             </select>
           </div>
         </div>
 
-        {err && <div role="alert" style={{ color: 'var(--red)', fontSize: 12, margin: '10px 0 0' }}>{err}</div>}
+        {err && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', margin: '10px 0 0' }}>{err}</div>}
 
         {!edits && (
-          <button className="primary" style={{ width: '100%', marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
+          <Button variant="primary" block style={{ marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
             {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🐣 Generate team'}
-          </button>
+          </Button>
         )}
 
         {edits && (
           <div style={{ marginTop: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <strong style={{ fontSize: 14 }}>{office ? office.name : 'Local workspaces'}</strong>
-              <span className="badge">{edits.length} agents</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>— edit names &amp; models below</span>
+              <strong style={{ fontSize: 'var(--fs-panel-title)', color: 'var(--tx-hi)' }}>{office ? office.name : 'Local workspaces'}</strong>
+              <Pill variant="neutral">{edits.length} agents</Pill>
+              <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>— edit names &amp; models below</span>
               {/* Persistent regenerate: re-runs `make` (same description + team size +
                   selected office) and REPLACES the roster with a fresh AI team. Kept
                   next to the badge so it's reachable after the first generation, when
                   the big "🐣 Generate team" primary is no longer rendered. */}
-              <button style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || !desc.trim()} onClick={make}
+              <Button variant="secondary" size="sm" style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || !desc.trim()} onClick={make}
                 title="Generate a fresh team from the current description, team size & office">
                 {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🔄 Regenerate'}
-              </button>
+              </Button>
             </div>
-            {edits.length === 0 && <div className="empty" style={{ fontSize: 12, padding: 12 }}>{office ? 'No team was generated — you can still set it up in the browser.' : 'No team was generated.'}</div>}
+            {edits.length === 0 && <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>{office ? 'No team was generated — you can still set it up in the browser.' : 'No team was generated.'}</div>}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {edits.map((a, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>
                   <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: (a.color || '#2a3350') + '22', border: `1px solid ${a.color || '#2a3350'}` }}>{a.emoji || '🧑'}</span>
-                  <input className="fld-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
+                  <input className="makeapp-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
                     style={{ ...inp, margin: 0, flex: '1 1 140px', minWidth: 100 }} disabled={spawning} />
-                  <select className="fld-input" value={a.provider} onChange={(e) => patchEdit(i, { provider: e.target.value })} aria-label={`Agent ${i + 1} provider`}
+                  <select className="makeapp-input" value={a.provider} onChange={(e) => patchEdit(i, { provider: e.target.value })} aria-label={`Agent ${i + 1} provider`}
                     style={{ ...inp, margin: 0, flex: '0 0 150px' }} disabled={spawning}>
                     {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
                   </select>
-                  <input className="fld-input" value={a.model} onChange={(e) => patchEdit(i, { model: e.target.value })} placeholder="default model" aria-label={`Agent ${i + 1} model`}
+                  <input className="makeapp-input" value={a.model} onChange={(e) => patchEdit(i, { model: e.target.value })} placeholder="default model" aria-label={`Agent ${i + 1} model`}
                     list={`models-${a.provider.split('-')[0]}`}
                     style={{ ...inp, margin: 0, flex: '0 0 130px' }} disabled={spawning} />
                   {modelSuggestionsFor(a.provider).length > 0 && (
@@ -501,28 +568,34 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
             </div>
 
             {edits.length > 0 && (
-              <div style={{ marginTop: 16, padding: 14, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                <label className="fld">
+              <div style={{ marginTop: 16, padding: 14, background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>
+                {/* Pre-flight provider auth: the app can't verify provider logins, so
+                    tell the user exactly which CLIs must be signed in on this machine
+                    before spawning — otherwise a headless loop fails at runtime with a
+                    needs-auth error the novice never sees explained. */}
+                <ProviderAuthNote providers={rosterProviders} />
+
+                <label style={labelStyle}>
                   {shareMode
                     ? 'Spawn locally — folder (all agents share ONE .mcp.json here)'
                     : 'Spawn locally — folder (one workspace per agent is created here)'}
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <input className="fld-input" value={folder} onChange={(e) => { setFolder(e.target.value); setWired(false) }} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
-                  <button onClick={pickFolder} disabled={spawning}>Browse</button>
+                  <input className="makeapp-input" value={folder} onChange={(e) => { setFolder(e.target.value); setWired(false) }} placeholder="/path/to/folder" style={{ ...inp, margin: 0, flex: 1 }} disabled={spawning} />
+                  <Button variant="secondary" onClick={pickFolder} disabled={spawning}>Browse</Button>
                 </div>
                 {/* Bug 2: single-shared-folder mode. Only meaningful when the roster
                     agents are office characters — otherwise there's no office key to
                     wire, so hide it (and fall back to the per-agent path). */}
                 {canShareFolder && (
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 12, cursor: spawning ? 'default' : 'pointer' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 10, fontSize: 'var(--fs-desc)', color: 'var(--tx-2)', cursor: spawning ? 'default' : 'pointer' }}>
                     <input type="checkbox" checked={sharedFolder} onChange={(e) => { setSharedFolder(e.target.checked); setWired(false) }} disabled={spawning} style={{ marginTop: 2 }} />
                     <span>
                       <strong>Single shared folder</strong> (all agents in one <code>.mcp.json</code>){' '}
-                      <InfoTip label="Single shared folder" width={280}>
+                      <InfoTip label="Single shared folder" width={280} side="left">
                         Instead of one workspace per agent, this wires ONE folder to every office character via a single <code>.mcp.json</code>. A single Claude launched there can drive the whole team through those tool servers — no per-agent loops. Leave off to get a separate startable workspace per agent.
                       </InfoTip>
-                      <span style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>
+                      <span style={{ display: 'block', color: 'var(--tx-dim)', marginTop: 2 }}>
                         Wires this one folder to every office character via a single <code>.mcp.json</code> — no per-agent workspaces or loops.
                       </span>
                     </span>
@@ -532,46 +605,56 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                     enableFileBrowser on each workspace; single-folder mode passes
                     --file-browser to each pixel-office-<agent> mcp-operate entry. */}
                 <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ fontSize: 'var(--fs-desc)', fontWeight: 600, color: 'var(--tx-2)', marginBottom: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     Enable file browser for all agents
-                    <InfoTip label="File browser" width={260}>
+                    <InfoTip label="File browser" width={260} side="left">
                       Gives every spawned agent the office Files tab, so you can browse and edit its workspace files from the office web app. Adds the mcp-operate file server to each agent.
                     </InfoTip>
                   </div>
                   <FileBrowserCheckbox checked={fileBrowser} onChange={setFileBrowser} disabled={spawning} id="makeapp-file-browser" />
                 </div>
-                <button className="primary" style={{ width: '100%', marginTop: 10 }} disabled={spawning || !folder} onClick={() => spawnLocal(false)}>
+                {/* Default (non-run) spawn is the secondary action; Spawn & Run is the
+                    emphasised primary. Both are gated on the CLI being present. */}
+                <Button variant={shareMode ? 'primary' : 'secondary'} block style={{ marginTop: 10 }} disabled={spawning || !folder || cliMissing} onClick={() => spawnLocal(false)}>
                   {spawning
                     ? (shareMode ? 'Wiring…' : 'Spawning…')
                     : shareMode
                       ? `🔌 Wire ${edits.length} agent${edits.length === 1 ? '' : 's'} into shared .mcp.json`
                       : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
-                </button>
+                </Button>
                 {/* Per-agent mode only: spawn AND start every loop in one click so
                     the user doesn't have to Start each agent in the sidebar. Shared
                     mode has no per-agent loops, so it's not offered there. */}
                 {!shareMode && (
-                  <button className="primary" style={{ width: '100%', marginTop: 8, background: 'var(--green)', borderColor: 'var(--green)' }}
-                    disabled={spawning || !folder} onClick={() => spawnLocal(true)}
+                  <Button variant="primary" block style={{ marginTop: 8 }}
+                    disabled={spawning || !folder || cliMissing} onClick={() => spawnLocal(true)}
                     title="Spawn each workspace and immediately start its loop">
-                    {spawning ? 'Spawning & starting…' : `🚀 Spawn & Run ${edits.length} agent${edits.length === 1 ? '' : 's'}`}
-                  </button>
+                    <Icon name="play" size={11} /> {spawning ? 'Spawning & starting…' : `Spawn & Run ${edits.length} agent${edits.length === 1 ? '' : 's'}`}
+                  </Button>
                 )}
                 {/* After a shared wire: register the folder as ONE sidebar workspace
                     (single loop, driving all agents via the shared .mcp.json). */}
                 {shareMode && wired && (
-                  <button className="primary" style={{ width: '100%', marginTop: 8 }} disabled={addingSidebar} onClick={addSharedAsAgent}
+                  <Button variant="primary" block style={{ marginTop: 8 }} disabled={addingSidebar || cliMissing} onClick={addSharedAsAgent}
                     title="Init this folder as one workspace and add it to the agents sidebar so you can Start a single loop that drives the whole team">
                     {addingSidebar ? 'Adding…' : `➕ Add to sidebar as one agent (drives all ${edits.length})`}
-                  </button>
+                  </Button>
                 )}
                 {spawnMsg && (
-                  <div role="status" style={{ color: 'var(--green)', fontSize: 12, marginTop: 8, lineHeight: 1.5 }}>
+                  <div
+                    role={spawnTone === 'error' ? 'alert' : 'status'}
+                    style={{
+                      color: spawnTone === 'error' ? 'var(--st-error-bright)' : spawnTone === 'partial' ? 'var(--st-needsyou)' : 'var(--st-running)',
+                      fontSize: 'var(--fs-desc)',
+                      marginTop: 8,
+                      lineHeight: 1.5
+                    }}
+                  >
                     {spawnMsg}
                     {spawnedOk && (
-                      <button className="primary" style={{ display: 'block', marginTop: 8 }} onClick={() => app.navigate('agents')}>
+                      <Button variant="primary" size="sm" style={{ display: 'flex', marginTop: 8 }} onClick={() => app.navigate('agents')}>
                         Go to Agents →
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -579,8 +662,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
             )}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              {office && <button className="primary" style={{ flex: 1 }} onClick={openSetup}>↗ Open in browser</button>}
-              <button style={{ flex: office ? '0 0 auto' : 1 }} onClick={reset} title="Start another">＋ New</button>
+              {office && <Button variant="secondary" style={{ flex: 1 }} onClick={openSetup}>↗ Open in browser</Button>}
+              <Button variant="ghost" style={{ flex: office ? '0 0 auto' : 1 }} onClick={reset} title="Start another">＋ New</Button>
             </div>
           </div>
         )}
@@ -589,11 +672,69 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   )
 }
 
-// Match the app-wide input styling (styles.css `input,select,textarea`) so these
-// inline-styled fields read as the same control set as the rest of the app.
+/* ── shared inline styles (theme.css tokens only) ─────────────────────────── */
+
+// Input styling matching the 0.2.0 field controls (SignInForm/Settings). The
+// `.makeapp-input` class adds the focus ring via the scoped <style> above.
 const inp: React.CSSProperties = {
   width: '100%', boxSizing: 'border-box', marginBottom: 8, padding: '8px 10px',
-  background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--fg)', fontSize: 13
+  background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)',
+  color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', outline: 'none'
+}
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: 'var(--fs-desc)', fontWeight: 600, color: 'var(--tx-2)', margin: '0 0 6px'
+}
+const warnBox: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16, padding: '10px 12px',
+  background: 'var(--st-error-soft)', border: '1px solid var(--st-error-bd)', borderRadius: 'var(--r-card)',
+  fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)', lineHeight: 1.5
+}
+
+/**
+ * ProviderAuthNote — the pre-flight authentication advisory. The app has no IPC to
+ * probe whether a provider CLI is signed in, so instead of a false "signed in ✓" we
+ * state honestly that the user must log each provider in on this machine, and give
+ * the exact command per distinct provider in the roster (copyable). Non-blocking.
+ */
+function ProviderAuthNote({ providers }: { providers: string[] }): JSX.Element | null {
+  const [copied, setCopied] = useState<string | null>(null)
+  if (!providers.length) return null
+  const auths = Array.from(new Map(providers.map((p) => [providerAuthFor(p).cmd, providerAuthFor(p)])).values())
+  const copy = (cmd: string): void => {
+    void navigator.clipboard?.writeText(cmd).then(
+      () => { setCopied(cmd); window.setTimeout(() => setCopied((c) => (c === cmd ? null : c)), 1500) },
+      () => {}
+    )
+  }
+  return (
+    <div style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--st-needsyou-wash)', border: '1px solid var(--st-needsyou-bd)', borderRadius: 'var(--r-card)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-desc)', fontWeight: 600, color: 'var(--tx-2)', marginBottom: 4 }}>
+        <Icon name="terminal" size={12} /> Before you spawn: sign in to each provider on this machine
+      </div>
+      <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5, marginBottom: 8 }}>
+        The app can&rsquo;t verify provider logins. If a provider isn&rsquo;t signed in, its agent&rsquo;s loop fails
+        with a needs-auth error. Run each command once in a terminal and follow its login:
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {auths.map((a) => (
+          <button
+            key={a.cmd}
+            type="button"
+            onClick={() => copy(a.cmd)}
+            title={`Copy: ${a.cmd}`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px',
+              background: 'var(--bg-input)', border: '1px solid var(--bd-field)', borderRadius: 'var(--r-chip)',
+              cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-mono-code)', color: 'var(--tx-2)'
+            }}
+          >
+            <span style={{ color: 'var(--tx-dim)' }}>{a.label}:</span> {a.cmd}
+            <Icon name={copied === a.cmd ? 'check' : 'copy'} size={11} color="var(--tx-dim)" />
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 /** Lightweight 3-step progress indicator for the describe → team → spawn wizard. */
@@ -607,17 +748,17 @@ function Steps({ current }: { current: number }): JSX.Element {
         const active = current === n
         return (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: i < labels.length - 1 ? 1 : '0 0 auto' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: active ? 'var(--fg)' : done ? 'var(--green)' : 'var(--muted)', fontWeight: active ? 700 : 500 }}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-desc)', color: active ? 'var(--tx-hi)' : done ? 'var(--st-running)' : 'var(--tx-dim)', fontWeight: active ? 700 : 500 }}>
               <span aria-hidden style={{
                 width: 18, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 11, fontWeight: 700,
-                background: active ? 'var(--accent, #6ea8fe)' : done ? 'var(--green)' : 'var(--bg2)',
-                color: active || done ? '#0b0e14' : 'var(--muted)',
-                border: `1px solid ${active ? 'var(--accent, #6ea8fe)' : done ? 'var(--green)' : 'var(--border)'}`
+                fontSize: 'var(--fs-tiny)', fontWeight: 700,
+                background: active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bg-chip-idle)',
+                color: active || done ? 'var(--tx-onaccent)' : 'var(--tx-dim)',
+                border: `1px solid ${active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bd-card)'}`
               }}>{done ? '✓' : n}</span>
               {label}
             </span>
-            {i < labels.length - 1 && <span style={{ flex: 1, height: 1, background: 'var(--border)' }} />}
+            {i < labels.length - 1 && <span style={{ flex: 1, height: 1, background: 'var(--bd-card)' }} />}
           </div>
         )
       })}

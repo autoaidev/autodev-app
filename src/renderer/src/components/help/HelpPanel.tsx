@@ -12,6 +12,8 @@ import { useAgents } from '@renderer/services/agentStore'
  *        • AutoDev CLI present     → window.api.cliCheck()
  *        • Pixel Office URL set     → window.api.getSettings().officeBaseUrl
  *        • Signed in to an office   → window.api.officeStatus().connected
+ *        • Provider CLI signed in   → advisory (no probe IPC exists) — a copyable
+ *          `claude`/`grok` login command, never a false "done"
  *        • First agent created      → the shared agentStore fleet count
  *      Each incomplete step offers the concrete next action (navigate to the
  *      right screen / open the new-agent funnel / open the docs), so the panel
@@ -75,6 +77,17 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
     }
   }, [open])
 
+  const [copiedCmd, setCopiedCmd] = React.useState<string | null>(null)
+  const copyCmd = (cmd: string): void => {
+    void navigator.clipboard?.writeText(cmd).then(
+      () => {
+        setCopiedCmd(cmd)
+        window.setTimeout(() => setCopiedCmd((c) => (c === cmd ? null : c)), 1500)
+      },
+      () => {}
+    )
+  }
+
   const go = (fn: () => void): void => {
     onClose()
     fn()
@@ -88,6 +101,9 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
     title: string
     done: boolean | null
     body: string
+    /** Advisory steps can't be verified by the app (no provider-auth probe IPC), so
+     *  they render as a neutral to-do with a command — never a false "done"/"missing". */
+    advisory?: boolean
     action?: { label: string; run: () => void }
   }[] = [
     {
@@ -112,6 +128,14 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
       action: { label: 'Open Office', run: () => go(() => app.navigate('office')) }
     },
     {
+      key: 'provider-auth',
+      title: 'Sign in to your provider',
+      done: false,
+      advisory: true,
+      body: 'Your agents run on a provider CLI (Claude, Grok, OpenCode, Copilot) that must be logged in on THIS machine. Run it once in a terminal and follow its login — otherwise a headless loop or “Connect all” fails at runtime with a needs-auth error. The app can’t verify this for you yet.',
+      action: { label: copiedCmd === 'claude' ? 'Copied' : 'Copy “claude”', run: () => copyCmd('claude') }
+    },
+    {
       key: 'agent',
       title: 'Create your first agent',
       done: agents.length > 0,
@@ -120,14 +144,16 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
     }
   ]
 
-  const doneCount = steps.filter((s) => s.done === true).length
+  // Advisory steps aren't verifiable, so they don't count toward the "X of N" tally.
+  const verifiable = steps.filter((s) => !s.advisory)
+  const doneCount = verifiable.filter((s) => s.done === true).length
 
   return (
     <Modal
       open={open}
       onClose={onClose}
       title="Help & getting started"
-      subtitle={`${doneCount} of ${steps.length} steps complete`}
+      subtitle={`${doneCount} of ${verifiable.length} steps complete`}
       width={560}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
@@ -155,6 +181,7 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
               title={s.title}
               body={s.body}
               done={s.done}
+              advisory={s.advisory}
               action={s.action}
             />
           ))}
@@ -260,16 +287,18 @@ function ChecklistRow({
   title,
   body,
   done,
+  advisory,
   action
 }: {
   index: number
   title: string
   body: string
   done: boolean | null
+  advisory?: boolean
   action?: { label: string; run: () => void }
 }): React.JSX.Element {
-  const isDone = done === true
-  const pending = done === null
+  const isDone = done === true && !advisory
+  const pending = done === null && !advisory
   return (
     <div
       style={{
@@ -301,7 +330,7 @@ function ChecklistRow({
           fontWeight: 600
         }}
       >
-        {isDone ? <Icon name="check" size={11} /> : index}
+        {isDone ? <Icon name="check" size={11} /> : advisory ? <Icon name="terminal" size={11} /> : index}
       </span>
       <div style={{ minWidth: 0, flex: 1 }}>
         <div
@@ -317,6 +346,9 @@ function ChecklistRow({
           {title}
           {isDone && (
             <span style={{ fontSize: 'var(--fs-tiny)', fontWeight: 500, color: 'var(--st-running)' }}>Done</span>
+          )}
+          {advisory && (
+            <span style={{ fontSize: 'var(--fs-tiny)', fontWeight: 500, color: 'var(--tx-dim)' }}>Do this once</span>
           )}
           {pending && (
             <span style={{ fontSize: 'var(--fs-tiny)', fontWeight: 500, color: 'var(--tx-dim)' }}>Checking…</span>

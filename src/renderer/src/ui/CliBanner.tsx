@@ -77,7 +77,8 @@ export function CliBanner({
             The AutoDev CLI isn&rsquo;t installed &mdash; agents can&rsquo;t run until it is.
           </div>
           <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-3)', marginTop: 2 }}>
-            Provider CLIs (Grok, Claude) are installed, but the AutoDev runner that drives them is missing.
+            The AutoDev runner that drives your agents is the missing piece — install it, then check
+            your provider CLIs (Claude, Grok) are signed in on this machine.
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>

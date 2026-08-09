@@ -89,6 +89,25 @@ export const MODEL_SUGGESTIONS: Record<string, string[]> = {
 }
 export const modelSuggestionsFor = (p: string): string[] => MODEL_SUGGESTIONS[vendorOf(p)] ?? []
 
+/**
+ * How you authenticate each vendor's CLI on THIS machine. The app cannot yet probe
+ * a provider's signed-in state (there is no such IPC), so onboarding/pre-flight
+ * surfaces show this as an honest advisory — the exact command to run — rather than
+ * asserting a login it can't verify. `label` is the vendor's display name.
+ */
+export interface ProviderAuth {
+  label: string
+  cmd: string
+}
+export const PROVIDER_AUTH: Record<string, ProviderAuth> = {
+  claude: { label: 'Claude', cmd: 'claude' },
+  grok: { label: 'Grok', cmd: 'grok' },
+  opencode: { label: 'OpenCode', cmd: 'opencode auth login' },
+  copilot: { label: 'GitHub Copilot', cmd: 'copilot' }
+}
+export const providerAuthFor = (p: string): ProviderAuth =>
+  PROVIDER_AUTH[vendorOf(p)] ?? { label: vendorOf(p) || p, cmd: vendorOf(p) || p }
+
 /** Folder-safe slug from an agent name, with a stable per-index fallback. */
 export const slugify = (s: string, i: number): string =>
   s

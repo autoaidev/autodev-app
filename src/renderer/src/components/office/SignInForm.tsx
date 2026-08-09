@@ -46,6 +46,12 @@ export interface SignInFormProps {
   width?: number
 }
 
+/** The public Pixel Office host a solo user can sign up on from a standing start,
+ *  and the marketing/sign-up site the create-account link points at when no Server
+ *  URL is set yet — so onboarding never dead-ends on a blank field. */
+const DEFAULT_BASE = 'https://app.pixeloffice.org'
+const PUBLIC_SITE = 'https://pixeloffice.org'
+
 /** http(s)-shape check, mirroring SettingsView2.looksValid — empty is "not yet",
  *  not an error (the Connect button already requires a non-empty base). */
 function urlLooksValid(v: string): boolean {
@@ -138,14 +144,11 @@ export function SignInForm({
     }
   }, [base, baseValid])
 
+  // Never a dead click: open the typed server when it's valid, otherwise the public
+  // Pixel Office site where a solo user (no team/admin) can learn about it and sign up.
   const openOffice = (): void => {
     const b = base.trim()
-    if (b && baseValid) {
-      void window.api.openExternal(b)
-    } else {
-      setTest({ ok: false, msg: 'Enter your Server URL above first, then open it to sign up.' })
-      baseRef.current?.focus()
-    }
+    void window.api.openExternal(b && baseValid ? b : PUBLIC_SITE)
   }
 
   return (
@@ -191,8 +194,8 @@ export function SignInForm({
         <label style={{ display: 'block', marginBottom: 11 }}>
           <span style={fieldLabel}>
             SERVER URL
-            <InfoTip label="Server URL" width={250}>
-              The address of your Pixel Office server, e.g. <code>https://app.pixeloffice.org</code>. Your team admin can give you this. https only — http is allowed for localhost.
+            <InfoTip label="Server URL" width={250} side="left">
+              The address of your Pixel Office server, e.g. <code>https://app.pixeloffice.org</code> (the public host anyone can sign up on), a server your team admin gave you, or your own self-hosted one. https only — http is allowed for localhost.
             </InfoTip>
           </span>
           <input
@@ -208,23 +211,44 @@ export function SignInForm({
             style={{ ...inputStyle, fontFamily: 'var(--font-mono)', borderColor: baseMalformed ? 'var(--st-error-bd)' : 'var(--bd-1)' }}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
-            <button
-              type="button"
-              onClick={() => void testConnection()}
-              disabled={testing || !base.trim()}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                padding: 0,
-                color: base.trim() ? 'var(--accent)' : 'var(--tx-faint)',
-                fontFamily: 'var(--font-sans)',
-                fontSize: 'var(--fs-desc)',
-                fontWeight: 600,
-                cursor: testing || !base.trim() ? 'default' : 'pointer'
-              }}
-            >
-              {testing ? 'Testing…' : 'Test connection'}
-            </button>
+            {base.trim() ? (
+              <button
+                type="button"
+                onClick={() => void testConnection()}
+                disabled={testing}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 'var(--fs-desc)',
+                  fontWeight: 600,
+                  cursor: testing ? 'default' : 'pointer'
+                }}
+              >
+                {testing ? 'Testing…' : 'Test connection'}
+              </button>
+            ) : (
+              // Blank field is a common cold-start; offer the public host in one click
+              // instead of leaving a disabled "Test connection" the novice can't use.
+              <button
+                type="button"
+                onClick={() => onBaseChange(DEFAULT_BASE)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 'var(--fs-desc)',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Use app.pixeloffice.org
+              </button>
+            )}
             {(baseMalformed || test) && (
               <span
                 role="status"
@@ -290,7 +314,8 @@ export function SignInForm({
           {loading ? connectingLabel : submitLabel}
         </Button>
 
-        {/* Built-in create-account line — never a dead click. */}
+        {/* Built-in create-account line — never a dead click. Opens the typed server
+            when valid, otherwise the public Pixel Office site to sign up. */}
         <p style={{ margin: '12px 0 0', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
           New here?{' '}
           <a
@@ -301,7 +326,7 @@ export function SignInForm({
             }}
             style={{ color: 'var(--accent)' }}
           >
-            Open the office
+            {base.trim() && baseValid ? 'Open the office' : 'What is a Pixel Office? Sign up'}
           </a>{' '}
           to create an account.
         </p>

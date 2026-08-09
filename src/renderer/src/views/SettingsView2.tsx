@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Pill, StatusDot, InfoTip } from '@renderer/ui'
+import { providerAuthFor } from '@renderer/lib/providers'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -321,14 +322,21 @@ export function SettingsView2(): JSX.Element {
                 desc={p.value}
                 last={i === PROVIDER_OPTS.length - 1}
               >
-                <span style={S.mutedValue}>recognized</span>
+                {/* Authentication is first-class, not buried in the tooltip: show the
+                    exact login command to run. "recognized" only means the app knows
+                    this provider id — it cannot verify the sign-in state (no probe IPC). */}
+                <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
+                  <span style={S.mutedValue}>recognized</span>
+                  <code style={S.authCmd}>sign in:&nbsp;{providerAuthFor(p.value).cmd}</code>
+                </span>
               </SettingRow>
             ))}
             <div style={{ ...S.helpText, borderTop: 'none', paddingTop: 8 }}>
-              Each provider authenticates through its own CLI on this machine (run{' '}
-              <code>grok</code> / <code>claude</code> and follow its login). The app can’t yet
-              verify which are signed in — if an agent reports a needs-auth error, re-run that
-              provider’s login.
+              <strong style={{ color: 'var(--tx-3)' }}>Authenticate each provider before you run agents.</strong>{' '}
+              Every provider signs in through its own CLI on this machine — run the command shown for
+              each one and follow its login. The app can’t yet verify which are signed in, so if a
+              headless loop or an office “Connect all” reports a needs-auth error, re-run that
+              provider’s login here.
             </div>
           </Section>
 
@@ -712,6 +720,16 @@ const S: Record<string, React.CSSProperties> = {
   },
   errText: { color: 'var(--st-error-bright)', fontSize: 11, marginTop: 8 },
   mutedValue: { fontSize: 11.5, color: 'var(--tx-4)' },
+  authCmd: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10.5,
+    color: 'var(--tx-3)',
+    background: 'var(--bg-input)',
+    border: '1px solid var(--bd-field)',
+    borderRadius: 'var(--r-chip)',
+    padding: '2px 7px',
+    whiteSpace: 'nowrap'
+  },
   notPersistedNote: {
     fontSize: 10.5,
     color: 'var(--tx-5)',

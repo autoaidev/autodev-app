@@ -53,8 +53,28 @@ export function InfoTip({
 }: InfoTipProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
   const wrapRef = React.useRef<HTMLSpanElement>(null)
+  const popRef = React.useRef<HTMLSpanElement>(null)
   const idRef = React.useRef<string>('')
   if (!idRef.current) idRef.current = `infotip-${++uid}`
+
+  // Documented auto-flip: after the popover paints at its preferred `side`, measure
+  // it and flip to the opposite side if it would overflow the viewport horizontally,
+  // so a right-column tip on a narrow window is never clipped. Runs once per open
+  // (deps exclude the resolved side) so a flip can't ping-pong.
+  const [effSide, setEffSide] = React.useState<'right' | 'left'>(side)
+  React.useLayoutEffect(() => {
+    if (!open) {
+      setEffSide(side)
+      return
+    }
+    const el = popRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    const m = 8
+    if (side === 'right' && r.right > window.innerWidth - m) setEffSide('left')
+    else if (side === 'left' && r.left < m) setEffSide('right')
+    else setEffSide(side)
+  }, [open, side, width])
 
   // Close on Escape or an outside click while open.
   React.useEffect(() => {
@@ -116,6 +136,7 @@ export function InfoTip({
 
       {open && (
         <span
+          ref={popRef}
           id={idRef.current}
           role="tooltip"
           onMouseDown={(e) => e.stopPropagation()}
@@ -123,7 +144,7 @@ export function InfoTip({
             position: 'absolute',
             top: '50%',
             transform: 'translateY(-50%)',
-            [side === 'right' ? 'left' : 'right']: 'calc(100% + 8px)',
+            [effSide === 'right' ? 'left' : 'right']: 'calc(100% + 8px)',
             width,
             maxWidth: '80vw',
             zIndex: 2200,
