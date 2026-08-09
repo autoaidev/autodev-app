@@ -83,6 +83,9 @@ export interface AppActions {
    *  pre-fills the target folder (e.g. "turn this session's folder into an agent"). */
   newAgent: (seed?: AgentRef) => void
   toast: (msg: string, err?: boolean) => void
+  /** Open the shared Help & getting-started panel (App owns the open-state).
+   *  Reachable from the AppShell "?" button and the ⌘K command palette. */
+  openHelp: () => void
   stopAll: () => void
   /** Reveal the agents that need attention. App brings the Agents tab forward and
    *  every focusAttention subscriber (AgentsView) selects the first one.
@@ -109,6 +112,8 @@ export interface AppActionsHandlers {
   onNewAgent?: (seed?: AgentRef) => void
   /** Show the global toast (App's `setToast`). */
   onToast?: (msg: string, err?: boolean) => void
+  /** Open the Help & getting-started panel (App's `setHelpOpen(true)`). */
+  onOpenHelp?: () => void
   /** Optional app-side hook that also fires on stopAll (App needs none today). */
   onStopAll?: () => void
   /** Bring the Agents tab forward for a focusAttention (App's `go('agents')`). */
@@ -125,14 +130,14 @@ const AppActionsCtx = createContext<AppActions | null>(null)
 export function AppActionsProvider(
   props: AppActionsHandlers & { children: React.ReactNode }
 ): JSX.Element {
-  const { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention, children } =
+  const { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention, onOpenHelp, children } =
     props
 
   // Keep the latest handlers in a ref so the exposed methods stay referentially
   // stable (the context value never changes identity → no needless re-renders of
   // every consumer when App re-renders with fresh closures).
   const handlers = useRef<AppActionsHandlers>({})
-  handlers.current = { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention }
+  handlers.current = { onNavigate, onOpenAgentTab, onNewAgent, onToast, onStopAll, onFocusAttention, onOpenHelp }
 
   // Subscriber registries for the broadcast intents. Sets so a view can register
   // once and unregister cleanly, mirroring add/removeEventListener.
@@ -156,6 +161,10 @@ export function AppActionsProvider(
 
   const toast = useCallback((msg: string, err?: boolean) => {
     handlers.current.onToast?.(msg, err)
+  }, [])
+
+  const openHelp = useCallback(() => {
+    handlers.current.onOpenHelp?.()
   }, [])
 
   const stopAll = useCallback(() => {
@@ -197,6 +206,7 @@ export function AppActionsProvider(
       openAgent,
       newAgent,
       toast,
+      openHelp,
       stopAll,
       focusAttention,
       subscribeOpenAgent,
@@ -208,6 +218,7 @@ export function AppActionsProvider(
       openAgent,
       newAgent,
       toast,
+      openHelp,
       stopAll,
       focusAttention,
       subscribeOpenAgent,

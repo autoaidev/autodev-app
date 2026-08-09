@@ -31,6 +31,7 @@ export type IconName =
   | 'external'   // open-in-browser arrow
   | 'check'
   | 'trash'
+  | 'help'       // question mark in a circle (Help / getting started)
 
 type Kind = 'stroke' | 'fill'
 
@@ -133,6 +134,10 @@ const G: Record<IconName, Glyph> = {
   trash: {
     vb: '0 0 12 12', kind: 'stroke', sw: 1.3,
     body: <path d="M2.5 3.5h7M4.8 3.5V2.4h2.4v1.1M3.4 3.5l.5 6h4.2l.5-6" />
+  },
+  help: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <><circle cx="7" cy="7" r="5.4" /><path d="M5.3 5.2a1.7 1.7 0 1 1 2.4 1.6c-.5.3-.7.6-.7 1.1v.3" /><circle cx="7" cy="10" r=".55" fill="currentColor" stroke="none" /></>
   }
 }
 

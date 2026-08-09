@@ -1,6 +1,7 @@
 import React from 'react'
 import { SearchInput } from './SearchInput'
 import { StatusDot } from './StatusDot'
+import { IconButton } from './IconButton'
 import { CliBanner } from './CliBanner'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAppActions } from '@renderer/services/appActions'
@@ -224,7 +225,7 @@ export function AppShell({
   const cli = useCliStatus()
   // The "N need you" tally routes through the typed app-actions bus (was a
   // 'redesign:focus-attention' window event); AgentsView subscribes to select.
-  const { focusAttention } = useAppActions()
+  const { focusAttention, openHelp } = useAppActions()
 
   return (
     <div
@@ -290,6 +291,10 @@ export function AppShell({
           )}
           {connectionLabel && <ConnectionPill label={connectionLabel} />}
           {right}
+          {/* Global Help affordance — opens the shared Help & getting-started panel
+              (checklist + shortcuts + docs) through the typed app-actions bus, so a
+              first-time user always has one discoverable entry to guidance. */}
+          <IconButton label="Help & getting started" icon="help" iconSize={13} onClick={openHelp} />
           {rightNav && (
             <NavItem
               label={rightNav.label}

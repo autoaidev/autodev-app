@@ -261,14 +261,72 @@ export function AgentsView(): React.JSX.Element {
                 position: 'absolute',
                 inset: 0,
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                color: 'var(--tx-5)',
-                fontSize: 'var(--fs-meta)',
+                gap: 12,
+                padding: 24,
+                textAlign: 'center',
                 background: 'var(--bg-0)'
               }}
             >
-              Select an agent to see its live work.
+              {agents.length === 0 ? (
+                // First run: no fleet at all. Point at the two real next actions
+                // (spawn an agent, or open the getting-started guide) instead of the
+                // "select an agent" copy that assumes agents already exist.
+                <>
+                  <div style={{ fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)' }}>
+                    Welcome to AutoDev
+                  </div>
+                  <div style={{ maxWidth: 380, fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)', lineHeight: 1.55 }}>
+                    You have no agents yet. Create one to start — describe a task and let AutoDev generate a team, or
+                    spawn a single agent in a folder.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                    <button
+                      type="button"
+                      onClick={() => appActions.newAgent()}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '6px 14px',
+                        borderRadius: 'var(--r-button)',
+                        background: 'var(--accent)',
+                        border: '1px solid transparent',
+                        color: 'var(--tx-onaccent)',
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: 'var(--fs-meta)',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      New agent
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => appActions.openHelp()}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 'var(--r-button)',
+                        background: 'var(--bg-input)',
+                        border: '1px solid var(--bd-1)',
+                        color: 'var(--tx-2)',
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: 'var(--fs-meta)',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Getting started
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <span style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
+                  Select an agent to see its live work.
+                </span>
+              )}
             </div>
           )}
         </div>

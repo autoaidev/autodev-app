@@ -20,6 +20,7 @@ import {
   Checkbox,
   AgentRow
 } from './AgentRow'
+import { useAppActions } from '@renderer/services/appActions'
 
 /**
  * AgentRail — the 262px left rail of the Agent-detail screen (2a): a live filter
@@ -255,6 +256,7 @@ export function AgentRail({
   onAction,
   onBulk
 }: AgentRailProps): React.JSX.Element {
+  const { openHelp } = useAppActions()
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
   const [groupBy, setGroupBy] = React.useState<GroupBy>('office')
@@ -421,11 +423,49 @@ export function AgentRail({
 
       {/* list */}
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '4px 6px 0' }}>
-        {filtered.length === 0 && (
-          <div style={{ padding: '18px 8px', color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
-            No agents match.
-          </div>
-        )}
+        {filtered.length === 0 &&
+          (agents.length === 0 ? (
+            // Genuinely empty fleet (first run) — guide the next action instead of a
+            // bare "No agents match." (which only makes sense when a filter is on).
+            <div
+              style={{
+                margin: '18px 8px 0',
+                padding: '16px 14px',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--bd-card)',
+                borderRadius: 'var(--r-card)',
+                textAlign: 'center'
+              }}
+            >
+              <div style={{ fontSize: 'var(--fs-meta)', fontWeight: 600, color: 'var(--tx-hi)' }}>
+                No agents yet
+              </div>
+              <div style={{ margin: '5px 0 12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
+                Describe what you want built and AutoDev generates a team — or spawn a single agent in a folder.
+              </div>
+              <Button variant="primary" size="sm" block onClick={onNewAgent}>
+                <Icon name="plus" size={11} color="var(--tx-onaccent)" /> Create your first agent
+              </Button>
+              <button
+                type="button"
+                onClick={openHelp}
+                style={{
+                  all: 'unset',
+                  marginTop: 9,
+                  display: 'inline-block',
+                  cursor: 'pointer',
+                  fontSize: 'var(--fs-desc)',
+                  color: 'var(--accent)'
+                }}
+              >
+                Getting started guide
+              </button>
+            </div>
+          ) : (
+            <div style={{ padding: '18px 8px', color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
+              No agents match.
+            </div>
+          ))}
         {groups.map(([key, g]) => {
           const expanded = !collapsed.has(key)
           // Provider is carried once on the header (R2). Show it only when every

@@ -50,3 +50,6 @@ export { CliBanner } from './CliBanner'
 
 export { CommandPalette } from './CommandPalette'
 export type { CommandPaletteProps, Command } from './CommandPalette'
+
+export { InfoTip } from './InfoTip'
+export type { InfoTipProps } from './InfoTip'

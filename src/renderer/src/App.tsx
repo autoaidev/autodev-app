@@ -9,6 +9,7 @@ import { SettingsView2 } from '@renderer/views/SettingsView2'
 import MakeAppView from './MakeAppView'
 import { useFleetCounts } from '@renderer/services/agentStore'
 import { AppActionsProvider } from '@renderer/services/appActions'
+import { HelpPanel } from '@renderer/components/help/HelpPanel'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from './nav'
 
 /**
@@ -70,6 +71,9 @@ export default function App(): JSX.Element {
   const [makeSeedFolder, setMakeSeedFolder] = useState<string | undefined>(undefined)
 
   const [paletteOpen, setPaletteOpen] = useState(false)
+  // Shared Help & getting-started panel — opened from the AppShell "?" button and
+  // the ⌘K palette (both via useAppActions().openHelp → onOpenHelp below).
+  const [helpOpen, setHelpOpen] = useState(false)
 
   const go = useCallback((id: NavId) => {
     setNav(id)
@@ -100,6 +104,13 @@ export default function App(): JSX.Element {
         hint: 'Action',
         keywords: 'spawn create make app team',
         run: () => go('makeapp')
+      },
+      {
+        id: 'help',
+        label: 'Help & getting started',
+        hint: 'Help',
+        keywords: 'onboarding checklist docs tutorial shortcuts keyboard guide',
+        run: () => setHelpOpen(true)
       }
     ],
     [go]
@@ -162,6 +173,7 @@ export default function App(): JSX.Element {
       }}
       onToast={(msg, err) => setToast({ msg, err })}
       onFocusAttention={() => go('agents')}
+      onOpenHelp={() => setHelpOpen(true)}
     >
     <div
       style={{
@@ -224,6 +236,7 @@ export default function App(): JSX.Element {
 
       {toast && <Toast msg={toast.msg} err={toast.err} />}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
+      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
     </AppActionsProvider>
     </CliStatusProvider>

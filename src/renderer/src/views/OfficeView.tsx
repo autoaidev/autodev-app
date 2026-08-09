@@ -440,7 +440,23 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           )}
           {office.loading && !office.loaded && <div style={{ padding: 16, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)' }}>Loading…</div>}
           {office.loaded && grouped.length === 0 && !boxErr && (
-            <div style={{ padding: 16, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)' }}>No offices yet. Create one to get started.</div>
+            <div
+              style={{
+                padding: '16px 14px',
+                background: 'var(--bg-input)',
+                border: '1px solid var(--bd-card)',
+                borderRadius: 'var(--r-card)',
+                textAlign: 'center'
+              }}
+            >
+              <div style={{ fontSize: 'var(--fs-meta)', fontWeight: 600, color: 'var(--tx-hi)' }}>No offices yet</div>
+              <div style={{ margin: '5px 0 12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
+                An office is a shared room your agents join as characters — they can see and message each other.
+              </div>
+              <Button variant="primary" size="sm" block onClick={() => setShowNewOffice(true)}>
+                <Icon name="plus" size={11} /> Create your first office
+              </Button>
+            </div>
           )}
           {grouped.map((g) => (
             <OfficeCard
