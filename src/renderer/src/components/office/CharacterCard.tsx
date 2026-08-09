@@ -1,5 +1,5 @@
 import React from 'react'
-import { StatusDot, AgentAvatar } from '@renderer/ui'
+import { StatusDot, AgentAvatar, IconButton } from '@renderer/ui'
 import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
@@ -30,6 +30,8 @@ export interface CharacterCardProps {
   busy: boolean
   onSelect: () => void
   onOperate: () => void
+  /** Open the SETTINGS editor for this character (provider / model / name). */
+  onSettings?: () => void
 }
 
 export function CharacterCard({
@@ -37,7 +39,8 @@ export function CharacterCard({
   selected,
   busy,
   onSelect,
-  onOperate
+  onOperate,
+  onSettings
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
   const tick = tickFor(agent)
@@ -117,6 +120,18 @@ export function CharacterCard({
           )}
         </div>
         <StatusDot status={dotStatus} glow={connected && tick === 'live'} />
+        {onSettings && (
+          <IconButton
+            label={`Settings for ${agent.name}`}
+            icon="gear"
+            size={22}
+            iconSize={12}
+            onClick={(e) => {
+              e.stopPropagation()
+              onSettings()
+            }}
+          />
+        )}
       </div>
 
       <div

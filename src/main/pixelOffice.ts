@@ -564,6 +564,37 @@ export class PixelOfficeClient {
     return r
   }
 
+  /** One PATCH attempt with the jar's current CSRF token + cookies. */
+  private async doPatch(path: string, body: unknown): Promise<Response> {
+    const before = this.jar.header()
+    const r = await fetchT(`${this.base}${path}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-XSRF-TOKEN': this.jar.xsrf(), Cookie: before },
+      body: JSON.stringify(body)
+    })
+    this.absorbCookies(before, r)
+    return r
+  }
+
+  /** PATCH mirror of postJson: same 419 (stale CSRF) + 401 (session) self-heal. */
+  private async patchJson(path: string, body: unknown): Promise<any> {
+    let r = await this.doPatch(path, body)
+    if (r.status === 419) {
+      try {
+        const before = this.jar.header()
+        const cr = await fetchRetry(`${this.base}/api/csrf-token`, { headers: { Accept: 'application/json', Cookie: before } })
+        this.absorbCookies(before, cr)
+      } catch { /* keep the original 419 below */ }
+      r = await this.doPatch(path, body)
+    }
+    if (r.status === 401) {
+      if (await this.reauth()) r = await this.doPatch(path, body)
+    }
+    if (r.status === 401 || r.status === 419) { this._authed = false; throw new Error('Session expired — reconnect.') }
+    if (!r.ok) throw new Error(`${path} → ${r.status}`)
+    return r.json().catch(() => ({}))
+  }
+
   /** DELETE mirror of postJson: same 419 (stale CSRF) + 401 (session) self-heal. */
   private async deleteJson(path: string): Promise<any> {
     let r = await this.doDelete(path)
@@ -1195,6 +1226,36 @@ export class PixelOfficeClient {
       dbg('bindWorkspaceToOffice: bound', chSlug, '→', dir)
       return { ok: true, slug: chSlug, name: String(ch.name ?? chSlug) }
     } catch (e) { dbg('bindWorkspaceToOffice error', e); return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /**
+   * Update an office character's owner-editable settings — provider family, model,
+   * display name, file-browser toggle — via the flat, owner-scoped
+   * `PATCH /api/agents/{id}` (AgentController::update). This is the SINGLE source of
+   * truth for a character's provider: it persists in the office DB, drives the card
+   * badge on the next poll, AND is what spawnOffice/operate read to launch the loop
+   * with the right `-p` id — so the identity (name/slug/key) is untouched while the
+   * engine changes ("provider-portable identity"). Only the keys present in `patch`
+   * are sent; the server whitelists + validates each.
+   */
+  async updateCharacter(
+    agentId: string,
+    patch: { provider?: string; model?: string; name?: string; fileBrowserEnabled?: boolean }
+  ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const id = String(agentId ?? '').trim()
+    if (!id) return { error: 'No office character id to update.' }
+    const body: Record<string, unknown> = {}
+    if (patch.provider !== undefined) body.provider = String(patch.provider).toLowerCase()
+    if (patch.model !== undefined) body.model = String(patch.model)
+    if (patch.name !== undefined) body.name = String(patch.name)
+    if (patch.fileBrowserEnabled !== undefined) body.fileBrowserEnabled = !!patch.fileBrowserEnabled
+    if (Object.keys(body).length === 0) return { error: 'Nothing to update.' }
+    try {
+      const data = (await this.patchJson(`/api/agents/${encodeURIComponent(id)}`, body))?.data ?? {}
+      dbg('updateCharacter: updated', id, Object.keys(body).join(','))
+      return { ok: true, provider: data.provider, model: data.model, name: data.name }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
   /**

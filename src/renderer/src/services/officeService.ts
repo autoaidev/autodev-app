@@ -103,6 +103,10 @@ type Api = {
   officeAgents: () => Promise<RawOfficeAgent[]>
   officeOffices: () => Promise<Array<{ slug: string; id: number; name: string }>>
   officeSteer: (agentId: string, text: string) => Promise<{ ok?: boolean; error?: string }>
+  officeUpdateCharacter: (
+    agentId: string,
+    patch: { provider?: string; model?: string; name?: string; fileBrowserEnabled?: boolean }
+  ) => Promise<{ ok?: boolean; provider?: string; model?: string; name?: string; error?: string }>
   officeMessages: (
     officeSlug: string,
     agentRef: string
@@ -489,6 +493,45 @@ export function refresh(): Promise<void> {
   return loadAgents()
 }
 
+/**
+ * updateCharacter(agentId, patch) — persist an office character's owner-editable
+ * settings (provider family / model / name / file-browser) via the office API.
+ * On success we OPTIMISTICALLY patch the character in the local store so its card
+ * (provider badge + name) reflects the change immediately — the 8s presence poll
+ * reconciles it — instead of waiting up to 8s for the next fetch. The identity
+ * (id/slug) is preserved: provider-portable identity. Returns the server echo.
+ */
+export async function updateCharacter(
+  agentId: string,
+  patch: { provider?: string; model?: string; name?: string; fileBrowserEnabled?: boolean }
+): Promise<{ ok: true } | { error: string }> {
+  const id = String(agentId ?? '')
+  if (!id) return { error: 'No character selected.' }
+  let r: { ok?: boolean; provider?: string; model?: string; name?: string; error?: string }
+  try {
+    r = await api().officeUpdateCharacter(id, patch)
+  } catch (e) {
+    return { error: String((e as Error)?.message ?? e) }
+  }
+  if (r?.error || !r?.ok) return { error: r?.error || 'Could not save the character.' }
+  // Optimistic local patch — mirror only the fields the user set (server-echoed
+  // where available). Rebuild the folded offices so consumers re-render at once.
+  const nextProvider = patch.provider !== undefined ? (r.provider ?? patch.provider) : undefined
+  const nextModel = patch.model !== undefined ? (r.model ?? patch.model) : undefined
+  const nextName = patch.name !== undefined ? (r.name ?? patch.name) : undefined
+  let changed = false
+  const agents = state.agents.map((a) => {
+    if (a.id !== id) return a
+    const merged: OfficeAgent = { ...a }
+    if (nextProvider !== undefined && merged.provider !== nextProvider) { merged.provider = nextProvider; changed = true }
+    if (nextModel !== undefined && merged.model !== nextModel) { merged.model = nextModel; changed = true }
+    if (nextName !== undefined && nextName !== '' && merged.name !== nextName) { merged.name = nextName; changed = true }
+    return merged
+  })
+  if (changed) emit({ agents, offices: foldOffices(agents) })
+  return { ok: true }
+}
+
 /* ------------------------------------------------------------- imperative --- */
 
 export function getOffices(): OfficeGroup[] {
@@ -503,7 +546,7 @@ export function getConnection(): OfficeConnection {
 
 /* ------------------------------------------------------------------- hooks -- */
 
-const officeActions = { connect, disconnect, reconnect, refresh, setVisible }
+const officeActions = { connect, disconnect, reconnect, refresh, setVisible, updateCharacter }
 
 /**
  * useOffice() — the office list + connection state + actions. See the file header

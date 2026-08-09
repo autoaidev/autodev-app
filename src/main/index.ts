@@ -300,6 +300,10 @@ ipcMain.handle('office:writeSharedMcp', (_e, folder: string, officeSlug: string,
 ipcMain.handle('office:bindWorkspace', (_e, cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser?: boolean) => office.bindWorkspaceToOffice(cwd, officeSlug, want, !!fileBrowser))
 // Delete an office character (agent row) from the pixel office.
 ipcMain.handle('office:deleteAgent', (_e, officeSlug: string, agentId: string) => office.deleteOfficeAgent(officeSlug, agentId))
+// Update an office character's owner-editable settings (provider / model / name /
+// file-browser). Persists to the office DB via PATCH /api/agents/{id}; the badge
+// updates on the next presence poll and the next spawn/operate uses the new engine.
+ipcMain.handle('office:updateCharacter', (_e, agentId: string, patch: { provider?: string; model?: string; name?: string; fileBrowserEnabled?: boolean }) => office.updateCharacter(agentId, patch))
 
 app.whenReady().then(() => {
   createWindow()

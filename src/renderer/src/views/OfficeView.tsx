@@ -3,6 +3,7 @@ import { Button, IconButton, Icon } from '@renderer/ui'
 import TerminalTabs, { OpenTerm } from '../TerminalTabs'
 import { OfficeCard } from '../components/office/OfficeCard'
 import { CharacterCard } from '../components/office/CharacterCard'
+import { CharacterSettingsModal } from '../components/office/CharacterSettingsModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { OfficeRoom } from '../components/office/OfficeRoom'
 import { SignInForm } from '../components/office/SignInForm'
@@ -47,6 +48,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // ── selection ──
   const [selectedSlug, setSelectedSlug] = useState('')
   const [focusedId, setFocusedId] = useState('')
+
+  // ── per-character SETTINGS editor (provider / model / name) ──
+  const [settingsCharId, setSettingsCharId] = useState('')
 
   // ── spawn / operate (progress + action-level errors) ──
   const [operatingId, setOperatingId] = useState('')
@@ -549,6 +553,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   busy={operatingId === a.officeSlug + a.id}
                   onSelect={() => setFocusedId(a.id)}
                   onOperate={() => operate(a)}
+                  onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
                 />
               ))}
               {/* create-character tile — now a real inline create (resolves the numeric
@@ -595,6 +600,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           </>
         )}
       </div>
+
+      {/* Per-character SETTINGS editor — provider / model / name, saved through the
+          office API (officeService.updateCharacter). Resolved from the live list so
+          it always edits the current character (survives polls). */}
+      <CharacterSettingsModal
+        agent={office.agents.find((a) => a.id === settingsCharId) ?? null}
+        open={!!settingsCharId}
+        onClose={() => setSettingsCharId('')}
+      />
     </div>
   )
 }
