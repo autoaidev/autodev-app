@@ -162,9 +162,6 @@ export function AgentsView(): React.JSX.Element {
         case 'setup':
           setConfigPath(p)
           break
-        case 'duplicate':
-          // TODO(redesign): no duplicate-agent api; a Stage-3 flow will clone the folder.
-          break
         case 'remove': {
           const ok = await window.api.confirmDialog(`Remove ${agent.name}?`, `Deletes the workspace folder:\n${p}`)
           if (ok) {
@@ -213,7 +210,6 @@ export function AgentsView(): React.JSX.Element {
     { label: 'Connect to office…', icon: 'office', onClick: () => void onAction('connect', a) },
     { label: 'Setup…', icon: 'gear', onClick: () => void onAction('setup', a) },
     { separator: true },
-    { label: 'Duplicate', icon: 'duplicate', onClick: () => void onAction('duplicate', a) },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => void onAction('remove', a) }
   ]
 

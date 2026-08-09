@@ -382,13 +382,13 @@ export function SettingsView2(): JSX.Element {
             id="mcp"
             innerRef={setRef('mcp')}
             title="MCP"
-            subtitle="Model Context Protocol servers shared with new agents."
+            subtitle="Where Model Context Protocol servers are configured."
           >
-            {/* TODO(redesign): MCP config is authored per-workspace (.mcp.json via
-                officeWriteSharedMcp) — there is no app-global MCP preference api. */}
+            {/* MCP config is authored per agent (.mcp.json), not app-wide — there is
+                no global MCP preference api, so point the user at the real editor. */}
             <div style={S.emptyNote}>
-              MCP servers are configured per office / per workspace, not app-wide. Manage
-              them from an office’s setup. No global MCP preference is stored yet.
+              MCP servers are configured per agent, not app-wide. To add or edit them, open
+              an agent on the Agents tab, then use Inspector → MCP.
             </div>
           </Section>
 

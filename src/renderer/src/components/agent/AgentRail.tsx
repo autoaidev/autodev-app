@@ -38,7 +38,6 @@ export type AgentAction =
   | 'watch'
   | 'connect'
   | 'setup'
-  | 'duplicate'
   | 'remove'
 
 export type BulkAction = 'start' | 'stop' | 'restart' | 'add'
@@ -327,7 +326,6 @@ export function AgentRail({
     { label: 'Connect to office…', icon: 'office', onClick: () => onAction('connect', a) },
     { label: 'Setup…', icon: 'gear', onClick: () => onAction('setup', a) },
     { separator: true },
-    { label: 'Duplicate', icon: 'duplicate', onClick: () => onAction('duplicate', a) },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => onAction('remove', a) }
   ]
 

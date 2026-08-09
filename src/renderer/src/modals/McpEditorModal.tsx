@@ -185,13 +185,44 @@ export function McpEditorModal(props: {
   }, [json, validation.valid])
 
   const addServer = React.useCallback((): void => {
-    // seed a fresh stdio server stub the user can fill in, then scroll them to it.
-    const stub = '"new-server": {\n      "command": "npx",\n      "args": ["-y", ""]\n    }'
-    setNotice('Add the server under "mcpServers" in the JSON below, then Save & recheck.')
-    // best-effort: if the file has an mcpServers object, we hint via notice only —
-    // we do not blindly rewrite the user's JSON structure.
-    void stub
-  }, [])
+    // Insert a minimal, VALID stub server under mcpServers so the button does what
+    // its label says, then focus+select the new key so the user can fill it in.
+    // We only rewrite the JSON when it parses; an invalid buffer is left untouched
+    // (the user must fix syntax first) so we never clobber their edits.
+    let obj: Record<string, unknown>
+    try {
+      const parsed = json.trim() ? JSON.parse(json) : {}
+      obj =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : {}
+    } catch {
+      setNotice('Fix the JSON syntax before adding a server.')
+      return
+    }
+    const cur = obj.mcpServers
+    const servers: Record<string, unknown> =
+      cur && typeof cur === 'object' && !Array.isArray(cur)
+        ? (cur as Record<string, unknown>)
+        : {}
+    // pick a name that doesn't collide with an existing server
+    let name = 'new-server'
+    for (let n = 2; name in servers; n++) name = `new-server-${n}`
+    servers[name] = { command: '', args: [] }
+    obj.mcpServers = servers
+    const next = JSON.stringify(obj, null, 2)
+    setJson(next)
+    setNotice(`Added "${name}" — set its command, then Save & recheck.`)
+    // best-effort: focus the editor and reveal/select the new key.
+    requestAnimationFrame(() => {
+      const ta = document.querySelector('textarea[data-json-editor]') as HTMLTextAreaElement | null
+      if (!ta) return
+      const needle = `"${name}"`
+      const at = next.indexOf(needle)
+      ta.focus()
+      if (at >= 0) ta.setSelectionRange(at, at + needle.length)
+    })
+  }, [json])
 
   const openInEditor = React.useCallback((): void => {
     // TODO(redesign): no "reveal .mcp.json in $EDITOR" api exists; open the

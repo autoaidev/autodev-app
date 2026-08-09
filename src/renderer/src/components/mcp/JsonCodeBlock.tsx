@@ -178,6 +178,7 @@ export function JsonCodeBlock({
           </pre>
           <textarea
             ref={taRef}
+            data-json-editor
             value={value}
             spellCheck={spellCheck}
             onChange={(e) => onChange(e.target.value)}
