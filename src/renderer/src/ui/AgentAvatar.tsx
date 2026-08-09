@@ -31,9 +31,32 @@ export interface AgentAvatarProps {
   dim?: boolean
   /** hide the provider ring (used where provider is shown as an adjacent chip) */
   ring?: boolean
+  /**
+   * The bound office character's REAL pixel-art sprite as an inline `data:` URI
+   * (fetched main-side; the renderer CSP forbids remote images). When the agent is
+   * `online` and this resolves + loads, the tile shows the character's actual face
+   * instead of the initials monogram — with the SAME provider ring + shape + size.
+   * On a load error, or when offline/absent, it falls back to the monogram.
+   */
+  avatarUrl?: string
+  /** The office character's identity color — the tile background behind the sprite. */
+  avatarColor?: string
+  /** Whether the agent is connected/online to its office character. The real sprite
+   *  is only shown when online (offline ⇒ monogram, even if avatarUrl is present). */
+  online?: boolean
   style?: React.CSSProperties
   title?: string
 }
+
+// Sprite-sheet geometry (mirrors pixel-office pixi/engine/gridConfig): each
+// /assets/characters/char_N.png is a 112×96 sheet of 16×32 frames, 7 per row × 3
+// direction rows. The front-facing idle face is frame (col 0, row 0) — we crop to
+// it so the tile shows a portrait, not the whole animation strip. We render the
+// sheet scaled so ONE frame's WIDTH equals the tile size (scale = size / FRAME_W),
+// then clip the tile to the top of that frame (head + torso) — aspect preserved.
+const FRAME_W = 16
+const SHEET_W = 112
+const SHEET_H = 96
 
 export function AgentAvatar({
   name,
@@ -43,6 +66,9 @@ export function AgentAvatar({
   disconnected = false,
   dim = false,
   ring = true,
+  avatarUrl,
+  avatarColor,
+  online,
   style,
   title
 }: AgentAvatarProps): React.JSX.Element {
@@ -55,29 +81,102 @@ export function AgentAvatar({
     : '1px solid transparent'
   // The provider ring is an inset stroke so it never changes the tile's box size.
   const ringShadow = ring && !disconnected ? `inset 0 0 0 1.5px ${accent.ring}` : undefined
+
+  // Show the REAL pixel-art face only when the character is online, has a resolvable
+  // sprite, and that sprite actually loaded — otherwise fall back to the monogram so
+  // an offline / avatar-less / broken-image agent is never a blank or broken tile.
+  const [imgError, setImgError] = React.useState(false)
+  // Reset the broken-image flag when the sprite URL changes, using the "adjust state
+  // during render" pattern (NOT an effect): an effect runs asynchronously after
+  // paint, so a load error that fires before it would be clobbered back to false and
+  // the broken image re-shown. Setting state during render re-renders in place first.
+  const [lastUrl, setLastUrl] = React.useState(avatarUrl)
+  if (avatarUrl !== lastUrl) { setLastUrl(avatarUrl); setImgError(false) }
+  const showReal = !!avatarUrl && online !== false && !disconnected && !imgError
+  // Broken-image → monogram, race-proof. A data: URI can finish (or fail) decoding
+  // BEFORE React attaches its synthetic onLoad/onError, so those events get missed.
+  // Instead, in the ref callback (which runs the instant we hold the node) we (a)
+  // synchronously catch an already-complete image with naturalWidth 0 (broken), and
+  // (b) attach NATIVE load/error listeners for the async path. A genuine failure
+  // fires `error`; a malformed image can instead fire `load` with naturalWidth 0 —
+  // both fall back. Never a blank or broken tile.
+  const imgRef = React.useCallback((el: HTMLImageElement | null) => {
+    if (!el) return
+    const fail = (): void => setImgError(true)
+    const onLoad = (): void => { if (el.naturalWidth === 0) fail() }
+    if (el.complete) { onLoad(); return } // already resolved before this ref ran
+    el.addEventListener('error', fail, { once: true })
+    el.addEventListener('load', onLoad, { once: true })
+  }, [])
+
+  const shell: React.CSSProperties = {
+    width: size,
+    height: size,
+    flex: 'none',
+    borderRadius: 'var(--r-chip)',
+    border,
+    boxShadow: ringShadow,
+    opacity: dim ? 0.68 : 1,
+    userSelect: 'none',
+    overflow: 'hidden',
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  }
+
+  if (showReal) {
+    // Crop to the front-idle frame (col 0, row 0). The full sheet is rendered at
+    // SHEET_COLS×size wide so one frame's WIDTH fills the tile; the tile clips to the
+    // top (head + torso) — reading as an avatar rather than a tiny full body. Pixel
+    // art stays crisp (image-rendering: pixelated). The provider ring is re-drawn as
+    // a top overlay so the sprite can't paint over the inset stroke.
+    return (
+      <span aria-hidden title={title} style={{ ...shell, background: avatarColor || id.bg, ...style }}>
+        <img
+          ref={imgRef}
+          src={avatarUrl}
+          alt=""
+          draggable={false}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            // scale = size / FRAME_W → frame(0,0) is `size` wide; aspect preserved.
+            width: (SHEET_W / FRAME_W) * size,
+            height: (SHEET_H / FRAME_W) * size,
+            imageRendering: 'pixelated',
+            pointerEvents: 'none'
+          }}
+        />
+        {ringShadow && (
+          <span
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: 'var(--r-chip)',
+              boxShadow: ringShadow,
+              pointerEvents: 'none'
+            }}
+          />
+        )}
+      </span>
+    )
+  }
+
   return (
     <span
       aria-hidden
       title={title}
       style={{
-        width: size,
-        height: size,
-        flex: 'none',
-        borderRadius: 'var(--r-chip)',
+        ...shell,
         background: id.bg,
         color: id.fg,
-        border,
-        boxShadow: ringShadow,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
         fontFamily: 'var(--font-mono)',
         fontSize,
         fontWeight: 700,
         letterSpacing: '.01em',
         lineHeight: 1,
-        opacity: dim ? 0.68 : 1,
-        userSelect: 'none',
         ...style
       }}
     >

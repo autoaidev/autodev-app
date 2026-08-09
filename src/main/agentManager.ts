@@ -105,6 +105,12 @@ export interface AgentState {
   officeSlug?: string
   /** The numeric-ish office agent id, resolved from the presence poll. */
   officeAgentId?: string
+  /** The office character's inline pixel-art sprite (`data:image/png…`), resolved
+   *  from the presence poll — present only while the character is office-online, so
+   *  the rail/fleet/detail can show its real face instead of the initials monogram. */
+  officeAvatarUrl?: string
+  /** The office character's identity color (e.g. '#00d4ff'), from the presence poll. */
+  officeColor?: string
 }
 
 const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])
@@ -330,10 +336,10 @@ export class AgentManager extends EventEmitter {
    * be matched by whichever it carries. Returns whether anything actually changed
    * (so the caller can skip a redundant renderer refresh).
    */
-  setOfficeOnline(entries: Array<{ slug?: string; id?: string; online: boolean; status?: string; officeSlug?: string }>): boolean {
-    const next = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string }>()
+  setOfficeOnline(entries: Array<{ slug?: string; id?: string; online: boolean; status?: string; officeSlug?: string; avatarUrl?: string; color?: string }>): boolean {
+    const next = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string; avatarUrl?: string; color?: string }>()
     for (const e of entries) {
-      const v = { online: !!e.online, status: e.status, officeSlug: e.officeSlug, agentId: e.id }
+      const v = { online: !!e.online, status: e.status, officeSlug: e.officeSlug, agentId: e.id, avatarUrl: e.avatarUrl, color: e.color }
       if (e.slug) next.set(String(e.slug).toLowerCase(), v)
       if (e.id) next.set(String(e.id).toLowerCase(), v)
     }
@@ -354,7 +360,7 @@ export class AgentManager extends EventEmitter {
    * embedded in its wsUrl (`…&endpoint=<slug>`) or its settings `agentId`.
    * Undefined when no office is connected or this workspace isn't office-bound.
    */
-  private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string; officeSlug?: string; agentId?: string } | undefined {
+  private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string; officeSlug?: string; agentId?: string; avatarUrl?: string; color?: string } | undefined {
     if (this._officeOnline.size === 0) return undefined
     const slug = this._endpointSlug(wsUrl)
     return (slug ? this._officeOnline.get(slug.toLowerCase()) : undefined)
@@ -455,7 +461,11 @@ export class AgentManager extends EventEmitter {
       // the resolved office slug + agent id only once the office has been polled.
       officeAgentSlug: this._endpointSlug(settings.wsUrl) || (settings.agentId || undefined),
       officeSlug: presence?.officeSlug,
-      officeAgentId: presence?.agentId
+      officeAgentId: presence?.agentId,
+      // Only carry the real avatar while the character is office-online (presence is
+      // undefined when offline), so an offline agent falls back to the monogram.
+      officeAvatarUrl: presence?.avatarUrl,
+      officeColor: presence?.color
     }
   }
 

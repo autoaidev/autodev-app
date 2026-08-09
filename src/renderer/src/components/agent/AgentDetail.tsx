@@ -239,7 +239,7 @@ export function AgentDetail({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flexWrap: 'wrap' }}>
           {/* identity avatar — same hue + provider ring this agent carries in the
               rail and the Fleet table, so the header is recognizably the same object */}
-          <AgentAvatar name={agent.name} idKey={agent.path} provider={agent.provider} size={28} title={agent.name} />
+          <AgentAvatar name={agent.name} idKey={agent.path} provider={agent.provider} size={28} avatarUrl={agent.officeAvatarUrl} avatarColor={agent.officeColor} online={agent.online} title={agent.name} />
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }} title={agent.name}>
             {agent.name}
           </span>

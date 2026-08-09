@@ -54,6 +54,12 @@ export interface AgentState {
   officeAgentSlug?: string
   officeSlug?: string
   officeAgentId?: string
+  /** Inline pixel-art sprite (`data:image/png…`) of the bound office character —
+   *  present only while it is office-online, so the avatar shows the real face
+   *  when connected and falls back to the initials monogram otherwise. */
+  officeAvatarUrl?: string
+  /** The bound office character's identity color (e.g. '#00d4ff'). */
+  officeColor?: string
 }
 
 /** Human, sentence-case label for each activity. */
@@ -365,6 +371,8 @@ export function agentEqual(a: AgentState, b: AgentState): boolean {
     a.exitCode === b.exitCode &&
     a.officeAgentSlug === b.officeAgentSlug &&
     a.officeSlug === b.officeSlug &&
-    a.officeAgentId === b.officeAgentId
+    a.officeAgentId === b.officeAgentId &&
+    a.officeAvatarUrl === b.officeAvatarUrl &&
+    a.officeColor === b.officeColor
   )
 }

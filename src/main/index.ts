@@ -105,7 +105,7 @@ let _officePoll: NodeJS.Timeout | null = null
 async function refreshOfficePresence(): Promise<void> {
   try {
     const ags = await office.listAgents()
-    const changed = manager.setOfficeOnline(ags.map((a) => ({ slug: a.slug, id: a.id, online: a.online, status: a.status, officeSlug: a.officeSlug })))
+    const changed = manager.setOfficeOnline(ags.map((a) => ({ slug: a.slug, id: a.id, online: a.online, status: a.status, officeSlug: a.officeSlug, avatarUrl: a.avatarUrl, color: a.color })))
     if (changed) broadcast('agents:changed', null)
   } catch { /* not connected / offline — leave office presence empty */ }
 }

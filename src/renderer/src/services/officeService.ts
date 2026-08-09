@@ -187,7 +187,9 @@ function agentEqual(a: OfficeAgent, b: OfficeAgent): boolean {
     a.provider === b.provider &&
     a.model === b.model &&
     a.office === b.office &&
-    a.officeSlug === b.officeSlug
+    a.officeSlug === b.officeSlug &&
+    a.avatarUrl === b.avatarUrl &&
+    a.color === b.color
   )
 }
 function agentsEqual(a: OfficeAgent[], b: OfficeAgent[]): boolean {

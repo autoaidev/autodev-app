@@ -154,6 +154,10 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, on
         provider={agent.provider}
         size={22}
         dim={dim}
+        // When the agent is live in its office, show its real pixel-art face.
+        avatarUrl={agent.officeAvatarUrl}
+        avatarColor={agent.officeColor}
+        online={agent.online}
         title={agent.name}
       />
 

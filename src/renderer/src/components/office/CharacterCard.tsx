@@ -89,6 +89,10 @@ export function CharacterCard({
           size={22}
           disconnected={!connected}
           dim={!connected}
+          // Online character → its real pixel-art face; offline → dashed monogram.
+          avatarUrl={agent.avatarUrl}
+          avatarColor={agent.color}
+          online={connected}
           title={agent.name}
         />
         <div style={{ flex: 1, minWidth: 0 }}>

@@ -293,6 +293,10 @@ function FleetRow({
           provider={agent.provider}
           size={22}
           dim={!(agent.running || agent.activity === 'working' || isAttention(agent))}
+          // Live office character → its real pixel-art face; else initials monogram.
+          avatarUrl={agent.officeAvatarUrl}
+          avatarColor={agent.officeColor}
+          online={agent.online}
           title={agent.name}
         />
         <div style={{ minWidth: 0 }}>

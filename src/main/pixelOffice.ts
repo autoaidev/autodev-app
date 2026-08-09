@@ -73,6 +73,17 @@ export interface OfficeAgent {
   provider?: string
   /** Friendly model label if the office knows one yet (Agent::toApiArray 'model'). */
   model?: string
+  /** The pixel-art sprite index (0..6) this character is drawn with in the office
+   *  (Agent::toApiArray 'avatarIndex'). Maps to /assets/characters/char_<idx>.png. */
+  avatarIndex?: number
+  /** The character's chosen identity color (Agent::toApiArray 'color'), e.g. '#00d4ff'. */
+  color?: string
+  /** The character's chosen emoji face (Agent::toApiArray 'emoji'). */
+  emoji?: string
+  /** A ready-to-render `data:image/png;base64,…` of this character's pixel-art
+   *  sprite sheet, fetched + cached main-side (the renderer CSP forbids remote
+   *  images, so we inline it). Undefined when the sprite couldn't be fetched. */
+  avatarUrl?: string
 }
 
 /** One row of an agent's in-office conversation, normalized from the office
@@ -532,6 +543,30 @@ export class PixelOfficeClient {
     } catch { return false }
   }
 
+  // The office draws every character from one of 7 pixel-art sprite SHEETS served
+  // as public static assets (/assets/characters/char_0.png … char_6.png). The
+  // renderer's CSP is `img-src 'self' data:`, so it can't load them cross-origin;
+  // we fetch each sheet ONCE main-side and hand the renderer an inline data: URI it
+  // CAN render. Keyed by the sprite index; a failed fetch caches nothing so a later
+  // poll retries. Sheets are ~4–14KB each, 7 total — negligible + stable.
+  private readonly _spriteCache = new Map<number, string>()
+  private async spriteDataUrl(avatarIndex: unknown): Promise<string | undefined> {
+    if (typeof avatarIndex !== 'number' || !Number.isFinite(avatarIndex)) return undefined
+    const idx = ((Math.trunc(avatarIndex) % 7) + 7) % 7 // office wraps avatarIndex mod CHAR_COUNT (=7)
+    const hit = this._spriteCache.get(idx)
+    if (hit) return hit
+    if (!this.base) return undefined
+    try {
+      const r = await fetchT(`${this.base}/assets/characters/char_${idx}.png`, { headers: { Accept: 'image/png' } }, 8_000)
+      if (!r.ok) return undefined
+      const buf = Buffer.from(await r.arrayBuffer())
+      if (buf.length === 0 || buf.length > 512_000) return undefined // sanity bound
+      const uri = `data:image/png;base64,${buf.toString('base64')}`
+      this._spriteCache.set(idx, uri)
+      return uri
+    } catch { return undefined }
+  }
+
   private async getJson(path: string): Promise<any> {
     const before = this.jar.header()
     const r = await fetchRetry(`${this.base}${path}`, { headers: { Accept: 'application/json', Cookie: before } })
@@ -684,7 +719,15 @@ export class PixelOfficeClient {
           : Array.isArray(ags?.agents) ? ags.agents
           : Array.isArray(ags) ? ags : []
         for (const a of arr) {
-          out.push({ office: o.name, officeSlug: o.slug, id: a.id, name: String(a.name ?? a.slug ?? 'Agent'), slug: a.slug, status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model })
+          const avatarIndex = typeof a.avatarIndex === 'number' ? a.avatarIndex : undefined
+          out.push({
+            office: o.name, officeSlug: o.slug, id: a.id, name: String(a.name ?? a.slug ?? 'Agent'), slug: a.slug,
+            status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model,
+            avatarIndex, color: a.color, emoji: a.emoji,
+            // Inline the pixel-art sprite (CSP-safe data: URI) so both the office
+            // cards AND office-bound local agents can render the character's real face.
+            avatarUrl: await this.spriteDataUrl(avatarIndex)
+          })
         }
       } catch (e) {
         // A 401 here means the session died mid-list — surface it, don't hide it.

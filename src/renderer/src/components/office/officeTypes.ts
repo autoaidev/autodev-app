@@ -17,6 +17,15 @@ export interface OfficeAgent {
   online: boolean
   provider?: string
   model?: string
+  /** Pixel-art sprite index (0..6) the character is drawn with in the office. */
+  avatarIndex?: number
+  /** The character's identity color, e.g. '#00d4ff'. */
+  color?: string
+  /** The character's emoji face. */
+  emoji?: string
+  /** Inline `data:image/png…` of the character's real pixel-art sprite (fetched
+   *  main-side; CSP-safe). Shown when the character is online. */
+  avatarUrl?: string
 }
 
 /**
