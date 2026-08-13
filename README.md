@@ -225,7 +225,7 @@ This app is one repo in the AutoDev / Pixel Office family. Related projects:
 - **autodev-cli** — [autodev-cli](https://github.com/autoaidev/autodev-cli) (repo,
   [npm](https://www.npmjs.com/package/autodev-cli)) — the agent loop + `autodev` CLI this
   app bundles and drives.
-- **agent-vm-deployer** — [agent-vm-deployer](https://github.com/peter-mw/agent-vm-deployer)
+- **agent-vm-deployer** — [agent-vm-deployer](https://github.com/autoaidev/agent-vm-deployer)
   (repo) — spawns agents on SSH / Docker / K8s with managed auth. Live:
   [deployer.pixeloffice.org](https://deployer.pixeloffice.org).
 
