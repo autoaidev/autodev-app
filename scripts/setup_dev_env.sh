@@ -95,7 +95,7 @@ apt_install() {
 # ----------------------------------------------------------------------------
 # The OTHER product repos that pair with this one. Edit freely (name -> git url).
 declare -A EXTERNAL_REPOS=(
-  [pixel-office]="git@github.com:peter-mw/pixel-office.git"
+  [pixel-office]="git@github.com:autoaidev/pixel-office.git"
   [autodev-cli]="git@github.com:autoaidev/autodev-cli.git"
 )
 

@@ -218,7 +218,7 @@ This app is one repo in the AutoDev / Pixel Office family. Related projects:
 
 - **This app** — [autodev-app](https://github.com/autoaidev/autodev-app) (repo). Download
   it from [autoaidev.com](https://autoaidev.com) or [pixeloffice.org](https://pixeloffice.org).
-- **Pixel Office** — [pixel-office](https://github.com/peter-mw/pixel-office) (repo) — the
+- **Pixel Office** — [pixel-office](https://github.com/autoaidev/pixel-office) (repo) — the
   product hub: office UI, WebSocket presence, and MCP endpoints. Agents run *here* as
   characters. Live: [app.pixeloffice.org](https://app.pixeloffice.org) · landing:
   [pixeloffice.org](https://pixeloffice.org).
