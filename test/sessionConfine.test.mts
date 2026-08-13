@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { underProjects } from '../src/main/sessionManager.ts'
+import { underProjects } from '../src/main/sessionConfine.ts'
 
 const root = join(homedir(), '.claude', 'projects')
 

@@ -3,8 +3,9 @@ import { existsSync, readdirSync, readFileSync, statSync, createReadStream, open
 import { execFile } from 'child_process'
 import { watch, FSWatcher } from 'chokidar'
 import { homedir } from 'os'
-import { join, resolve, sep } from 'path'
+import { join } from 'path'
 import { resolveCliJs, nodeRunner } from './cli'
+import { underProjects } from './sessionConfine'
 
 /**
  * Discovers and live-streams Claude Code sessions on this machine.
@@ -38,19 +39,6 @@ export interface SessionMsg {
 }
 
 const claudeDir = (): string => join(homedir(), '.claude')
-
-/**
- * True only when `file` resolves inside ~/.claude/projects — the sole tree that
- * holds session transcripts. `backlog`/`open` are reachable over IPC with an
- * arbitrary string, so without this confinement a compromised renderer could read
- * (or begin tailing) any absolute path on disk. discover() only ever yields files
- * under this root, so every legitimate flow passes.
- */
-export function underProjects(file: string): boolean {
-  const root = resolve(join(claudeDir(), 'projects'))
-  const f = resolve(file)
-  return f === root || f.startsWith(root + sep)
-}
 
 /** sessionId → newest display title, from ~/.claude/history.jsonl. */
 function titleMap(): Map<string, string> {
