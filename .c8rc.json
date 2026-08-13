@@ -1,0 +1,17 @@
+{
+  "all": true,
+  "reporter": ["text", "html", "lcov"],
+  "reports-dir": "coverage",
+  "excludeNodeModules": true,
+  "src": ["src"],
+  "include": ["src/**/*.ts"],
+  "exclude": [
+    "node_modules/**",
+    "test/**",
+    "out/**",
+    "dist/**",
+    "coverage/**",
+    "**/*.d.ts",
+    "**/*.tsx"
+  ]
+}
