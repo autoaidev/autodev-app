@@ -11,3 +11,5 @@ tsconfig.node.tsbuildinfo
 
 # Accompanying AutoDev product repos cloned by setup --with-external (not versioned)
 external/
+/.idea
+*.tsbuildinfo
