@@ -90,8 +90,11 @@ function AgentConfigModal(props: {
   onClose: () => void
   mode?: 'edit' | 'new'
   onCreated?: (path: string) => void
+  /** 'new' mode only — pre-fill the Folder field so the created agent lands in a
+   *  specific place (e.g. "Spawn new agent" from a folder group header). */
+  initialFolder?: string
 }): JSX.Element {
-  const { agentPath, open, onClose, mode = 'edit', onCreated } = props
+  const { agentPath, open, onClose, mode = 'edit', onCreated, initialFolder } = props
   const isNew = mode === 'new'
   const [name, setName] = useState('')
   const [running, setRunning] = useState(false)
@@ -121,7 +124,9 @@ function AgentConfigModal(props: {
     if (isNew) {
       setName(''); setRunning(false); setSessionName('')
       setVendor('claude'); setVariant('interactive')
-      setModel(''); setFileBrowser(false); setFolder('')
+      // Pre-scope to the caller's folder ("Spawn new agent" from a group header)
+      // when provided, else a clean empty field.
+      setModel(''); setFileBrowser(false); setFolder(initialFolder ?? '')
       return
     }
     void (async () => {
@@ -134,7 +139,7 @@ function AgentConfigModal(props: {
     })()
     void window.api.runCli(['config', 'get', 'enableFileBrowser', agentPath])
       .then((r) => setFileBrowser((r.stdout || '').trim() === 'true'))
-  }, [open, agentPath, isNew])
+  }, [open, agentPath, isNew, initialFolder])
 
   // Load the current model whenever the resolved provider (hence model key) changes.
   // 'new' mode keeps `model` as local UI state (nothing persisted to read yet).

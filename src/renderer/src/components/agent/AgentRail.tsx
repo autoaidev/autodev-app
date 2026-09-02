@@ -57,6 +57,19 @@ export interface AgentRailProps {
   onGenerateTeam: () => void
   onAction: (action: AgentAction, agent: AgentState) => void
   onBulk: (action: BulkAction) => void
+  /** Folder group header: start every not-already-running agent in the group. */
+  onRunFolder: (agents: AgentState[]) => void
+  /** Folder group header: open the new-agent modal pre-scoped to `folderDir`
+   *  (the directory that contains the group's agent workspaces). */
+  onSpawnInFolder: (folderDir: string) => void
+}
+
+/** The directory that CONTAINS a group's agent workspaces (path minus its last
+ *  segment) — the folder a "Spawn new agent" lands its new workspace inside. */
+function containingDir(path: string): string {
+  const parts = path.replace(/\/+$/, '').split('/')
+  parts.pop()
+  return parts.join('/')
 }
 
 /** Worst state in a group drives the header dot. */
@@ -127,6 +140,51 @@ function groupKeyFor(a: AgentState, by: GroupBy): { key: string; label: string; 
   return { key: `f:${folder}`, label, sub: officePathLabel(a) }
 }
 
+/** A small square action button on the folder band (Run all / Spawn new agent).
+ *  Stops propagation so it never toggles the header's fold state. */
+function HeaderAction({
+  icon,
+  label,
+  color,
+  disabled,
+  onClick
+}: {
+  icon: 'play' | 'plus'
+  label: string
+  color?: string
+  disabled?: boolean
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation()
+        if (!disabled) onClick()
+      }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 18,
+        height: 18,
+        flex: 'none',
+        borderRadius: 'var(--r-tiny)',
+        background: 'var(--bg-input)',
+        border: '1px solid var(--bd-track)',
+        color: disabled ? 'var(--tx-faint)' : color ?? 'var(--tx-3)',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.5 : 1
+      }}
+    >
+      <Icon name={icon} size={11} color={disabled ? 'var(--tx-faint)' : color} />
+    </button>
+  )
+}
+
 function GroupHeader({
   label,
   sub,
@@ -135,7 +193,10 @@ function GroupHeader({
   expanded,
   onToggleExpand,
   groupChecked,
-  onToggleCheck
+  onToggleCheck,
+  folderActions,
+  onRunFolder,
+  onSpawnInFolder
 }: {
   label: string
   sub: string
@@ -148,8 +209,13 @@ function GroupHeader({
   onToggleExpand: () => void
   groupChecked: 'none' | 'some' | 'all'
   onToggleCheck: () => void
+  /** Show the per-folder Run all / Spawn new agent controls (office grouping only). */
+  folderActions: boolean
+  onRunFolder: () => void
+  onSpawnInFolder: () => void
 }): React.JSX.Element {
   const running = agents.filter((a) => a.running).length
+  const notRunning = agents.length - running
   const [hover, setHover] = React.useState(false)
   // The WHOLE band is the disclosure control (role=button + aria-expanded): a
   // leading chevron + folder glyph, the name in a readable weight, and the count
@@ -242,6 +308,22 @@ function GroupHeader({
         )}
       </div>
       <span style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 'none' }}>
+        {/* Per-folder actions (office grouping only): start every idle agent, and
+            spawn a new agent scoped to this folder. Kept on the GROUP header (never
+            the rows) so the list stays clean; they surface on hover (or while the
+            folder is checked) so a resting list shows no extra chrome. */}
+        {folderActions && (hover || groupChecked !== 'none') && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <HeaderAction
+              icon="play"
+              color="var(--st-running)"
+              disabled={notRunning === 0}
+              label={notRunning === 0 ? 'All agents running' : `Run all (${notRunning})`}
+              onClick={onRunFolder}
+            />
+            <HeaderAction icon="plus" label="Spawn new agent in this folder" onClick={onSpawnInFolder} />
+          </span>
+        )}
         {providerLabel && (
           <span
             style={{
@@ -290,7 +372,9 @@ export function AgentRail({
   onNewAgent,
   onGenerateTeam,
   onAction,
-  onBulk
+  onBulk,
+  onRunFolder,
+  onSpawnInFolder
 }: AgentRailProps): React.JSX.Element {
   const { openHelp } = useAppActions()
   const [query, setQuery] = React.useState('')
@@ -584,6 +668,12 @@ export function AgentRail({
                 }
                 groupChecked={groupCheckState(g.agents)}
                 onToggleCheck={() => toggleGroup(g.agents)}
+                // Run all / Spawn belong to real folder groups only (office
+                // grouping). Under Role/Provider/State a "group" isn't a folder,
+                // so a folder-scoped spawn would be meaningless.
+                folderActions={groupBy === 'office'}
+                onRunFolder={() => onRunFolder(g.agents)}
+                onSpawnInFolder={() => onSpawnInFolder(containingDir(g.agents[0].path))}
               />
               {expanded && (
                 // Indent + a 1px guide line so the rows visibly nest INSIDE the

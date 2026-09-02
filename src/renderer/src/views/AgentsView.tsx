@@ -43,6 +43,9 @@ export function AgentsView(): React.JSX.Element {
   // mode) — a direct "add ONE local agent" path, distinct from the describe→team
   // wizard (reached via "Generate team…" → appActions.newAgent()).
   const [newAgentOpen, setNewAgentOpen] = React.useState(false)
+  // When "Spawn new agent" is invoked from a folder group header, the new-agent
+  // modal opens pre-scoped to that folder (a workspace path seeded inside it).
+  const [newAgentFolder, setNewAgentFolder] = React.useState<string | undefined>(undefined)
   const [mcpPath, setMcpPath] = React.useState<string | null>(null)
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
   // Bulk "Add task" prompt: the checked agents captured at open + the one task
@@ -227,6 +230,32 @@ export function AgentsView(): React.JSX.Element {
     appActions.toast(`Queued task to ${n} agent${n === 1 ? '' : 's'}.`)
   }, [taskPrompt, addTask, appActions])
 
+  // "Run all" on a folder group: start every agent in that folder that isn't
+  // already running, via the SAME canonical start path as the row Start / bulk
+  // Start (actions.start → startAgent with no -p, so each agent's own bound
+  // provider/model is honored). Already-running agents are skipped so it can
+  // never double-start. Fired in parallel and not awaited-in-sequence, so a big
+  // folder doesn't freeze the rail; one fleet reload follows each start.
+  const onRunFolder = React.useCallback((groupAgents: AgentState[]) => {
+    const idle = groupAgents.filter((a) => !a.running)
+    if (idle.length === 0) {
+      appActions.toast('Every agent in that folder is already running.', false)
+      return
+    }
+    idle.forEach((a) => void actions.start(a.path))
+    appActions.toast(`Starting ${idle.length} agent${idle.length === 1 ? '' : 's'}…`)
+  }, [appActions])
+
+  // "Spawn new agent" on a folder group: open the new-agent modal pre-scoped to
+  // this folder so the created workspace lands inside it. `folderDir` is the
+  // directory that contains the group's agents; we seed a distinct subfolder so
+  // the user can Create straight away without re-initializing the container.
+  const onSpawnInFolder = React.useCallback((folderDir: string) => {
+    const dir = folderDir.replace(/\/+$/, '')
+    setNewAgentFolder(dir ? `${dir}/new-agent` : undefined)
+    setNewAgentOpen(true)
+  }, [])
+
   const openMenu = React.useCallback((e: React.MouseEvent, agent: AgentState) => {
     e.preventDefault()
     e.stopPropagation()
@@ -265,10 +294,16 @@ export function AgentsView(): React.JSX.Element {
           onSelect={setSelected}
           checked={checked}
           onCheckedChange={setChecked}
-          onNewAgent={() => setNewAgentOpen(true)}
+          onNewAgent={() => {
+            // The footer "New agent" is unscoped — clear any folder pre-seed.
+            setNewAgentFolder(undefined)
+            setNewAgentOpen(true)
+          }}
           onGenerateTeam={() => appActions.newAgent()}
           onAction={(action, agent) => void onAction(action, agent)}
           onBulk={(action) => void onBulk(action)}
+          onRunFolder={onRunFolder}
+          onSpawnInFolder={onSpawnInFolder}
         />
 
         {/* Center column. AgentDetail stays mounted against displayAgent so its
@@ -407,12 +442,17 @@ export function AgentsView(): React.JSX.Element {
       <AgentConfigModal
         mode="new"
         agentPath=""
+        initialFolder={newAgentFolder}
         open={newAgentOpen}
-        onClose={() => setNewAgentOpen(false)}
+        onClose={() => {
+          setNewAgentOpen(false)
+          setNewAgentFolder(undefined)
+        }}
         onCreated={(p) => {
           refreshAgents()
           setSelected(p)
           setDetailTab('activity')
+          setNewAgentFolder(undefined)
           appActions.toast('Agent added.')
         }}
       />
