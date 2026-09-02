@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { useModelCatalog, modelsForFamily, fmtCtx, vendorOf } from '@renderer/lib/providers'
+import { useModelCatalog, modelsForFamily, isUnknownModel, fmtCtx, vendorOf } from '@renderer/lib/providers'
 import { NativeSelect } from '@renderer/components/NativeSelect'
 
 /**
@@ -53,7 +53,7 @@ export function ModelSelect({ vendor, value, onChange, id, compact }: ModelSelec
   // which would nag mid-type). A non-empty id the catalog doesn't know is NOT
   // blocked — power users need unlisted ids — but we warn it'll be sent verbatim.
   const [touched, setTouched] = useState(false)
-  const unknownCustom = custom && touched && !!value.trim() && !known.has(value.trim())
+  const unknownCustom = custom && touched && isUnknownModel(catalog, vendor, value)
 
   const onSelect = (v: string): void => {
     if (v === CUSTOM) { setForceCustom(true); setTouched(false); return }

@@ -180,7 +180,18 @@ export function BulkModelModal({ open, agents, paths, onClose, onApplied }: Bulk
           {mixed && (
             <div style={{ marginBottom: 12 }}>
               <span style={labelStyle}>Apply a specific model to</span>
-              <NativeSelect value={vendor} onChange={(e) => setVendor(e.target.value)} aria-label="Provider to set the model for">
+              <NativeSelect
+                value={vendor}
+                onChange={(e) => {
+                  // Switching target vendor must not carry a stale Custom id from the
+                  // previous provider (a grok id could otherwise be applied to a claude
+                  // agent). Reset the draft to Provider default; the `key={vendor}` on
+                  // ModelSelect below remounts it so its Custom… input collapses too.
+                  setVendor(e.target.value)
+                  setValue('')
+                }}
+                aria-label="Provider to set the model for"
+              >
                 {vendorCounts.map(([v, n]) => (
                   <option key={v} value={v}>
                     {vendorLabel(v)} — {n} agent{n === 1 ? '' : 's'}
@@ -195,7 +206,11 @@ export function BulkModelModal({ open, agents, paths, onClose, onApplied }: Bulk
           )}
 
           <span style={labelStyle}>Model</span>
-          <ModelSelect vendor={vendor} value={value} onChange={setValue} />
+          {/* key={vendor}: remount on vendor switch so ModelSelect's internal Custom…
+              state resets (dropdown returns to Provider default, no stale raw input).
+              ModelSelect carries the same on-blur "Not a known <provider> model"
+              warning the per-agent picker and Fleet editor show. */}
+          <ModelSelect key={vendor} vendor={vendor} value={value} onChange={setValue} />
 
           <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 8, lineHeight: 1.45 }}>
             {value.trim()

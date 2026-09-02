@@ -155,6 +155,19 @@ export function modelsForFamily(catalog: ModelCatalogEntry[], vendor: string): M
   return modelSuggestionsFor(fam).map((id) => ({ id, label: id }))
 }
 
+/**
+ * True when a non-empty Custom model id isn't in the vendor's catalog — the single
+ * signal behind every picker's "Not a known … model" warning (per-agent ModelSelect,
+ * the Fleet inline editor and the bulk Set-model modal, all via ModelSelect). Empty
+ * ('' = provider default) and known catalog ids are fine. Warn-not-block: an unlisted
+ * id is still allowed (power users need models the catalog doesn't yet list).
+ */
+export function isUnknownModel(catalog: ModelCatalogEntry[], vendor: string, value: string): boolean {
+  const v = value.trim()
+  if (!v) return false
+  return !modelsForFamily(catalog, vendor).some((m) => m.id === v)
+}
+
 // ---------------------------------------------------------------------------
 // Default-model preference — a per-vendor model id the new-agent flows pre-select
 // so a fleet inherits a house model without editing each agent. Persisted app-side
