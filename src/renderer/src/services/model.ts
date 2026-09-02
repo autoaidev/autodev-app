@@ -40,6 +40,10 @@ export interface AgentState {
   path: string
   name: string
   provider?: string
+  /** The persisted per-vendor model id ('' / undefined = provider default), from
+   *  the main-process readState. Surfaced in the rail so the model is visible at a
+   *  glance across the fleet (resolved to a friendly label via the model catalog). */
+  model?: string
   sessionName?: string
   wsUrl?: string
   running: boolean
@@ -204,7 +208,7 @@ export type MetaTone = 'default' | 'amber' | 'red' | 'idle'
  * info anti-pattern flagged in R2 — is gone. When a working row has a live task
  * we surface that instead of the bare id, since it's the most differentiating bit.
  */
-export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: boolean } {
+export function rowMeta(a: AgentState, modelLabel?: string): { text: string; tone: MetaTone; mono: boolean } {
   if (a.activity === 'needs-auth') return { text: 'waiting on you', tone: 'amber', mono: false }
   if (a.activity === 'rate-limited') return { text: a.error || 'rate-limited', tone: 'amber', mono: false }
   if (a.activity === 'stalled') return { text: a.error || 'stalled · no output', tone: 'amber', mono: false }
@@ -219,13 +223,14 @@ export function rowMeta(a: AgentState): { text: string; tone: MetaTone; mono: bo
     return { text: 'idle · all done', tone: 'idle', mono: false }
   if (a.activity === 'working' && a.currentTask)
     return { text: stripTaskHash(a.currentTask), tone: 'default', mono: false }
-  // The distinguishing "provider · shortid" meta (R3). The id is only meaningful
-  // when it's a real trailing hash — for an office folder whose basename IS the
-  // role (…/director), agentIdHash echoes the name, so we suppress the second line
-  // entirely rather than repeat the name. Provider already lives on the group
-  // header, but pairing it with the id here is what actually distinguishes rows.
-  const id = agentIdHash(a.path)
+  // The distinguishing "provider · <model | shortid>" meta (R3). When a non-default
+  // model is set we surface it (resolved to a friendly label by the caller) — the
+  // single most useful differentiator across a large fleet; otherwise fall back to
+  // the trailing id hash. The id/model is suppressed entirely when it would only
+  // echo the name (an office folder whose basename IS the role, …/director).
   const prov = providerShort(a.provider)
+  if (modelLabel) return { text: `${prov} · ${modelLabel}`, tone: 'default', mono: false }
+  const id = agentIdHash(a.path)
   if (id && id.toLowerCase() !== a.name.trim().toLowerCase())
     return { text: `${prov} · ${id}`, tone: 'default', mono: true }
   return { text: '', tone: 'default', mono: true }
@@ -374,6 +379,7 @@ export function agentEqual(a: AgentState, b: AgentState): boolean {
     a.path === b.path &&
     a.name === b.name &&
     a.provider === b.provider &&
+    a.model === b.model &&
     a.sessionName === b.sessionName &&
     a.wsUrl === b.wsUrl &&
     a.running === b.running &&

@@ -39,6 +39,11 @@ export function AgentsView(): React.JSX.Element {
   const [detailTab, setDetailTab] = React.useState<DetailTab>('activity')
 
   const [configPath, setConfigPath] = React.useState<string | null>(null)
+  // Bumped whenever the Setup modal closes so the Inspector's inline Setup rows
+  // re-read the persisted config after a modal Save (see Inspector `configRev`).
+  // The `key={current.path}` on Inspector already remounts all per-agent transient
+  // state when SWITCHING agents; this covers a modal Save on the SAME agent.
+  const [configRev, setConfigRev] = React.useState(0)
   // "+ New agent" opens the single-agent create modal (AgentConfigModal in 'new'
   // mode) — a direct "add ONE local agent" path, distinct from the describe→team
   // wizard (reached via "Generate team…" → appActions.newAgent()).
@@ -418,8 +423,10 @@ export function AgentsView(): React.JSX.Element {
 
         {current && (
           <Inspector
+            key={current.path}
             agent={current}
             todo={todo}
+            configRev={configRev}
             onEditSetup={() => setConfigPath(current.path)}
             onEditMcp={() => setMcpPath(current.path)}
             onWatch={() => setDetailTab('terminal')}
@@ -436,7 +443,16 @@ export function AgentsView(): React.JSX.Element {
         />
       )}
 
-      <AgentConfigModal agentPath={configPath ?? ''} open={configPath != null} onClose={() => setConfigPath(null)} />
+      <AgentConfigModal
+        agentPath={configPath ?? ''}
+        open={configPath != null}
+        onClose={() => {
+          setConfigPath(null)
+          // A Save in this modal doesn't fire a fleet event for model/file-browser,
+          // so nudge the Inspector's inline rows to re-read on close.
+          setConfigRev((r) => r + 1)
+        }}
+      />
       {/* Single-agent create — "+ New agent". On success, refresh the fleet so the
           new agent shows at once (agents:add pushes no `changed` event) and select it. */}
       <AgentConfigModal

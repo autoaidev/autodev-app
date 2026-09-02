@@ -76,6 +76,10 @@ export interface AgentState {
   path: string
   name: string
   provider?: string
+  /** The persisted per-vendor model id ('' / undefined = provider default), read
+   *  from `.autodev/settings.json` so the fleet can show the model at a glance
+   *  without a `config get` per agent. */
+  model?: string
   sessionName?: string
   wsUrl?: string
   running: boolean
@@ -111,6 +115,14 @@ export interface AgentState {
   officeAvatarUrl?: string
   /** The office character's identity color (e.g. '#00d4ff'), from the presence poll. */
   officeColor?: string
+}
+
+// Per-vendor `.autodev/settings.json` model key (mirrors the renderer's MODEL_KEY).
+const MODEL_SETTING_KEY: Record<string, string> = {
+  claude: 'claudeModel',
+  opencode: 'opencodeModel',
+  copilot: 'copilotModel',
+  grok: 'grokModel'
 }
 
 const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])
@@ -442,10 +454,15 @@ export class AgentManager extends EventEmitter {
     // on the same watch/poll cadence that produced this readState — never a second
     // poller. No-op for our own child (streams via child.stdout) and stopped agents.
     this._tailExternal(path, settings.provider, ownProc, running)
+    // Per-vendor model key, mirroring the renderer's MODEL_KEY map. Read from the
+    // already-parsed settings so surfacing the model costs no extra CLI round-trip.
+    const modelKey = MODEL_SETTING_KEY[(settings.provider || '').split('-')[0]] ?? 'claudeModel'
+    const model = (settings[modelKey] || '').trim() || undefined
     return {
       path,
       name: settings.sessionName || basename(path),
       provider: settings.provider,
+      model,
       sessionName: settings.sessionName,
       wsUrl: settings.wsUrl,
       running,

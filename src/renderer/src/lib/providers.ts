@@ -154,6 +154,45 @@ export function modelsForFamily(catalog: ModelCatalogEntry[], vendor: string): M
   return modelSuggestionsFor(fam).map((id) => ({ id, label: id }))
 }
 
+/** Compact context-window hint, e.g. 256000 → "256k", 1_000_000 → "1M". Empty for 0/undefined. */
+export function fmtCtx(n?: number): string {
+  if (!n) return ''
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`
+}
+
+/**
+ * The friendly label for a raw model id within a vendor family, e.g.
+ * (`grok`, `grok-4`) → "Grok 4". Falls back to the raw id when the catalog is
+ * empty (older CLI) or the id is a Custom… value not in the catalog, so a real
+ * setting is never dropped. `withCtx` appends the context hint ("Grok 4 · 256k").
+ */
+export function modelLabel(catalog: ModelCatalogEntry[], vendor: string, id: string, withCtx = false): string {
+  if (!id) return ''
+  const m = modelsForFamily(catalog, vendor).find((x) => x.id === id)
+  if (!m) return id
+  return withCtx && m.contextLimit ? `${m.label} · ${fmtCtx(m.contextLimit)}` : m.label
+}
+
+/** The provider's own default model as a friendly label (from `ModelCatalogEntry.default`),
+ *  or '' when the catalog doesn't name one. */
+export function providerDefaultLabel(catalog: ModelCatalogEntry[], vendor: string): string {
+  const entry = catalog.find((e) => e.family === vendorOf(vendor))
+  if (!entry?.default) return ''
+  return entry.models.find((x) => x.id === entry.default)?.label ?? entry.default
+}
+
+/**
+ * The EFFECTIVE model stated in plain words for an at-a-glance value line:
+ *   - a set model  → "Grok 4 · 256k" (friendly label + context)
+ *   - empty (default) → "Provider default (Grok 4)" when the catalog names one,
+ *                       else a bare "Provider default".
+ */
+export function effectiveModelDisplay(catalog: ModelCatalogEntry[], vendor: string, value: string): string {
+  if (value) return modelLabel(catalog, vendor, value, true)
+  const def = providerDefaultLabel(catalog, vendor)
+  return def ? `Provider default (${def})` : 'Provider default'
+}
+
 /**
  * How you authenticate each vendor's CLI on THIS machine. The app cannot yet probe
  * a provider's signed-in state (there is no such IPC), so onboarding/pre-flight

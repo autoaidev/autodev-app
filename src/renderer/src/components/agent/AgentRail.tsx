@@ -21,6 +21,7 @@ import {
   AgentRow
 } from './AgentRow'
 import { useAppActions } from '@renderer/services/appActions'
+import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
 
 /**
  * AgentRail — the 262px left rail of the Agent-detail screen (2a): a live filter
@@ -43,7 +44,7 @@ export type AgentAction =
 export type BulkAction = 'start' | 'stop' | 'restart' | 'add'
 
 type Filter = 'all' | 'running' | 'attention'
-type GroupBy = 'office' | 'role' | 'provider' | 'state'
+type GroupBy = 'office' | 'role' | 'provider' | 'state' | 'model'
 
 export interface AgentRailProps {
   agents: AgentState[]
@@ -113,10 +114,17 @@ function roleOf(a: AgentState): string {
   return stripped || a.name
 }
 
-function groupKeyFor(a: AgentState, by: GroupBy): { key: string; label: string; sub: string } {
+function groupKeyFor(a: AgentState, by: GroupBy, modelName?: string): { key: string; label: string; sub: string } {
   if (by === 'provider') {
     const p = providerShort(a.provider)
     return { key: `p:${p}`, label: p, sub: 'provider' }
+  }
+  if (by === 'model') {
+    // Partition by the resolved model (friendly label); every default-model agent
+    // collapses into one "Provider default" bucket. Key on the raw id so two
+    // vendors' models never merge under a shared label.
+    const raw = a.model || ''
+    return { key: `m:${a.provider?.split('-')[0] || ''}:${raw || 'default'}`, label: modelName || 'Provider default', sub: 'model' }
   }
   if (by === 'state') {
     return { key: `s:${a.activity}`, label: ACTIVITY_LABEL[a.activity], sub: 'state' }
@@ -190,6 +198,7 @@ function GroupHeader({
   sub,
   agents,
   providerLabel,
+  modelLabel,
   expanded,
   onToggleExpand,
   groupChecked,
@@ -205,6 +214,10 @@ function GroupHeader({
    *  rows never repeat it (R2). Undefined when the group is mixed, or when the
    *  list is already partitioned by provider (the label would be redundant). */
   providerLabel?: string
+  /** Friendly model shared by every agent in the group (uniform-value pattern,
+   *  mirroring providerLabel). Undefined when mixed, when a default model, or when
+   *  already partitioning by model. */
+  modelLabel?: string
   expanded: boolean
   onToggleExpand: () => void
   groupChecked: 'none' | 'some' | 'all'
@@ -324,7 +337,7 @@ function GroupHeader({
             <HeaderAction icon="plus" label="Spawn new agent in this folder" onClick={onSpawnInFolder} />
           </span>
         )}
-        {providerLabel && (
+        {(providerLabel || modelLabel) && (
           <span
             style={{
               fontFamily: 'var(--font-mono)',
@@ -333,10 +346,10 @@ function GroupHeader({
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 52
+              maxWidth: 96
             }}
           >
-            {providerLabel}
+            {[providerLabel, modelLabel].filter(Boolean).join(' · ')}
           </span>
         )}
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
@@ -360,6 +373,7 @@ const GROUP_OPTIONS: { id: GroupBy; label: string }[] = [
   { id: 'office', label: 'Office folder' },
   { id: 'role', label: 'Role' },
   { id: 'provider', label: 'Provider' },
+  { id: 'model', label: 'Model' },
   { id: 'state', label: 'State' }
 ]
 
@@ -377,6 +391,14 @@ export function AgentRail({
   onSpawnInFolder
 }: AgentRailProps): React.JSX.Element {
   const { openHelp } = useAppActions()
+  // The model catalog resolves each agent's raw model id into a friendly label
+  // (one shared, process-cached fetch). Empty until it loads / on an older CLI, in
+  // which case the raw id is shown — the fleet still surfaces the model.
+  const { catalog } = useModelCatalog()
+  const modelNameFor = React.useCallback(
+    (a: AgentState): string => (a.model ? modelLabel(catalog, a.provider || '', a.model) : ''),
+    [catalog]
+  )
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
   const [groupBy, setGroupBy] = React.useState<GroupBy>('office')
@@ -417,13 +439,13 @@ export function AgentRail({
   const groups = React.useMemo(() => {
     const map = new Map<string, { label: string; sub: string; agents: AgentState[] }>()
     for (const a of filtered) {
-      const g = groupKeyFor(a, groupBy)
+      const g = groupKeyFor(a, groupBy, modelNameFor(a))
       const cur = map.get(g.key)
       if (cur) cur.agents.push(a)
       else map.set(g.key, { label: g.label, sub: g.sub, agents: [a] })
     }
     return Array.from(map.entries())
-  }, [filtered, groupBy])
+  }, [filtered, groupBy, modelNameFor])
 
   const toggleCheck = (path: string): void => {
     const next = new Set(checked)
@@ -650,6 +672,12 @@ export function AgentRail({
           // by provider (which would make the header label + this redundant).
           const provs = new Set(g.agents.map((a) => providerShort(a.provider)))
           const providerLabel = groupBy !== 'provider' && provs.size === 1 ? [...provs][0] : undefined
+          // Shared MODEL on the header when every agent in the group runs the same
+          // non-default model (uniform-value pattern, mirroring providerLabel).
+          // Suppressed while grouping by model (the header label already is it).
+          const models = new Set(g.agents.map((a) => modelNameFor(a)))
+          const onlyModel = models.size === 1 ? [...models][0] : ''
+          const uniformModel = groupBy !== 'model' && onlyModel ? onlyModel : undefined
           return (
             <div key={key} style={{ marginBottom: 4 }}>
               <GroupHeader
@@ -657,6 +685,7 @@ export function AgentRail({
                 sub={g.sub}
                 agents={g.agents}
                 providerLabel={providerLabel}
+                modelLabel={uniformModel}
                 expanded={expanded}
                 onToggleExpand={() =>
                   setCollapsed((prev) => {
@@ -694,6 +723,7 @@ export function AgentRail({
                       checked={checked.has(a.path)}
                       onSelect={() => onSelect(a.path)}
                       onToggleCheck={() => toggleCheck(a.path)}
+                      modelLabel={modelNameFor(a)}
                       onMenu={openMenu}
                     />
                   ))}

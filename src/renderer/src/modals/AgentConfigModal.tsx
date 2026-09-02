@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Modal, Button, SegmentedTabs } from '@renderer/ui'
 import { McpEditorModal } from './McpEditorModal'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { NativeSelect } from '@renderer/components/NativeSelect'
 import { actions } from '@renderer/services/agentStore'
 
 /**
@@ -73,7 +74,6 @@ const inputStyle: React.CSSProperties = {
   width: '100%', background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)',
   color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', padding: '7px 9px', outline: 'none'
 }
-const selectStyle: React.CSSProperties = { ...inputStyle, appearance: 'none', cursor: 'pointer' }
 
 /**
  * `mode`:
@@ -305,13 +305,18 @@ function AgentConfigModal(props: {
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <div style={{ flex: 1 }}>
             <span style={label}>Engine</span>
-            <select value={vendor} onChange={(e) => changeVendor(e.target.value)} style={selectStyle}>
+            <NativeSelect value={vendor} onChange={(e) => changeVendor(e.target.value)}>
               {VENDORS.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
-            </select>
+            </NativeSelect>
           </div>
           <div style={{ flex: 1 }}>
             <span style={label}>Model</span>
             <ModelSelect vendor={vendor} value={model} onChange={setModel} />
+            {/* Mirror the inline row's "saves on select": in the modal, model (like
+                every field) is batched behind the explicit Save/Create button. */}
+            <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5 }}>
+              {isNew ? 'Applies when you Create' : 'Applies when you Save'}
+            </div>
           </div>
         </div>
 

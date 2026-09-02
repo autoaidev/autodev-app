@@ -8,6 +8,7 @@ import { useSessionActions } from '@renderer/services/sessionsService'
 import type { SessionMeta } from '@renderer/components/sessions/types'
 import type { TodoItem, AgentTasks } from './useAgentTasks'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { useModelCatalog, effectiveModelDisplay } from '@renderer/lib/providers'
 import { actions } from '@renderer/services/agentStore'
 
 /**
@@ -311,7 +312,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
   )
 }
 
-function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; onEditSetup: () => void; onEditMcp: () => void }): React.JSX.Element {
+function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: AgentState; configRev: number; onEditSetup: () => void; onEditMcp: () => void }): React.JSX.Element {
   const [model, setModel] = React.useState('')
   const [modelBusy, setModelBusy] = React.useState(false)
   const [modelNote, setModelNote] = React.useState('')
@@ -320,19 +321,40 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
 
   const running = !!(agent.running || agent.activity === 'working')
 
+  // The live model catalog resolves the raw persisted id into the effective model
+  // stated in plain words ("Grok 4 · 256k", or "Provider default (Grok 4)") — the
+  // value line, so the current model is legible at a glance without decoding an id.
+  const { catalog } = useModelCatalog()
+  const effective = effectiveModelDisplay(catalog, agent.provider || '', model)
+
+  // The transient note is a right-aligned micro-status, not a replacement for the
+  // value line. Success fades after ~2s back to the "saves on select" hint;
+  // "restart to apply" is the ONE sticky note (it stays until the live loop is
+  // bounced). A timer ref lets a fresh change cancel a pending fade.
+  const noteTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const flashNote = React.useCallback((msg: string, sticky = false): void => {
+    if (noteTimer.current) clearTimeout(noteTimer.current)
+    setModelNote(msg)
+    if (msg && !sticky) noteTimer.current = setTimeout(() => setModelNote(''), 2000)
+  }, [])
+  React.useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current) }, [])
+
   // Inline 1-click model change. This is a deliberate quick-select control: picking
-  // a model COMMITS immediately (the label carries a persistent "saves on select"
+  // a model COMMITS immediately (the row carries a persistent "saves on select"
   // hint so this isn't a surprise), unlike the multi-field Setup modal which batches
   // behind an explicit Save. Since a model only takes effect on (re)start, we surface
-  // an honest "restart to apply" with a Restart affordance when the loop is live.
+  // an honest, sticky "restart to apply" + a Restart button when the loop is live.
   const changeModel = (v: string): void => {
     setModel(v)
-    setModelBusy(true); setModelNote('')
+    setModelBusy(true); flashNote('')
     void window.api
       .runCli(['config', 'set', modelKeyFor(agent.provider), v, agent.path])
-      .then((r: { code?: number; stderr?: string }) =>
-        setModelNote(r?.code !== 0 ? (r?.stderr || 'save failed') : running ? 'restart to apply' : 'saved'))
-      .catch(() => setModelNote('save failed'))
+      .then((r: { code?: number; stderr?: string }) => {
+        if (r?.code !== 0) flashNote(r?.stderr || 'save failed')
+        else if (running) flashNote('restart to apply', true)
+        else flashNote('saved')
+      })
+      .catch(() => flashNote('save failed'))
       .finally(() => setModelBusy(false))
   }
   // Restart via the canonical store action (stop → settle gap → start). A raw
@@ -340,11 +362,11 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
   // still-live child and no-ops as `alreadyRunning`, never restarting. start() with
   // no `-p` re-reads the provider/model we just persisted.
   const restart = (): void => {
-    setModelBusy(true); setModelNote('')
+    setModelBusy(true); flashNote('')
     void actions
       .restart(agent.path)
-      .then(() => setModelNote('restarting — applies now'))
-      .catch(() => setModelNote('restart failed'))
+      .then(() => flashNote('restarting — applies now'))
+      .catch(() => flashNote('restart failed'))
       .finally(() => setModelBusy(false))
   }
 
@@ -370,7 +392,11 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
     return () => {
       live = false
     }
-  }, [agent.path, agent.provider])
+    // configRev bumps when the Setup modal closes, so a model/provider/file-browser
+    // change made in the modal re-reads here — the inline row can never show a value
+    // stale relative to a modal Save on the SAME agent (the `key` remount only
+    // covers switching BETWEEN agents).
+  }, [agent.path, agent.provider, configRev])
 
   // Reconcile the Office row with the ONE live session truth (R6) so SETUP can never
   // read "connected" while the detail header shows "office session expired". Mirrors
@@ -394,22 +420,35 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
     <div style={{ padding: '13px 15px' }}>
       <SectionLabel right={<LinkBtn onClick={onEditSetup}>Edit…</LinkBtn>}>Setup</SectionLabel>
       <KeyValueRow k="Provider" v={providerShort(agent.provider)} />
-      {/* MODEL — at-a-glance current model AND a 1-click inline change (no modal). */}
+      {/* MODEL — the value line ALWAYS states the effective model in plain words; the
+          transient status (saved / restart to apply) sits to its right and never
+          replaces it. A 1-click inline change lives in the dropdown below. */}
       <div style={{ padding: '5px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 5 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
           <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-4)' }}>Model</span>
-          {modelNote ? (
-            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)' }}>
+          {/* value line — the effective model, always legible (never a status word) */}
+          <span
+            title={effective}
+            style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: 'var(--tx-hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
+            {effective}
+          </span>
+          {/* right-aligned micro-status: a real Restart button while running+unapplied,
+              else the transient note, else the persistent auto-save hint. */}
+          {running && modelNote === 'restart to apply' ? (
+            <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)', whiteSpace: 'nowrap' }}>restart to apply</span>
+              <Button size="sm" variant="secondary" onClick={restart} disabled={modelBusy}>Restart</Button>
+            </span>
+          ) : modelNote ? (
+            <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)', whiteSpace: 'nowrap' }}>
               {modelNote}
-              {running && modelNote === 'restart to apply' && (
-                <> · <button type="button" onClick={restart} disabled={modelBusy} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)', textDecoration: 'underline' }}>Restart</button></>
-              )}
             </span>
           ) : (
             // Persistent affordance: make the auto-save explicit BEFORE interaction so
             // committing-on-select isn't a surprise (the Setup modal batches; this
             // inline control saves instantly).
-            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: 'var(--tx-faint)' }}>saves on select</span>
+            <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: 'var(--tx-faint)', whiteSpace: 'nowrap' }}>saves on select</span>
           )}
         </div>
         <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />
@@ -442,13 +481,16 @@ export interface InspectorProps {
   agent: AgentState
   /** the ONE reconciled task truth (shared with the AgentDetail header) */
   todo: AgentTasks
+  /** bumps whenever the Setup modal closes, so the inline Setup rows re-read the
+   *  persisted config after a modal Save (the value can't go stale on this agent). */
+  configRev: number
   onEditSetup: () => void
   onEditMcp: () => void
   /** jump the center pane to the Terminal tab (Watch live) */
   onWatch: () => void
 }
 
-export function Inspector({ agent, todo, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
+export function Inspector({ agent, todo, configRev, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
   return (
     <div
       style={{
@@ -495,7 +537,7 @@ export function Inspector({ agent, todo, onEditSetup, onEditMcp, onWatch }: Insp
       </div>
       <TodoSection agent={agent} todo={todo} />
       <SessionSection agent={agent} onWatch={onWatch} />
-      <SetupSection agent={agent} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />
+      <SetupSection agent={agent} configRev={configRev} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />
     </div>
   )
 }

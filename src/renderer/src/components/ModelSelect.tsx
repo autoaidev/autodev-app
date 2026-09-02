@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
-import { useModelCatalog, modelsForFamily } from '@renderer/lib/providers'
+import { useModelCatalog, modelsForFamily, fmtCtx } from '@renderer/lib/providers'
+import { NativeSelect } from '@renderer/components/NativeSelect'
 
 /**
  * ModelSelect — the SINGLE model picker used by both the local Agent setup modal
@@ -20,16 +21,10 @@ import { useModelCatalog, modelsForFamily } from '@renderer/lib/providers'
 
 const CUSTOM = '__custom__'
 
-const fmtCtx = (n?: number): string => {
-  if (!n) return ''
-  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(n % 1_000_000 ? 1 : 0)}M` : `${Math.round(n / 1000)}k`
-}
-
 const inputStyle: React.CSSProperties = {
   width: '100%', background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-input)',
   color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', padding: '7px 9px', outline: 'none'
 }
-const selectStyle: React.CSSProperties = { ...inputStyle, appearance: 'none', cursor: 'pointer' }
 const customInputStyle: React.CSSProperties = { ...inputStyle, marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)' }
 
 export interface ModelSelectProps {
@@ -60,11 +55,9 @@ export function ModelSelect({ vendor, value, onChange, id, compact }: ModelSelec
     onChange(v)
   }
 
-  const s = compact ? { ...selectStyle, padding: '4px 7px', fontSize: 'var(--fs-meta)' } : selectStyle
-
   return (
     <div>
-      <select id={id} value={custom ? CUSTOM : value} onChange={(e) => onSelect(e.target.value)} style={s} aria-label="Model">
+      <NativeSelect id={id} compact={compact} value={custom ? CUSTOM : value} onChange={(e) => onSelect(e.target.value)} aria-label="Model">
         <option value="">Provider default</option>
         {models.map((m) => (
           <option key={m.id} value={m.id}>
@@ -72,7 +65,7 @@ export function ModelSelect({ vendor, value, onChange, id, compact }: ModelSelec
           </option>
         ))}
         <option value={CUSTOM}>Custom…</option>
-      </select>
+      </NativeSelect>
       {custom && (
         <input
           value={value}

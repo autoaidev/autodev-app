@@ -93,12 +93,15 @@ export interface AgentRowProps {
   checked: boolean
   onSelect: () => void
   onToggleCheck: () => void
+  /** Friendly model label (e.g. "Grok 4") resolved from the catalog by the rail;
+   *  shown in the meta line when a non-default model is set. Undefined = default. */
+  modelLabel?: string
   /** open the context menu at the cursor (right-click OR inline ···) */
   onMenu: (e: React.MouseEvent, agent: AgentState) => void
 }
 
-export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, onMenu }: AgentRowProps): React.JSX.Element {
-  const meta = rowMeta(agent)
+export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, modelLabel, onMenu }: AgentRowProps): React.JSX.Element {
+  const meta = rowMeta(agent, modelLabel)
   const dim = isDim(agent)
   const dot: DotStatus = agent.activity
   const showCount = !(agent.activity === 'idle' && agent.tasks.remaining === 0)
