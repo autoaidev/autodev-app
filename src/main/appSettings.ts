@@ -9,8 +9,15 @@
  *    base there would mean "log out → silently reset your configured server".
  *    A standalone file survives logout and account switches.
  *
- * Shape is intentionally extensible (`{ officeBaseUrl?: string }`) but only the
- * base URL is stored today. A tiny in-memory cache is busted on every write.
+ * Shape is intentionally extensible. Two preferences are stored today:
+ *  - `officeBaseUrl` — the Pixel Office server URL (see above).
+ *  - `defaultModels` — a per-vendor default model id (`{ claude: 'claude-opus-4-8',
+ *    grok: 'grok-4', … }`) the new-agent flows pre-select so a fleet inherits a
+ *    house model without editing each agent. Empty/absent for a vendor = the
+ *    provider's own default (today's behavior). It is a UI seed only — the app
+ *    writes the resolved model per workspace at create time; nothing here changes
+ *    the CLI or an existing agent.
+ * A tiny in-memory cache is busted on every write.
  */
 import { app } from 'electron'
 import { join } from 'path'
@@ -18,7 +25,7 @@ import { existsSync, readFileSync, writeFileSync, chmodSync } from 'fs'
 import { isSecureBaseUrl } from './officeSanitize'
 import { DEFAULT_OFFICE_BASE } from './pixelOffice'
 
-interface AppSettings { officeBaseUrl?: string }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string> }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -56,9 +63,15 @@ export function getOfficeBaseUrl(): string {
   return v && v.trim() ? trimUrl(v) : DEFAULT_OFFICE_BASE
 }
 
+/** The per-vendor default model map (a fresh copy; `{}` when none configured). */
+export function getDefaultModels(): Record<string, string> {
+  const m = load().defaultModels
+  return m && typeof m === 'object' ? { ...m } : {}
+}
+
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string } {
-  return { officeBaseUrl: getOfficeBaseUrl() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string> } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels() }
 }
 
 /**
@@ -79,4 +92,43 @@ export function setOfficeBaseUrl(url: string): { ok: true; officeBaseUrl: string
   }
   persist({ ...load(), officeBaseUrl: trimmed })
   return { ok: true, officeBaseUrl: trimmed }
+}
+
+/**
+ * Merge a per-vendor default-model patch. Each entry with a non-empty id SETS
+ * that vendor's default; an empty/absent id CLEARS it (back to provider default).
+ * Vendors not present in the patch are left untouched.
+ */
+export function setDefaultModels(patch: Record<string, string>): Record<string, string> {
+  const cur = getDefaultModels()
+  for (const [vendor, id] of Object.entries(patch ?? {})) {
+    const v = String(vendor || '').trim()
+    if (!v) continue
+    const val = String(id ?? '').trim()
+    if (val) cur[v] = val
+    else delete cur[v]
+  }
+  persist({ ...load(), defaultModels: cur })
+  return cur
+}
+
+/**
+ * The single settings writer the renderer's `setSettings` IPC drives. Applies
+ * ONLY the keys present in the patch — so saving default models never resets the
+ * office URL, and vice versa (`'key' in patch` distinguishes "clear to default"
+ * from "left untouched"). Returns the fully-resolved settings.
+ */
+export function updateSettings(
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string> }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string> } | { error: string } {
+  if (patch && typeof patch === 'object') {
+    if ('officeBaseUrl' in patch) {
+      const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
+      if ('error' in r) return r
+    }
+    if ('defaultModels' in patch && patch.defaultModels && typeof patch.defaultModels === 'object') {
+      setDefaultModels(patch.defaultModels)
+    }
+  }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels() }
 }

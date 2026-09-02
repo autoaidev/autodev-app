@@ -1,5 +1,7 @@
-import React from 'react'
+import React, { useMemo, useRef, useState } from 'react'
 import { Icon, StatusDot, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { ModelSelect } from '@renderer/components/ModelSelect'
+import { useModelCatalog, effectiveModelDisplay, modelsForFamily, type ModelCatalogEntry } from '@renderer/lib/providers'
 import { providerAccent } from '@renderer/services/identity'
 import {
   AgentState,
@@ -34,9 +36,10 @@ function rowSpine(a: AgentState): string {
  * template is derived from `showElapsed`.
  */
 function gridFor(showElapsed: boolean): string {
+  // checkbox · AGENT · OFFICE · STATE · MODEL · CURRENT TASK · TASKS · [ELAPSED] · ACTION
   return showElapsed
-    ? '14px 190px 130px 110px minmax(0,1fr) 88px 78px 60px'
-    : '14px 190px 130px 110px minmax(0,1fr) 88px 60px'
+    ? '14px 180px 112px 100px 132px minmax(0,1fr) 84px 72px 56px'
+    : '14px 180px 112px 100px 132px minmax(0,1fr) 84px 56px'
 }
 const COL_GAP = 14
 const ROW_PAD = '10px 12px'
@@ -177,10 +180,114 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
   )
 }
 
+/**
+ * MODEL cell (#10) — the agent's effective model, click-to-edit in place. At rest
+ * it's a text button (effectiveModelDisplay: a set model with its context, else
+ * "Provider default (…)"). Clicking swaps in the shared ModelSelect for that row's
+ * provider; choosing a value persists via the SAME `config set <vendorKey>` path as
+ * Setup, then collapses back. Only the row being edited mounts a select, so a
+ * 42-agent table stays light. stopPropagation keeps a click off the row's onOpen.
+ */
+function ModelCell({
+  a,
+  catalog,
+  onSet
+}: {
+  a: AgentState
+  catalog: ModelCatalogEntry[]
+  onSet: (a: AgentState, id: string) => Promise<void> | void
+}): React.JSX.Element {
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  // A local draft while editing so a controlled ModelSelect reflects typing at once
+  // (the persisted `a.model` only updates on the next store poll). A discrete pick
+  // (a catalog option or "Provider default") saves + collapses immediately; a typed
+  // Custom id saves on a short debounce and on blur, so we neither spam `config set`
+  // per keystroke nor collapse mid-type.
+  const [draft, setDraft] = useState('')
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const vendor = a.provider || ''
+  const known = useMemo(() => new Set(modelsForFamily(catalog, vendor).map((m) => m.id)), [catalog, vendor])
+
+  const commit = async (id: string, collapse: boolean): Promise<void> => {
+    setSaving(true)
+    await onSet(a, id)
+    setSaving(false)
+    if (collapse) setEditing(false)
+  }
+
+  if (editing) {
+    return (
+      <div
+        style={{ minWidth: 0 }}
+        onClick={(e) => e.stopPropagation()}
+        onBlur={(e) => {
+          // Focus left the whole picker → flush any pending custom save + collapse.
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+          if (debounce.current) {
+            clearTimeout(debounce.current)
+            debounce.current = null
+            void onSet(a, draft)
+          }
+          setEditing(false)
+        }}
+      >
+        <ModelSelect
+          compact
+          vendor={vendor}
+          value={draft}
+          onChange={(id) => {
+            setDraft(id)
+            if (debounce.current) {
+              clearTimeout(debounce.current)
+              debounce.current = null
+            }
+            // '' (Provider default) or a known catalog id is a discrete pick.
+            if (id === '' || known.has(id)) void commit(id, true)
+            else debounce.current = setTimeout(() => void commit(id, false), 500)
+          }}
+        />
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      className="fleet-linkbtn"
+      title="Change model"
+      disabled={saving}
+      onClick={(e) => {
+        e.stopPropagation()
+        setDraft(a.model || '')
+        setEditing(true)
+      }}
+      style={{
+        display: 'block',
+        width: '100%',
+        minWidth: 0,
+        textAlign: 'left',
+        background: 'transparent',
+        border: 'none',
+        padding: '2px 4px',
+        borderRadius: 'var(--r-tiny)',
+        color: a.model ? 'var(--tx-2)' : 'var(--tx-5)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 'var(--fs-meta)',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        cursor: 'pointer'
+      }}
+    >
+      {effectiveModelDisplay(catalog, vendor, a.model || '')}
+    </button>
+  )
+}
+
 /* ---------------------------------- header -------------------------------- */
 
 function headCols(showElapsed: boolean): string[] {
-  const base = ['', 'AGENT', 'OFFICE', 'STATE', 'CURRENT TASK', 'TASKS']
+  const base = ['', 'AGENT', 'OFFICE', 'STATE', 'MODEL', 'CURRENT TASK', 'TASKS']
   return showElapsed ? [...base, 'ELAPSED', ''] : [...base, '']
 }
 
@@ -228,6 +335,8 @@ export interface FleetRowProps {
   elapsed: string
   elapsedColor: string
   action: RowAction
+  catalog: ModelCatalogEntry[]
+  onSetModel: (a: AgentState, id: string) => Promise<void> | void
   onToggleSelect: () => void
   onOpen: () => void
 }
@@ -239,6 +348,8 @@ function FleetRow({
   elapsed,
   elapsedColor,
   action,
+  catalog,
+  onSetModel,
   onToggleSelect,
   onOpen
 }: FleetRowProps): React.JSX.Element {
@@ -354,6 +465,9 @@ function FleetRow({
       {/* STATE */}
       <StateBadge a={agent} />
 
+      {/* MODEL (click-to-edit) */}
+      <ModelCell a={agent} catalog={catalog} onSet={onSetModel} />
+
       {/* CURRENT TASK (ellipsis) */}
       <span
         style={{
@@ -436,6 +550,8 @@ export interface FleetTableProps {
   selected: Set<string>
   elapsedFor: (a: AgentState) => { text: string; color: string }
   actionFor: (a: AgentState) => RowAction
+  /** Persist a row's model (#10) — same `config set <vendorKey>` path as Setup. */
+  onSetModel: (a: AgentState, id: string) => Promise<void> | void
   onToggleSelect: (path: string) => void
   onOpen: (path: string) => void
 }
@@ -445,12 +561,15 @@ export function FleetTable({
   selected,
   elapsedFor,
   actionFor,
+  onSetModel,
   onToggleSelect,
   onOpen
 }: FleetTableProps): React.JSX.Element {
   // Drop the ELAPSED column entirely when nothing is running — otherwise it's a
   // full column of "—". It reappears the moment any agent starts working.
   const showElapsed = anyRunning(agents)
+  // One shared catalog fetch for the whole table (resolves each row's model label).
+  const { catalog } = useModelCatalog()
   return (
     <div role="table" aria-label="Fleet agents" style={{ minWidth: 0 }}>
       <HeaderRow showElapsed={showElapsed} />
@@ -478,6 +597,8 @@ export function FleetTable({
               elapsed={el.text}
               elapsedColor={el.color}
               action={actionFor(a)}
+              catalog={catalog}
+              onSetModel={onSetModel}
               onToggleSelect={() => onToggleSelect(a.path)}
               onOpen={() => onOpen(a.path)}
             />

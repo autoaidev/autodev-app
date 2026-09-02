@@ -4,6 +4,7 @@ import { McpEditorModal } from './McpEditorModal'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { NativeSelect } from '@renderer/components/NativeSelect'
 import { actions } from '@renderer/services/agentStore'
+import { fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
 
 /**
  * SCREEN 2e — Agent Setup, demoted from a whole tab to a modal.
@@ -110,6 +111,10 @@ function AgentConfigModal(props: {
   const [timeout, setTimeoutMin] = useState(30)
   const [retry, setRetry] = useState(true)
   const [mcp, setMcp] = useState<{ configured: number; missing: string[] } | null>(null)
+  // #8 — the per-provider default-model preference (Settings). 'new' mode pre-selects
+  // it for the chosen provider so a fresh agent inherits the house model; still
+  // overridable per agent, and empty for a provider means "provider default".
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [showMcp, setShowMcp] = useState(false)
@@ -149,6 +154,17 @@ function AgentConfigModal(props: {
       .then((r) => setModel((r.stdout || '').trim()))
   }, [open, agentPath, provider, isNew])
 
+  // #8 — 'new' mode: load the per-provider default-model preference on open and
+  // pre-select it for the starting vendor (Claude). changeVendor re-seeds it when
+  // the vendor changes. Seeds only — the user can still override the Model field.
+  useEffect(() => {
+    if (!open || !isNew) return
+    void fetchDefaultModels().then((d) => {
+      setDefaults(d)
+      setModel(defaultModelFor(d, 'claude'))
+    })
+  }, [open, isNew])
+
   // Live MCP summary — count configured servers + which are unreachable/missing.
   useEffect(() => {
     if (!open || isNew) return
@@ -164,6 +180,8 @@ function AgentConfigModal(props: {
     setVendor(v)
     // Keep the current variant if the new vendor supports it, else snap to a valid one.
     if (!variantsFor(v).has(variant)) setVariant([...variantsFor(v)][0])
+    // 'new' mode: re-seed the model to the new vendor's configured default (#8).
+    if (isNew) setModel(defaultModelFor(defaults, v))
   }
 
   // Persist all fields; returns true on success. Shared by Save and Save & restart.

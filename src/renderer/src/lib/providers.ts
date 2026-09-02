@@ -155,6 +155,49 @@ export function modelsForFamily(catalog: ModelCatalogEntry[], vendor: string): M
   return modelSuggestionsFor(fam).map((id) => ({ id, label: id }))
 }
 
+// ---------------------------------------------------------------------------
+// Default-model preference — a per-vendor model id the new-agent flows pre-select
+// so a fleet inherits a house model without editing each agent. Persisted app-side
+// (main `app-settings.json`, via window.api.get/setSettings); '' for a vendor means
+// "provider default" (today's behavior). This is a SEED only — the app writes the
+// resolved model per workspace at create time; it never mutates an existing agent.
+// ---------------------------------------------------------------------------
+
+/** The persisted per-vendor default-model map (`{}` on an older main / read error). */
+export function fetchDefaultModels(): Promise<Record<string, string>> {
+  const call = window.api?.getSettings?.()
+  return (call ? Promise.resolve(call) : Promise.resolve(undefined))
+    .then((s) => {
+      const dm = (s as { defaultModels?: Record<string, string> } | undefined)?.defaultModels
+      return dm && typeof dm === 'object' ? dm : {}
+    })
+    .catch(() => ({}))
+}
+
+/** React hook: the per-vendor default-model map + a `reload` to re-read after a Save. */
+export function useDefaultModels(): { defaults: Record<string, string>; loading: boolean; reload: () => void } {
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    let live = true
+    void fetchDefaultModels().then((d) => {
+      if (!live) return
+      setDefaults(d)
+      setLoading(false)
+    })
+    return () => {
+      live = false
+    }
+  }, [tick])
+  return { defaults, loading, reload: () => setTick((t) => t + 1) }
+}
+
+/** The configured default model id for a vendor/provider ('' = none / provider default). */
+export function defaultModelFor(defaults: Record<string, string>, vendor: string): string {
+  return defaults[vendorOf(vendor)] ?? ''
+}
+
 /** Compact context-window hint, e.g. 256000 → "256k", 1_000_000 → "1M". Empty for 0/undefined. */
 export function fmtCtx(n?: number): string {
   if (!n) return ''

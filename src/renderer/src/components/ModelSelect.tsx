@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { useModelCatalog, modelsForFamily, fmtCtx } from '@renderer/lib/providers'
+import { useModelCatalog, modelsForFamily, fmtCtx, vendorOf } from '@renderer/lib/providers'
 import { NativeSelect } from '@renderer/components/NativeSelect'
 
 /**
@@ -49,9 +49,16 @@ export function ModelSelect({ vendor, value, onChange, id, compact }: ModelSelec
   const [forceCustom, setForceCustom] = useState(false)
   const custom = forceCustom || (!!value && !known.has(value))
 
+  // #9 — validate a typed Custom id against the catalog ON BLUR (not per keystroke,
+  // which would nag mid-type). A non-empty id the catalog doesn't know is NOT
+  // blocked — power users need unlisted ids — but we warn it'll be sent verbatim.
+  const [touched, setTouched] = useState(false)
+  const unknownCustom = custom && touched && !!value.trim() && !known.has(value.trim())
+
   const onSelect = (v: string): void => {
-    if (v === CUSTOM) { setForceCustom(true); return }
+    if (v === CUSTOM) { setForceCustom(true); setTouched(false); return }
     setForceCustom(false)
+    setTouched(false)
     onChange(v)
   }
 
@@ -70,11 +77,21 @@ export function ModelSelect({ vendor, value, onChange, id, compact }: ModelSelec
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={() => setTouched(true)}
           placeholder="model id (e.g. claude-opus-4-8)"
           aria-label="Custom model id"
+          aria-invalid={unknownCustom || undefined}
           autoFocus={forceCustom}
           style={customInputStyle}
         />
+      )}
+      {unknownCustom && (
+        <div
+          role="note"
+          style={{ marginTop: 5, fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', lineHeight: 1.4 }}
+        >
+          Not a known {vendorOf(vendor)} model — will be sent as-is.
+        </div>
       )}
     </div>
   )

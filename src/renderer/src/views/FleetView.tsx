@@ -11,6 +11,8 @@ import { FleetTable, RowAction } from '@renderer/components/fleet/FleetTable'
 import { FleetStatusBar, BulkVerb } from '@renderer/components/fleet/FleetStatusBar'
 import { AgentState, ATTENTION_STATES, isAttention, formatElapsed } from '@renderer/services/model'
 import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/agentStore'
+import { modelKeyFor } from '@renderer/lib/providers'
+import { BulkModelModal } from '@renderer/modals/BulkModelModal'
 import '@renderer/components/fleet/fleet.css'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
@@ -193,6 +195,24 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   const [taskText, setTaskText] = useState('')
   const [provModal, setProvModal] = useState<{ paths: string[] } | null>(null)
   const [provChoice, setProvChoice] = useState('claude-tui')
+  // Bulk "Set model…" over the current selection (reuses the shared BulkModelModal,
+  // which handles the mixed-provider apply). Non-null = the modal is open.
+  const [modelModal, setModelModal] = useState<{ paths: string[] } | null>(null)
+
+  // Per-row model change (#10) — persist via the SAME `config set <vendorKey>` path
+  // as Setup; the model takes hold on the agent's next loop.
+  const setRowModel = useCallback(async (a: AgentState, id: string) => {
+    try {
+      await api().runCli(['config', 'set', modelKeyFor(a.provider || ''), id.trim(), a.path])
+      toast(
+        id.trim()
+          ? `Model set for ${a.name} · restart to take hold`
+          : `Model reset to provider default for ${a.name}`
+      )
+    } catch {
+      toast(`Couldn't set the model for ${a.name}`, true)
+    }
+  }, [toast])
 
   const submitTask = useCallback(async () => {
     const text = taskText.trim()
@@ -305,6 +325,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
         }
       },
       { label: 'Switch provider…', onClick: () => setProvModal({ paths: selPaths }) },
+      { label: 'Set model…', onClick: () => setModelModal({ paths: selPaths }) },
       {
         label: 'Add task to all…',
         onClick: () => {
@@ -359,6 +380,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
             selected={selected}
             elapsedFor={elapsedFor}
             actionFor={rowAction}
+            onSetModel={setRowModel}
             onToggleSelect={toggleSelect}
             onOpen={(path) => {
               // TODO(redesign): opening the 2a agent detail is Stage-3 routing;
@@ -523,6 +545,18 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           ))}
         </select>
       </Modal>
+
+      {/* bulk set-model modal (mixed-provider aware) */}
+      <BulkModelModal
+        open={!!modelModal}
+        agents={agents}
+        paths={modelModal?.paths ?? []}
+        onClose={() => setModelModal(null)}
+        onApplied={() => {
+          setModelModal(null)
+          setSelected(new Set())
+        }}
+      />
     </AppShell>
   )
 }

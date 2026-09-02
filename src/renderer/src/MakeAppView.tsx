@@ -7,7 +7,7 @@ import { InfoTip, Button, Pill, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAgents } from '@renderer/services/agentStore'
-import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify, providerAuthFor } from '@renderer/lib/providers'
+import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify, providerAuthFor, fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
 /** Per-agent editable fields the user can tweak before spawning. `id`/`slug` are
@@ -33,12 +33,14 @@ const DEFAULT_ROLES: Array<{ role: string; emoji: string; color: string }> = [
   { role: 'Docs Writer', emoji: '📝', color: '#14b8a6' },
   { role: 'Data Engineer', emoji: '🗄️', color: '#8b5cf6' }
 ]
-function defaultRoster(count: number, provider: string): AgentEdit[] {
+function defaultRoster(count: number, provider: string, defaults: Record<string, string> = {}): AgentEdit[] {
   return Array.from({ length: Math.max(1, count) }, (_, i) => {
     const r = DEFAULT_ROLES[i % DEFAULT_ROLES.length]
     const rev = Math.floor(i / DEFAULT_ROLES.length)
     const name = rev === 0 ? r.role : `${r.role} ${rev + 1}`
-    return { name, role: r.role, emoji: r.emoji, color: r.color, provider, model: '' }
+    // #8 — seed each row's model from the per-provider default (Settings); '' when
+    // none configured (provider default). Still editable per row below.
+    return { name, role: r.role, emoji: r.emoji, color: r.color, provider, model: defaultModelFor(defaults, provider) }
   })
 }
 
@@ -88,6 +90,10 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   const [desc, setDesc] = useState('')
   const [count, setCount] = useState(4)
   const [defaultProvider, setDefaultProvider] = useState('claude-tui')
+  // #8 — per-provider default-model preference (Settings), used to seed each
+  // generated agent's model so a fresh team inherits the house model.
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
+  useEffect(() => { void fetchDefaultModels().then(setDefaults) }, [])
   const [creating, setCreating] = useState(false)
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
@@ -147,12 +153,15 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // gives the folder a provider before it's registered.
       const r = await window.api.runCli(['init', path, '--provider', existingProvider])
       if (r.code !== 0) { setExistingErr(`Could not initialize ${path}.${r.stderr ? ' ' + r.stderr.trim() : ''}`); return }
+      // #8 — seed the per-provider default model (Settings) onto the new workspace.
+      const dm = defaultModelFor(defaults, existingProvider)
+      if (dm) await window.api.runCli(['config', 'set', modelKeyFor(existingProvider), dm, path])
       const added = await window.api.addAgent(path) as { error?: string }
       if (added?.error) { setExistingErr(added.error); return }
       setSpawnedOk(true)
       setExistingMsg(`Added ${path} to your sidebar as one agent. Open the Agents tab to start it.`)
     } finally { setAddingExisting(false) }
-  }, [existingFolder, existingProvider])
+  }, [existingFolder, existingProvider, defaults])
 
   // Apply a folder seed handed in after mount. This view is kept mounted (a
   // keep-alive layer), so the useState initializer above only runs once — when a
@@ -193,7 +202,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // spawn purely local workspaces (no office character, no wsUrl).
       if (!officeMode) {
         setOffice(null)
-        setEdits(defaultRoster(count, defaultProvider))
+        setEdits(defaultRoster(count, defaultProvider, defaults))
         setCreating(false)
         return
       }
@@ -219,12 +228,12 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       if (gt?.error) { setErr(gt.error); setEdits([]); setCreating(false); return }
       // Seed each agent's editable name + model, defaulting the provider. Keep the
       // office character id/slug so single-shared-folder mode can wire each one.
-      setEdits((gt.agents ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, emoji: a.emoji, color: a.color, provider: defaultProvider, model: '' })))
+      setEdits((gt.agents ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, emoji: a.emoji, color: a.color, provider: defaultProvider, model: defaultModelFor(defaults, defaultProvider) })))
     } catch (e: any) {
       setErr(e?.message || 'Something went wrong.')
     }
     setCreating(false)
-  }, [desc, count, defaultProvider, officeMode, selectedOfficeId, offices, loadOffices])
+  }, [desc, count, defaultProvider, defaults, officeMode, selectedOfficeId, offices, loadOffices])
 
   const patchEdit = (i: number, p: Partial<AgentEdit>): void =>
     setEdits((prev) => prev ? prev.map((e, k) => (k === i ? { ...e, ...p } : e)) : prev)
@@ -240,7 +249,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     setEdits((prev) => {
       if (!prev || n === prev.length) return prev
       if (n < prev.length) return prev.slice(0, n) // trim from the end, keep edits
-      const filled = defaultRoster(n, defaultProvider) // canonical rows for every index
+      const filled = defaultRoster(n, defaultProvider, defaults) // canonical rows for every index
       return [...prev, ...filled.slice(prev.length)]   // append only the NEW indices
     })
   }
@@ -588,7 +597,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: (a.color || '#2a3350') + '22', border: `1px solid ${a.color || '#2a3350'}` }}>{a.emoji || '🧑'}</span>
                   <input className="makeapp-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
                     style={{ ...inp, margin: 0, flex: '1 1 140px', minWidth: 100 }} disabled={spawning} />
-                  <select className="makeapp-input" value={a.provider} onChange={(e) => patchEdit(i, { provider: e.target.value })} aria-label={`Agent ${i + 1} provider`}
+                  <select className="makeapp-input" value={a.provider}
+                    onChange={(e) => { const p = e.target.value; patchEdit(i, a.model.trim() ? { provider: p } : { provider: p, model: defaultModelFor(defaults, p) }) }}
+                    aria-label={`Agent ${i + 1} provider`}
                     style={{ ...inp, margin: 0, flex: '0 0 150px' }} disabled={spawning}>
                     {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
                   </select>

@@ -4,8 +4,10 @@ import {
   PROVIDER_GROUPS,
   providerLabel,
   providerAuthFor,
-  vendorOf
+  vendorOf,
+  fetchDefaultModels
 } from '@renderer/lib/providers'
+import { ModelSelect } from '@renderer/components/ModelSelect'
 import { ServerRow } from '@renderer/components/mcp/ServerRow'
 import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
 
@@ -30,6 +32,7 @@ import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpSta
 
 type SectionId =
   | 'providers'
+  | 'default-models'
   | 'pixel-office'
   | 'mcp'
   | 'storage'
@@ -37,11 +40,19 @@ type SectionId =
 
 const NAV: { id: SectionId; label: string }[] = [
   { id: 'providers', label: 'Providers' },
+  { id: 'default-models', label: 'Default models' },
   { id: 'pixel-office', label: 'Pixel Office' },
   { id: 'mcp', label: 'MCP' },
   { id: 'storage', label: 'Storage & logs' },
   { id: 'about', label: 'About' }
 ]
+
+// The vendors that carry a per-provider default model (#8), keyed by the family
+// the model catalog uses, labelled from the single provider vocabulary.
+const DEFAULT_MODEL_VENDORS: { key: string; label: string }[] = PROVIDER_GROUPS.map((g) => ({
+  key: vendorOf(g.options[0].id),
+  label: g.vendor
+}))
 
 // Per-provider onboarding hint, keyed by the provider id. Labels come from
 // lib/providers (the single source of provider vocabulary); this only adds the
@@ -158,6 +169,13 @@ export function SettingsView2(): JSX.Element {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
+  // --- Per-provider default models (#8) — an app preference that seeds new agents.
+  // `defaultModels[vendor]` = '' means "provider default". `savedVendor` briefly
+  // flags the row that just persisted so a select-to-save gives real feedback.
+  const [defaultModels, setDefaultModels] = useState<Record<string, string>>({})
+  const [savedVendor, setSavedVendor] = useState<string | null>(null)
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- REAL, live connection signal for the Pixel Office card header ----------
   const [status, setStatus] = useState<OfficeStatus | null>(null)
   const [officeCount, setOfficeCount] = useState<number | null>(null)
@@ -256,6 +274,32 @@ export function SettingsView2(): JSX.Element {
       }
     })()
   }, [status?.connected])
+
+  // Per-provider default models — read once; each change persists on select.
+  useEffect(() => {
+    void fetchDefaultModels().then(setDefaultModels)
+    return () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+    }
+  }, [])
+
+  const saveDefaultModel = useCallback(async (vendor: string, id: string) => {
+    // Optimistic local update so the picker reflects the choice immediately.
+    setDefaultModels((prev) => {
+      const next = { ...prev }
+      if (id.trim()) next[vendor] = id.trim()
+      else delete next[vendor]
+      return next
+    })
+    try {
+      await window.api.setSettings({ defaultModels: { [vendor]: id.trim() } })
+      setSavedVendor(vendor)
+      if (savedTimer.current) clearTimeout(savedTimer.current)
+      savedTimer.current = setTimeout(() => setSavedVendor((v) => (v === vendor ? null : v)), 1600)
+    } catch {
+      /* a failed write leaves the optimistic value; the next open re-reads truth */
+    }
+  }, [])
 
   // Tracked workspaces (real folders) for Storage + the MCP picker.
   useEffect(() => {
@@ -520,6 +564,45 @@ export function SettingsView2(): JSX.Element {
               headless loop or an office “Connect all” reports a needs-auth error, re-run that
               provider’s login.
             </div>
+          </Section>
+
+          {/* ── Default models (#8) ────────────────────────────────────── */}
+          <Section
+            id="default-models"
+            innerRef={setRef('default-models')}
+            title="Default models"
+            subtitle="A house model per provider, pre-selected when you create a new agent (single-agent Setup, Make-app teams, and add-a-folder). Leave a provider on “Provider default” to let it pick its own. Existing agents are unaffected — and you can still override the model per agent."
+          >
+            {DEFAULT_MODEL_VENDORS.map((v, i) => (
+              <div
+                key={v.key}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 18,
+                  padding: '14px 0',
+                  borderBottom: i === DEFAULT_MODEL_VENDORS.length - 1 ? 'none' : '1px solid var(--bd-2)'
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={S.rowLabel}>{v.label}</div>
+                  <div style={S.rowDesc}>Pre-selected for new {v.label} agents.</div>
+                </div>
+                <div style={{ width: 240, flexShrink: 0 }}>
+                  <ModelSelect
+                    compact
+                    vendor={v.key}
+                    value={defaultModels[v.key] ?? ''}
+                    onChange={(id) => void saveDefaultModel(v.key, id)}
+                  />
+                  {savedVendor === v.key && (
+                    <div style={{ marginTop: 5, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved ✓
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
           </Section>
 
           {/* ── Pixel Office (REAL, wired) ─────────────────────────────── */}

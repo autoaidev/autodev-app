@@ -9,6 +9,7 @@ import { useAgents, getAgents, actions, refreshAgents } from '@renderer/services
 import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
+import { BulkModelModal } from '@renderer/modals/BulkModelModal'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
 
@@ -57,6 +58,9 @@ export function AgentsView(): React.JSX.Element {
   // text typed once. Non-null = the modal is open. Enqueued to every path through
   // the SAME task path as the single-agent composer (addTask → sendAgentMessage).
   const [taskPrompt, setTaskPrompt] = React.useState<{ paths: string[]; text: string } | null>(null)
+  // Bulk "Set model": the checked agents captured when the popover opened. Non-null
+  // = the model modal is open (BulkModelModal handles the mixed-provider apply).
+  const [modelPrompt, setModelPrompt] = React.useState<{ paths: string[] } | null>(null)
 
   // Prune log buffers for agents no longer in the fleet so the Map can't grow
   // unbounded (diff against the live set — a size gate would strand stale buffers
@@ -209,6 +213,12 @@ export function AgentsView(): React.JSX.Element {
         // Open the shared task-prompt over the current selection; the enqueue and
         // the selection-clear happen once the user submits (submitBulkTask).
         if (paths.length > 0) setTaskPrompt({ paths, text: '' })
+        return
+      }
+      if (action === 'model') {
+        // Open the bulk model picker over the current selection; the writes + the
+        // selection-clear happen inside BulkModelModal (onApplied).
+        if (paths.length > 0) setModelPrompt({ paths })
         return
       }
       for (const p of paths) {
@@ -473,6 +483,19 @@ export function AgentsView(): React.JSX.Element {
         }}
       />
       <McpEditorModal agentPath={mcpPath ?? ''} open={mcpPath != null} onClose={() => setMcpPath(null)} />
+
+      {/* Bulk "Set model": one model, applied across the checked agents (each via
+          its own vendor key). Clears the selection after a successful apply. */}
+      <BulkModelModal
+        open={modelPrompt != null}
+        agents={agents}
+        paths={modelPrompt?.paths ?? []}
+        onClose={() => setModelPrompt(null)}
+        onApplied={() => {
+          setModelPrompt(null)
+          setChecked(new Set())
+        }}
+      />
 
       {/* Bulk "Add task": one task, typed once, queued to every checked agent. */}
       <Modal
