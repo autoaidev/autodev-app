@@ -99,10 +99,13 @@ export default function App(): JSX.Element {
         run: () => go(SETTINGS_NAV.id as NavId)
       },
       {
-        id: 'new-agent',
-        label: 'New agent',
+        // Honestly names the describe→team wizard. Adding ONE local agent is the
+        // sidebar's "+ New agent" (single-agent create modal), not this funnel —
+        // so this command must not be labeled the ambiguous "New agent".
+        id: 'generate-team',
+        label: 'Generate a team',
         hint: 'Action',
-        keywords: 'spawn create make app team',
+        keywords: 'spawn create make app team new agent single',
         run: () => go('makeapp')
       },
       {

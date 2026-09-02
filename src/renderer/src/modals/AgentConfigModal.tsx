@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Modal, Button, SegmentedTabs } from '@renderer/ui'
 import { McpEditorModal } from './McpEditorModal'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { actions } from '@renderer/services/agentStore'
 
 /**
  * SCREEN 2e — Agent Setup, demoted from a whole tab to a modal.
@@ -74,8 +75,24 @@ const inputStyle: React.CSSProperties = {
 }
 const selectStyle: React.CSSProperties = { ...inputStyle, appearance: 'none', cursor: 'pointer' }
 
-function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: () => void }): JSX.Element {
-  const { agentPath, open, onClose } = props
+/**
+ * `mode`:
+ *   'edit' (default) — edit an existing agent's config at `agentPath`.
+ *   'new'            — CREATE one local agent: pick a folder, choose provider /
+ *                      model, then `init` + register it. No agent exists yet, so
+ *                      the running-only "Save & restart", the MCP summary and the
+ *                      UI-only timeout controls are hidden. `onCreated(path)` fires
+ *                      with the new workspace path so the caller can select it.
+ */
+function AgentConfigModal(props: {
+  agentPath: string
+  open: boolean
+  onClose: () => void
+  mode?: 'edit' | 'new'
+  onCreated?: (path: string) => void
+}): JSX.Element {
+  const { agentPath, open, onClose, mode = 'edit', onCreated } = props
+  const isNew = mode === 'new'
   const [name, setName] = useState('')
   const [running, setRunning] = useState(false)
   const [sessionName, setSessionName] = useState('')
@@ -83,6 +100,8 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
   const [variant, setVariant] = useState<Variant>('interactive')
   const [model, setModel] = useState('')
   const [fileBrowser, setFileBrowser] = useState(false)
+  // 'new' mode only — the folder the single agent is created in (picked/typed).
+  const [folder, setFolder] = useState('')
   // TODO(redesign): CURRENT-APP.md exposes no config key for task timeout /
   // retry-on-timeout — these are UI-only until a settings key exists.
   const [timeout, setTimeoutMin] = useState(30)
@@ -94,10 +113,17 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
 
   const provider = resolveProvider(vendor, variant)
 
-  // Seed from the live agent state + persisted config on open.
+  // Seed from the live agent state + persisted config on open. In 'new' mode there
+  // is no agent yet, so reset to a clean single-agent form instead of reading state.
   useEffect(() => {
     if (!open) return
     setStatus('')
+    if (isNew) {
+      setName(''); setRunning(false); setSessionName('')
+      setVendor('claude'); setVariant('interactive')
+      setModel(''); setFileBrowser(false); setFolder('')
+      return
+    }
     void (async () => {
       const a = (await window.api.agentState(agentPath)) as AgentState
       setName(a?.name || agentPath.split('/').pop() || '')
@@ -108,25 +134,26 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
     })()
     void window.api.runCli(['config', 'get', 'enableFileBrowser', agentPath])
       .then((r) => setFileBrowser((r.stdout || '').trim() === 'true'))
-  }, [open, agentPath])
+  }, [open, agentPath, isNew])
 
   // Load the current model whenever the resolved provider (hence model key) changes.
+  // 'new' mode keeps `model` as local UI state (nothing persisted to read yet).
   useEffect(() => {
-    if (!open) return
+    if (!open || isNew) return
     void window.api.runCli(['config', 'get', modelKeyFor(provider), agentPath])
       .then((r) => setModel((r.stdout || '').trim()))
-  }, [open, agentPath, provider])
+  }, [open, agentPath, provider, isNew])
 
   // Live MCP summary — count configured servers + which are unreachable/missing.
   useEffect(() => {
-    if (!open) return
+    if (!open || isNew) return
     void (async () => {
       const r = (await window.api.agentMcpStatus(agentPath)) as { servers?: McpStat[]; error?: string }
       const servers = r?.servers ?? []
       const missing = servers.filter((s) => s.status === 'missing' || s.status === 'unreachable').map((s) => s.name)
       setMcp({ configured: servers.length, missing })
     })()
-  }, [open, agentPath, showMcp])
+  }, [open, agentPath, showMcp, isNew])
 
   const changeVendor = (v: string): void => {
     setVendor(v)
@@ -154,19 +181,51 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
 
   // Save & restart — persist, then bounce the running loop so the new model/provider
   // takes effect NOW instead of leaving the user to remember (model applies on restart).
+  // Delegates to the canonical store restart (stop → gap → start), NOT a raw
+  // stopAgent+startAgent: stop() is async (SIGINT, child leaves _procs on exit), so an
+  // immediate start() sees the still-live child and no-ops as `alreadyRunning`, never
+  // actually restarting. actions.restart inserts the settle gap and reloads the fleet.
+  // start() with no `-p` re-reads the provider we just wrote, so the new config applies.
   const saveAndRestart = useCallback(async (): Promise<void> => {
     setBusy(true); setStatus('')
     const ok = await persist()
     if (!ok) { setBusy(false); return }
     try {
-      await window.api.stopAgent(agentPath)
-      await window.api.startAgent(agentPath, provider)
-      setStatus('Saved & restarting — the new model applies on this run.')
+      await actions.restart(agentPath)
+      setStatus('Saved — restarting to apply the new model.')
     } catch (e) {
       setStatus(`Saved, but restart failed: ${(e as Error)?.message ?? 'unknown error'}`)
     }
     setBusy(false)
-  }, [persist, agentPath, provider])
+  }, [persist, agentPath])
+
+  // Pick the folder the new single agent lives in ('new' mode only).
+  const pickFolder = useCallback(async (): Promise<void> => {
+    const f = await window.api.pickFolder()
+    if (f) { setFolder(f); setStatus('') }
+  }, [])
+
+  // Create ONE local agent in the chosen folder ('new' mode): idempotent `init`
+  // (writes TODO.md + .autodev/settings.json + .gitignore — never touches your
+  // source or .mcp.json), persist the model / file-browser, then register it in the
+  // sidebar. `run` also starts its loop. Mirrors the CLI path MakeAppView uses.
+  const create = useCallback(async (run = false): Promise<void> => {
+    const path = folder.trim().replace(/\/+$/, '')
+    if (!path) { setStatus('Pick a folder for the new agent first.'); return }
+    setBusy(true); setStatus('')
+    const initArgs = ['init', path, '--provider', provider]
+    if (sessionName.trim()) initArgs.push('--session-name', sessionName.trim())
+    const r = await window.api.runCli(initArgs)
+    if (r.code !== 0) { setStatus(r.stderr?.trim() || `Couldn't initialize ${path}.`); setBusy(false); return }
+    if (model.trim()) await window.api.runCli(['config', 'set', modelKeyFor(provider), model.trim(), path])
+    if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
+    const added = (await window.api.addAgent(path)) as { error?: string }
+    if (added?.error) { setStatus(added.error); setBusy(false); return }
+    if (run) { try { await window.api.startAgent(path, provider) } catch { /* surfaced on the next fleet reload */ } }
+    setBusy(false)
+    onCreated?.(path)
+    onClose()
+  }, [folder, provider, sessionName, model, fileBrowser, onCreated, onClose])
 
   const availableVariants = variantsFor(vendor)
   const agentName = sessionName || name
@@ -177,18 +236,48 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
         open={open}
         onClose={onClose}
         width={492}
-        title={<>{agentName} <span style={{ color: 'var(--tx-5)', fontWeight: 400 }}>· setup</span></>}
-        subtitle="changes apply to the next task"
+        title={isNew
+          ? <>New agent <span style={{ color: 'var(--tx-5)', fontWeight: 400 }}>· one local agent</span></>
+          : <>{agentName} <span style={{ color: 'var(--tx-5)', fontWeight: 400 }}>· setup</span></>}
+        subtitle={isNew ? 'creates a single agent in a folder you pick' : 'changes apply to the next task'}
         subtitleMono
         footer={
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            {status && <span style={{ fontSize: 'var(--fs-meta)', color: status.startsWith('Saved') && !/fail/i.test(status) ? 'var(--st-running)' : 'var(--st-error)' }}>{status}</span>}
+            {status && <span style={{ fontSize: 'var(--fs-meta)', color: status.startsWith('Saved') && !/fail|couldn|pick/i.test(status) ? 'var(--st-running)' : 'var(--st-error)' }}>{status}</span>}
             <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-            {running && <Button variant="secondary" onClick={() => void saveAndRestart()} disabled={busy}>{busy ? '…' : 'Save & restart'}</Button>}
-            <Button variant="primary" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
+            {isNew ? (
+              <>
+                <Button variant="secondary" onClick={() => void create(true)} disabled={busy || !folder.trim()}>{busy ? '…' : 'Create & start'}</Button>
+                <Button variant="primary" onClick={() => void create(false)} disabled={busy || !folder.trim()}>{busy ? 'Creating…' : 'Create agent'}</Button>
+              </>
+            ) : (
+              <>
+                {running && <Button variant="secondary" onClick={() => void saveAndRestart()} disabled={busy}>{busy ? '…' : 'Save & restart'}</Button>}
+                <Button variant="primary" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
+              </>
+            )}
           </div>
         }
       >
+        {/* FOLDER (new mode only) — where the single agent's workspace is created. */}
+        {isNew && (
+          <div style={{ marginBottom: 14 }}>
+            <span style={label}>Folder</span>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <input
+                value={folder}
+                onChange={(e) => { setFolder(e.target.value); setStatus('') }}
+                placeholder="/path/to/agent/folder"
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <Button variant="secondary" onClick={() => void pickFolder()} disabled={busy}>Browse</Button>
+            </div>
+            <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5 }}>
+              A new AutoDev workspace is initialized here (TODO.md + .autodev). Existing files are left untouched.
+            </div>
+          </div>
+        )}
+
         {/* SESSION DISPLAY NAME */}
         <div style={{ marginBottom: 14 }}>
           <span style={label}>Session display name</span>
@@ -221,18 +310,21 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
           </div>
         </div>
 
-        {/* TASK TIMEOUT (UI-only — see TODO above) */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={label}>Task timeout</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-3)' }}>{timeout} min</span>
+        {/* TASK TIMEOUT (UI-only — see TODO above). Hidden in 'new' mode: it doesn't
+            persist anywhere yet, so it would be a dead control on a create form. */}
+        {!isNew && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span style={label}>Task timeout</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-3)' }}>{timeout} min</span>
+            </div>
+            <input type="range" min={5} max={90} step={5} value={timeout} onChange={(e) => setTimeoutMin(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} />
+              Retry once on timeout, then ask me
+            </label>
           </div>
-          <input type="range" min={5} max={90} step={5} value={timeout} onChange={(e) => setTimeoutMin(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', cursor: 'pointer' }}>
-            <input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} />
-            Retry once on timeout, then ask me
-          </label>
-        </div>
+        )}
 
         {/* ENABLE FILE BROWSER */}
         <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 14, cursor: 'pointer' }}>
@@ -243,20 +335,25 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
           </span>
         </label>
 
-        <div style={{ borderTop: '1px solid var(--bd-card)', margin: '2px 0 14px' }} />
-
-        {/* MCP SERVERS row → opens the 2g editor */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <span style={{ ...label, marginBottom: 3 }}>MCP servers</span>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)' }}>
-              {mcp == null
-                ? 'checking…'
-                : <>{mcp.configured} configured{mcp.missing.length > 0 && <span style={{ color: 'var(--st-error)' }}> · {mcp.missing.join(', ')} {mcp.missing.length === 1 ? 'missing' : 'unreachable'}</span>}</>}
+        {/* MCP SERVERS row → opens the 2g editor. Hidden in 'new' mode: the
+            workspace doesn't exist until Create, so there's nothing to summarize or
+            edit yet — MCP is configured from the agent's Setup after it's created. */}
+        {!isNew && (
+          <>
+            <div style={{ borderTop: '1px solid var(--bd-card)', margin: '2px 0 14px' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <span style={{ ...label, marginBottom: 3 }}>MCP servers</span>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)' }}>
+                  {mcp == null
+                    ? 'checking…'
+                    : <>{mcp.configured} configured{mcp.missing.length > 0 && <span style={{ color: 'var(--st-error)' }}> · {mcp.missing.join(', ')} {mcp.missing.length === 1 ? 'missing' : 'unreachable'}</span>}</>}
+                </div>
+              </div>
+              <Button variant="secondary" style={{ marginLeft: 'auto' }} onClick={() => setShowMcp(true)}>Edit .mcp.json</Button>
             </div>
-          </div>
-          <Button variant="secondary" style={{ marginLeft: 'auto' }} onClick={() => setShowMcp(true)}>Edit .mcp.json</Button>
-        </div>
+          </>
+        )}
       </Modal>
 
       <McpEditorModal agentPath={agentPath} open={showMcp} onClose={() => setShowMcp(false)} />

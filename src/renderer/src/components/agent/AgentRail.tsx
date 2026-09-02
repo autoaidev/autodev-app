@@ -51,7 +51,10 @@ export interface AgentRailProps {
   onSelect: (path: string) => void
   checked: Set<string>
   onCheckedChange: (next: Set<string>) => void
+  /** Add ONE local agent (opens the single-agent create modal). */
   onNewAgent: () => void
+  /** Open the describe→team wizard (Make-app funnel) — a distinct action. */
+  onGenerateTeam: () => void
   onAction: (action: AgentAction, agent: AgentState) => void
   onBulk: (action: BulkAction) => void
 }
@@ -285,6 +288,7 @@ export function AgentRail({
   checked,
   onCheckedChange,
   onNewAgent,
+  onGenerateTeam,
   onAction,
   onBulk
 }: AgentRailProps): React.JSX.Element {
@@ -527,10 +531,13 @@ export function AgentRail({
                 No agents yet
               </div>
               <div style={{ margin: '5px 0 12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
-                Describe what you want built and AutoDev generates a team — or spawn a single agent in a folder.
+                Add a single agent in a folder — or generate a whole team from a description.
               </div>
               <Button variant="primary" size="sm" block onClick={onNewAgent}>
                 <Icon name="plus" size={11} color="var(--tx-onaccent)" /> Create your first agent
+              </Button>
+              <Button variant="secondary" size="sm" block style={{ marginTop: 8 }} onClick={onGenerateTeam}>
+                Generate a team…
               </Button>
               <button
                 type="button"
@@ -617,11 +624,15 @@ export function AgentRail({
           borderTop: '1px solid var(--bd-card)'
         }}
       >
-        {/* Single entry to the add-agent flow. A second control here (previously a
-            "More agent options" IconButton) routed to the exact same funnel with a
-            different label, so it read as two distinct actions — de-duplicated. */}
+        {/* Two DISTINCT add paths, honestly labeled: the primary adds ONE local
+            agent (opens the single-agent create modal); the secondary opens the
+            describe→team wizard. Previously "+ New agent" routed into the team
+            wizard, so a user wanting one agent landed in team generation. */}
         <Button variant="primary" block onClick={onNewAgent}>
           <Icon name="plus" size={11} color="var(--tx-onaccent)" /> New agent
+        </Button>
+        <Button variant="secondary" block onClick={onGenerateTeam}>
+          Generate team…
         </Button>
         {/* Build stamp: the installed app version, so the rail footer names the
             exact build. Hidden until the IPC resolves (never a bare "v"). */}

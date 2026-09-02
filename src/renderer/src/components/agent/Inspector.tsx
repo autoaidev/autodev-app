@@ -8,6 +8,7 @@ import { useSessionActions } from '@renderer/services/sessionsService'
 import type { SessionMeta } from '@renderer/components/sessions/types'
 import type { TodoItem, AgentTasks } from './useAgentTasks'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { actions } from '@renderer/services/agentStore'
 
 /**
  * Inspector — the fixed 308px right panel of the Agent-detail screen (2a). Three
@@ -319,9 +320,11 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
 
   const running = !!(agent.running || agent.activity === 'working')
 
-  // Inline 1-click model change: persist immediately (optimistic), and — since the
-  // model only takes effect on (re)start — surface an honest "restart to apply" with
-  // a Restart affordance when the loop is live, so the user isn't left to remember.
+  // Inline 1-click model change. This is a deliberate quick-select control: picking
+  // a model COMMITS immediately (the label carries a persistent "saves on select"
+  // hint so this isn't a surprise), unlike the multi-field Setup modal which batches
+  // behind an explicit Save. Since a model only takes effect on (re)start, we surface
+  // an honest "restart to apply" with a Restart affordance when the loop is live.
   const changeModel = (v: string): void => {
     setModel(v)
     setModelBusy(true); setModelNote('')
@@ -332,10 +335,14 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
       .catch(() => setModelNote('save failed'))
       .finally(() => setModelBusy(false))
   }
+  // Restart via the canonical store action (stop → settle gap → start). A raw
+  // stopAgent+startAgent races: stop() is async, so an immediate start() sees the
+  // still-live child and no-ops as `alreadyRunning`, never restarting. start() with
+  // no `-p` re-reads the provider/model we just persisted.
   const restart = (): void => {
     setModelBusy(true); setModelNote('')
-    void Promise.resolve(window.api.stopAgent(agent.path))
-      .then(() => window.api.startAgent(agent.path, agent.provider))
+    void actions
+      .restart(agent.path)
       .then(() => setModelNote('restarting — applies now'))
       .catch(() => setModelNote('restart failed'))
       .finally(() => setModelBusy(false))
@@ -391,13 +398,18 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
       <div style={{ padding: '5px 0' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 5 }}>
           <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-4)' }}>Model</span>
-          {modelNote && (
+          {modelNote ? (
             <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)' }}>
               {modelNote}
               {running && modelNote === 'restart to apply' && (
                 <> · <button type="button" onClick={restart} disabled={modelBusy} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)', textDecoration: 'underline' }}>Restart</button></>
               )}
             </span>
+          ) : (
+            // Persistent affordance: make the auto-save explicit BEFORE interaction so
+            // committing-on-select isn't a surprise (the Setup modal batches; this
+            // inline control saves instantly).
+            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: 'var(--tx-faint)' }}>saves on select</span>
           )}
         </div>
         <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />

@@ -5,7 +5,7 @@ import { AgentDetail, DetailTab } from '@renderer/components/agent/AgentDetail'
 import { Inspector } from '@renderer/components/agent/Inspector'
 import { useAgentTasks } from '@renderer/components/agent/useAgentTasks'
 import { AgentState, ATTENTION_STATES } from '@renderer/services/model'
-import { useAgents, getAgents, actions } from '@renderer/services/agentStore'
+import { useAgents, getAgents, actions, refreshAgents } from '@renderer/services/agentStore'
 import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
@@ -39,6 +39,10 @@ export function AgentsView(): React.JSX.Element {
   const [detailTab, setDetailTab] = React.useState<DetailTab>('activity')
 
   const [configPath, setConfigPath] = React.useState<string | null>(null)
+  // "+ New agent" opens the single-agent create modal (AgentConfigModal in 'new'
+  // mode) — a direct "add ONE local agent" path, distinct from the describe→team
+  // wizard (reached via "Generate team…" → appActions.newAgent()).
+  const [newAgentOpen, setNewAgentOpen] = React.useState(false)
   const [mcpPath, setMcpPath] = React.useState<string | null>(null)
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
   // Bulk "Add task" prompt: the checked agents captured at open + the one task
@@ -261,7 +265,8 @@ export function AgentsView(): React.JSX.Element {
           onSelect={setSelected}
           checked={checked}
           onCheckedChange={setChecked}
-          onNewAgent={() => appActions.newAgent()}
+          onNewAgent={() => setNewAgentOpen(true)}
+          onGenerateTeam={() => appActions.newAgent()}
           onAction={(action, agent) => void onAction(action, agent)}
           onBulk={(action) => void onBulk(action)}
         />
@@ -309,13 +314,13 @@ export function AgentsView(): React.JSX.Element {
                     Welcome to AutoDev
                   </div>
                   <div style={{ maxWidth: 380, fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)', lineHeight: 1.55 }}>
-                    You have no agents yet. Create one to start — describe a task and let AutoDev generate a team, or
-                    spawn a single agent in a folder.
+                    You have no agents yet. Add a single agent in a folder to start — or describe a task and let
+                    AutoDev generate a whole team.
                   </div>
                   <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
                     <button
                       type="button"
-                      onClick={() => appActions.newAgent()}
+                      onClick={() => setNewAgentOpen(true)}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -335,7 +340,7 @@ export function AgentsView(): React.JSX.Element {
                     </button>
                     <button
                       type="button"
-                      onClick={() => appActions.openHelp()}
+                      onClick={() => appActions.newAgent()}
                       style={{
                         padding: '6px 14px',
                         borderRadius: 'var(--r-button)',
@@ -348,9 +353,24 @@ export function AgentsView(): React.JSX.Element {
                         cursor: 'pointer'
                       }}
                     >
-                      Getting started
+                      Generate team…
                     </button>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => appActions.openHelp()}
+                    style={{
+                      marginTop: 2,
+                      background: 'none',
+                      border: 'none',
+                      color: 'var(--accent)',
+                      fontFamily: 'var(--font-sans)',
+                      fontSize: 'var(--fs-meta)',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Getting started
+                  </button>
                 </>
               ) : (
                 <span style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>
@@ -382,6 +402,20 @@ export function AgentsView(): React.JSX.Element {
       )}
 
       <AgentConfigModal agentPath={configPath ?? ''} open={configPath != null} onClose={() => setConfigPath(null)} />
+      {/* Single-agent create — "+ New agent". On success, refresh the fleet so the
+          new agent shows at once (agents:add pushes no `changed` event) and select it. */}
+      <AgentConfigModal
+        mode="new"
+        agentPath=""
+        open={newAgentOpen}
+        onClose={() => setNewAgentOpen(false)}
+        onCreated={(p) => {
+          refreshAgents()
+          setSelected(p)
+          setDetailTab('activity')
+          appActions.toast('Agent added.')
+        }}
+      />
       <McpEditorModal agentPath={mcpPath ?? ''} open={mcpPath != null} onClose={() => setMcpPath(null)} />
 
       {/* Bulk "Add task": one task, typed once, queued to every checked agent. */}

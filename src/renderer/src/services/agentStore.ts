@@ -321,6 +321,17 @@ export function getElapsedMs(path: string): number | null {
   return rec ? Math.max(0, nowTs - rec.since) : null
 }
 
+/**
+ * Force an immediate reconciled reload of the fleet. Used after an out-of-band
+ * mutation the backend doesn't push a `changed` event for (e.g. registering a
+ * freshly-created workspace via `agents:add`), so the new agent shows up at once
+ * instead of waiting for the 5s poll. A no-op reconcile (identical data) triggers
+ * zero re-renders, so calling it defensively is cheap.
+ */
+export function refreshAgents(): void {
+  void reload()
+}
+
 /* ----------------------------------------------------------------- actions -- */
 
 /**

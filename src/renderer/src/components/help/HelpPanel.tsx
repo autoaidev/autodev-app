@@ -139,8 +139,8 @@ export function HelpPanel({ open, onClose }: HelpPanelProps): React.JSX.Element 
       key: 'agent',
       title: 'Create your first agent',
       done: agents.length > 0,
-      body: 'Describe what you want and let AutoDev generate a team — or spawn a single agent in a folder.',
-      action: { label: 'New agent', run: () => go(() => app.newAgent()) }
+      body: 'Add a single agent in a folder from the Agents tab, or describe what you want and let AutoDev generate a whole team.',
+      action: { label: 'Generate a team', run: () => go(() => app.newAgent()) }
     }
   ]
 
