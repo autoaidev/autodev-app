@@ -624,6 +624,10 @@ export class AgentManager extends EventEmitter {
     // A fresh (manual / spawn-office) start clears the crash-retry budget and any
     // pending "user stopped this" marker; an auto-retry preserves the budget.
     this._intentionalStop.delete(path)
+    // Drop the persistent stay-stopped marker so an office supervisor is free to
+    // keep this workspace online again (the loop's own start clears it too, but
+    // doing it here first closes the window before the child has booted).
+    this._clearUserStopped(path)
     const pendingRetry = this._retryTimers.get(path)
     if (pendingRetry) { clearTimeout(pendingRetry); this._retryTimers.delete(path) }
     if (!isRetry) this._crashRetries.delete(path)
@@ -741,27 +745,101 @@ export class AgentManager extends EventEmitter {
     const pending = this._retryTimers.get(path)
     if (pending) { clearTimeout(pending); this._retryTimers.delete(path) }
     this._crashRetries.delete(path)
+    // Persist a "stay stopped" marker in the workspace. Killing the loop is not
+    // enough on its own: an `autodev office <slug>` supervisor re-lists the
+    // roster ~every 15s and RESPAWNS any character that has gone offline — so a
+    // stopped agent would silently come back. The marker is the shared signal
+    // that tells that supervisor to skip this workspace until an explicit start.
+    this._markUserStopped(path)
     const child = this._procs.get(path)
     if (child) {
+      // Snapshot the loop's descendant pids (provider subprocesses — grok tmux,
+      // opencode serve, a claude child) BEFORE we signal it: once the loop dies
+      // they reparent to init (ppid 1) and can no longer be found by walking the
+      // process tree, so we must capture them now to SIGKILL as a fallback.
+      const tree = child.pid ? this._descendantPids([child.pid]) : []
       try { child.kill('SIGINT') } catch { /* ignore */ }
-      // hard-kill fallback
-      setTimeout(() => { try { child.kill('SIGKILL') } catch { /* ignore */ } }, 4000).unref()
+      // Hard-kill fallback: the loop itself AND any child that outlived it, so
+      // nothing survives to keep a provider session alive.
+      setTimeout(() => {
+        try { child.kill('SIGKILL') } catch { /* ignore */ }
+        for (const d of tree) { try { process.kill(d, 'SIGKILL') } catch { /* ignore */ } }
+      }, 4000).unref()
       return
     }
     // No child of ours — stop every externally-started loop for this workspace
     // (there can be more than one after a messy restart) by pid: SIGINT for a
-    // graceful provider shutdown, SIGKILL as a fallback.
+    // graceful provider shutdown, SIGKILL (loop + descendants) as a fallback.
     const pids = this._externalPids(path)
     this._extPidCache.delete(path)
     // Mark the path so an immediately-following start() (a restart) knows this
     // external loop is being torn down and force-kills any lingering pid instead
     // of no-op'ing on it. Cleared once a fresh loop actually spawns.
     if (pids.length) this._extStopping.set(path, Date.now())
+    const tree = this._descendantPids(pids)
     for (const pid of pids) {
       this.emit('log', { path, line: `\n[stopping external loop pid=${pid}]\n` })
       try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
-      setTimeout(() => { try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ } }, 4000).unref()
     }
+    if (pids.length) {
+      setTimeout(() => {
+        for (const pid of [...pids, ...tree]) { try { process.kill(pid, 'SIGKILL') } catch { /* ignore */ } }
+      }, 4000).unref()
+    }
+  }
+
+  // Every descendant pid of `roots` (children, grandchildren, …) from /proc's
+  // ppid links — used to tear down a loop's provider subprocesses along with it.
+  // Linux-only (no /proc elsewhere); excludes the roots themselves.
+  private _descendantPids(roots: number[]): number[] {
+    if (process.platform !== 'linux' || roots.length === 0) return []
+    const childrenOf = new Map<number, number[]>()
+    try {
+      for (const ent of readdirSync('/proc')) {
+        if (!/^\d+$/.test(ent)) continue
+        let ppid: number
+        try {
+          // /proc/<pid>/stat: `pid (comm) state ppid …`. comm can contain spaces
+          // and parens, so parse fields AFTER the final ')': ppid is the 2nd.
+          const stat = readFileSync(`/proc/${ent}/stat`, 'utf8')
+          const rp = stat.lastIndexOf(')')
+          const fields = stat.slice(rp + 2).split(' ')
+          ppid = parseInt(fields[1], 10)
+        } catch { continue }
+        if (!Number.isFinite(ppid)) continue
+        const arr = childrenOf.get(ppid) ?? []
+        arr.push(parseInt(ent, 10))
+        childrenOf.set(ppid, arr)
+      }
+    } catch { return [] }
+    const out: number[] = []
+    const seen = new Set<number>(roots)
+    const queue = [...roots]
+    while (queue.length) {
+      const p = queue.shift() as number
+      for (const c of childrenOf.get(p) ?? []) {
+        if (seen.has(c)) continue
+        seen.add(c); out.push(c); queue.push(c)
+      }
+    }
+    return out
+  }
+
+  // ── User-stop marker (mirrors autodev-cli src/core/stopMarker.ts) ──────────
+  // A `.autodev/stopped` file that tells an `autodev office` supervisor NOT to
+  // auto-respawn this workspace. Written on Stop, cleared on Start.
+  private _stopMarkerPath(path: string): string { return join(path, '.autodev', 'stopped') }
+
+  private _markUserStopped(path: string): void {
+    try {
+      const p = this._stopMarkerPath(path)
+      mkdirSync(join(path, '.autodev'), { recursive: true })
+      writeFileSync(p, JSON.stringify({ stoppedAt: new Date().toISOString(), reason: 'app-stop' }) + '\n', 'utf8')
+    } catch { /* best effort — a missing marker only risks a supervisor respawn */ }
+  }
+
+  private _clearUserStopped(path: string): void {
+    try { rmSync(this._stopMarkerPath(path), { force: true }) } catch { /* best effort */ }
   }
 
   /** True if stop() SIGINTed an external loop for this path in the last 15s. */
