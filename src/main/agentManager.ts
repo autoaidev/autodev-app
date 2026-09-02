@@ -122,7 +122,8 @@ const MODEL_SETTING_KEY: Record<string, string> = {
   claude: 'claudeModel',
   opencode: 'opencodeModel',
   copilot: 'copilotModel',
-  grok: 'grokModel'
+  grok: 'grokModel',
+  dummy: 'dummyModel'
 }
 
 const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])

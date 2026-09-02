@@ -74,7 +74,8 @@ export const MODEL_KEY: Record<string, string> = {
   claude: 'claudeModel',
   opencode: 'opencodeModel',
   copilot: 'copilotModel',
-  grok: 'grokModel'
+  grok: 'grokModel',
+  dummy: 'dummyModel'
 }
 export const modelKeyFor = (p: string): string => MODEL_KEY[vendorOf(p)] ?? 'claudeModel'
 

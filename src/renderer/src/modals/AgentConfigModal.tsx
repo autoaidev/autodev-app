@@ -51,7 +51,7 @@ const VARIANT_HINT: Record<Variant, string> = {
   headless: 'Headless CLI runs the loop with no attached terminal.',
   sdk: 'SDK · API drives the model directly — needs an API key.'
 }
-const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel' }
+const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel', dummy: 'dummyModel' }
 const modelKeyFor = (p: string): string => MODEL_KEY[p.split('-')[0]] ?? 'claudeModel'
 
 const parse = (id?: string): { vendor: string; variant: Variant } => {

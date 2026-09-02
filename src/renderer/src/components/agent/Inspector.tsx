@@ -26,7 +26,8 @@ const MODEL_KEY: Record<string, string> = {
   claude: 'claudeModel',
   opencode: 'opencodeModel',
   copilot: 'copilotModel',
-  grok: 'grokModel'
+  grok: 'grokModel',
+  dummy: 'dummyModel'
 }
 function modelKeyFor(provider?: string): string {
   return MODEL_KEY[(provider || '').split('-')[0]] ?? 'claudeModel'
