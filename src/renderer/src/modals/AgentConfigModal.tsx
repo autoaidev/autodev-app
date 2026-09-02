@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Modal, Button, SegmentedTabs } from '@renderer/ui'
 import { McpEditorModal } from './McpEditorModal'
+import { ModelSelect } from '@renderer/components/ModelSelect'
 
 /**
  * SCREEN 2e — Agent Setup, demoted from a whole tab to a modal.
@@ -133,17 +134,39 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
     if (!variantsFor(v).has(variant)) setVariant([...variantsFor(v)][0])
   }
 
-  const save = useCallback(async (): Promise<void> => {
-    setBusy(true); setStatus('')
+  // Persist all fields; returns true on success. Shared by Save and Save & restart.
+  const persist = useCallback(async (): Promise<boolean> => {
     const writes: Array<[string, string]> = [['provider', provider], [modelKeyFor(provider), model], ['enableFileBrowser', fileBrowser ? 'true' : 'false']]
     if (sessionName !== '') writes.push(['sessionName', sessionName])
     for (const [k, v] of writes) {
       const r = await window.api.runCli(['config', 'set', k, v, agentPath])
-      if (r.code !== 0) { setBusy(false); setStatus(r.stderr || `Save failed writing "${k}"`); return }
+      if (r.code !== 0) { setStatus(r.stderr || `Save failed writing "${k}"`); return false }
+    }
+    return true
+  }, [provider, model, fileBrowser, sessionName, agentPath])
+
+  const save = useCallback(async (): Promise<void> => {
+    setBusy(true); setStatus('')
+    const ok = await persist()
+    setBusy(false)
+    if (ok) setStatus(running ? 'Saved — restart the agent to apply on the next task.' : 'Saved.')
+  }, [persist, running])
+
+  // Save & restart — persist, then bounce the running loop so the new model/provider
+  // takes effect NOW instead of leaving the user to remember (model applies on restart).
+  const saveAndRestart = useCallback(async (): Promise<void> => {
+    setBusy(true); setStatus('')
+    const ok = await persist()
+    if (!ok) { setBusy(false); return }
+    try {
+      await window.api.stopAgent(agentPath)
+      await window.api.startAgent(agentPath, provider)
+      setStatus('Saved & restarting — the new model applies on this run.')
+    } catch (e) {
+      setStatus(`Saved, but restart failed: ${(e as Error)?.message ?? 'unknown error'}`)
     }
     setBusy(false)
-    setStatus(running ? 'Saved — restart the agent to apply on the next task.' : 'Saved.')
-  }, [provider, model, fileBrowser, sessionName, agentPath, running])
+  }, [persist, agentPath, provider])
 
   const availableVariants = variantsFor(vendor)
   const agentName = sessionName || name
@@ -159,8 +182,9 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
         subtitleMono
         footer={
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            {status && <span style={{ fontSize: 'var(--fs-meta)', color: status.startsWith('Saved') ? 'var(--st-running)' : 'var(--st-error)' }}>{status}</span>}
+            {status && <span style={{ fontSize: 'var(--fs-meta)', color: status.startsWith('Saved') && !/fail/i.test(status) ? 'var(--st-running)' : 'var(--st-error)' }}>{status}</span>}
             <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
+            {running && <Button variant="secondary" onClick={() => void saveAndRestart()} disabled={busy}>{busy ? '…' : 'Save & restart'}</Button>}
             <Button variant="primary" onClick={() => void save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</Button>
           </div>
         }
@@ -192,8 +216,8 @@ function AgentConfigModal(props: { agentPath: string; open: boolean; onClose: ()
             </select>
           </div>
           <div style={{ flex: 1 }}>
-            <span style={label}>Model ({modelKeyFor(provider)})</span>
-            <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="(provider default)" style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)' }} />
+            <span style={label}>Model</span>
+            <ModelSelect vendor={vendor} value={model} onChange={setModel} />
           </div>
         </div>
 

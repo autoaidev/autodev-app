@@ -11,6 +11,13 @@ export interface KeyUsage {
   unlimited?: boolean
 }
 
+/** One provider family's model catalog (mirrors main/index.ts + `autodev models`). */
+export interface ModelCatalogEntry {
+  family: string
+  default: string
+  models: Array<{ id: string; label: string; contextLimit: number }>
+}
+
 const api = {
   // The installed app version string, e.g. '0.3.1'.
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
@@ -28,6 +35,10 @@ const api = {
   agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),
   confirmDialog: (message: string, detail?: string) => ipcRenderer.invoke('dialog:confirm', message, detail),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
+  // The provider model catalog (id/label/contextLimit per family) from the bundled
+  // CLI's `autodev models --json`, cached in main. Returns [] on an older CLI —
+  // callers fall back to the offline MODEL_SUGGESTIONS.
+  listModels: (): Promise<ModelCatalogEntry[]> => ipcRenderer.invoke('models:list'),
   exportTrace: (path: string, output: string): Promise<{ ok: true; output: string; note?: string } | { error: string }> => ipcRenderer.invoke('agent:exportTrace', path, output),
   cliCheck: () => ipcRenderer.invoke('cli:check'),
   pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),

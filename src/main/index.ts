@@ -7,6 +7,14 @@ import { PixelOfficeClient } from './pixelOffice'
 import { resolveCliJs } from './cli'
 import * as appSettings from './appSettings'
 
+/** One provider family's model catalog, as emitted by `autodev models --json`. */
+interface ModelCatalogEntry {
+  family: string
+  default: string
+  models: Array<{ id: string; label: string; contextLimit: number }>
+}
+type ModelCatalog = ModelCatalogEntry[]
+
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let isQuitting = false
@@ -208,6 +216,23 @@ ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
 ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
 ipcMain.handle('agent:mcpStatus', (_e, path: string) => manager.mcpStatus(path))
 ipcMain.handle('cli:run', (_e, args: string[], cwd?: string) => manager.runCli(args, cwd))
+// The provider model catalog (id/label/contextLimit per family) sourced from the
+// bundled CLI's `autodev models --json`. The catalog is STATIC for a given CLI
+// version, so cache it in-memory after the first successful read. On failure or
+// an older CLI without the `models` command, return [] — the renderer falls back
+// to its offline MODEL_SUGGESTIONS so the pickers never break.
+let _modelCatalog: ModelCatalog | null = null
+ipcMain.handle('models:list', async (): Promise<ModelCatalog> => {
+  if (_modelCatalog) return _modelCatalog
+  try {
+    const r = await manager.runCli(['models', '--json'])
+    if (r.code === 0 && r.stdout.trim().startsWith('[')) {
+      const parsed = JSON.parse(r.stdout) as ModelCatalog
+      if (Array.isArray(parsed) && parsed.length > 0) { _modelCatalog = parsed; return parsed }
+    }
+  } catch { /* older CLI / parse failure — fall through to offline fallback */ }
+  return []
+})
 ipcMain.handle('agent:exportTrace', (_e, path: string, output: string) => manager.exportTrace(path, output))
 ipcMain.handle('cli:check', () => { const p = resolveCliJs(); return { found: !!p, path: p } })
 ipcMain.handle('dialog:pickFolder', async () => {

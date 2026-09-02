@@ -11,6 +11,8 @@
  * key (`claudeModel`, `grokModel`, …) is what `autodev config set` writes.
  */
 
+import { useEffect, useState } from 'react'
+
 export interface ProviderOption {
   id: string
   label: string
@@ -88,6 +90,69 @@ export const MODEL_SUGGESTIONS: Record<string, string[]> = {
   grok: ['grok-4', 'grok-code-fast-1']
 }
 export const modelSuggestionsFor = (p: string): string[] => MODEL_SUGGESTIONS[vendorOf(p)] ?? []
+
+// ---------------------------------------------------------------------------
+// Model catalog — the REAL, per-family model list sourced from the bundled CLI
+// (`autodev models --json`, exposed as window.api.listModels()). This is the
+// source of truth for the model pickers; MODEL_SUGGESTIONS above is now only the
+// OFFLINE fallback for an older CLI that lacks the `models` command.
+// ---------------------------------------------------------------------------
+
+/** One model the picker can offer (contextLimit is optional for fallback ids). */
+export interface ModelInfo {
+  id: string
+  label: string
+  contextLimit?: number
+}
+/** One provider family's catalog (mirrors the CLI `models --json` shape). */
+export interface ModelCatalogEntry {
+  family: string
+  default: string
+  models: ModelInfo[]
+}
+
+// Cache the single catalog fetch process-wide — the catalog is static per CLI
+// version, so every picker shares one round-trip.
+let _catalogPromise: Promise<ModelCatalogEntry[]> | null = null
+export function fetchModelCatalog(): Promise<ModelCatalogEntry[]> {
+  if (!_catalogPromise) {
+    const call = window.api?.listModels?.()
+    _catalogPromise = (call ? Promise.resolve(call) : Promise.resolve([]))
+      .then((c) => (Array.isArray(c) ? (c as ModelCatalogEntry[]) : []))
+      .catch(() => [])
+  }
+  return _catalogPromise
+}
+
+/** React hook: the full catalog (empty until loaded / on older CLI). */
+export function useModelCatalog(): { catalog: ModelCatalogEntry[]; loading: boolean } {
+  const [catalog, setCatalog] = useState<ModelCatalogEntry[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let live = true
+    void fetchModelCatalog().then((c) => {
+      if (!live) return
+      setCatalog(c)
+      setLoading(false)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return { catalog, loading }
+}
+
+/**
+ * The models to offer for a vendor/family, resolved from the live catalog with a
+ * graceful fallback to the offline MODEL_SUGGESTIONS (ids only) so the picker is
+ * never empty on an older CLI.
+ */
+export function modelsForFamily(catalog: ModelCatalogEntry[], vendor: string): ModelInfo[] {
+  const fam = vendorOf(vendor)
+  const entry = catalog.find((e) => e.family === fam)
+  if (entry && entry.models.length) return entry.models
+  return modelSuggestionsFor(fam).map((id) => ({ id, label: id }))
+}
 
 /**
  * How you authenticate each vendor's CLI on THIS machine. The app cannot yet probe

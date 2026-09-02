@@ -7,6 +7,7 @@ import { useAppActions } from '@renderer/services/appActions'
 import { useSessionActions } from '@renderer/services/sessionsService'
 import type { SessionMeta } from '@renderer/components/sessions/types'
 import type { TodoItem, AgentTasks } from './useAgentTasks'
+import { ModelSelect } from '@renderer/components/ModelSelect'
 
 /**
  * Inspector — the fixed 308px right panel of the Agent-detail screen (2a). Three
@@ -311,8 +312,34 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
 
 function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; onEditSetup: () => void; onEditMcp: () => void }): React.JSX.Element {
   const [model, setModel] = React.useState('')
+  const [modelBusy, setModelBusy] = React.useState(false)
+  const [modelNote, setModelNote] = React.useState('')
   const [fileBrowser, setFileBrowser] = React.useState<boolean | null>(null)
   const [mcp, setMcp] = React.useState<{ total: number; issues: number } | null>(null)
+
+  const running = !!(agent.running || agent.activity === 'working')
+
+  // Inline 1-click model change: persist immediately (optimistic), and — since the
+  // model only takes effect on (re)start — surface an honest "restart to apply" with
+  // a Restart affordance when the loop is live, so the user isn't left to remember.
+  const changeModel = (v: string): void => {
+    setModel(v)
+    setModelBusy(true); setModelNote('')
+    void window.api
+      .runCli(['config', 'set', modelKeyFor(agent.provider), v, agent.path])
+      .then((r: { code?: number; stderr?: string }) =>
+        setModelNote(r?.code !== 0 ? (r?.stderr || 'save failed') : running ? 'restart to apply' : 'saved'))
+      .catch(() => setModelNote('save failed'))
+      .finally(() => setModelBusy(false))
+  }
+  const restart = (): void => {
+    setModelBusy(true); setModelNote('')
+    void Promise.resolve(window.api.stopAgent(agent.path))
+      .then(() => window.api.startAgent(agent.path, agent.provider))
+      .then(() => setModelNote('restarting — applies now'))
+      .catch(() => setModelNote('restart failed'))
+      .finally(() => setModelBusy(false))
+  }
 
   React.useEffect(() => {
     let live = true
@@ -360,7 +387,21 @@ function SetupSection({ agent, onEditSetup, onEditMcp }: { agent: AgentState; on
     <div style={{ padding: '13px 15px' }}>
       <SectionLabel right={<LinkBtn onClick={onEditSetup}>Edit…</LinkBtn>}>Setup</SectionLabel>
       <KeyValueRow k="Provider" v={providerShort(agent.provider)} />
-      <KeyValueRow k="Model" v={model || <span style={{ color: 'var(--tx-5)' }}>provider default</span>} />
+      {/* MODEL — at-a-glance current model AND a 1-click inline change (no modal). */}
+      <div style={{ padding: '5px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 5 }}>
+          <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-4)' }}>Model</span>
+          {modelNote && (
+            <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)' }}>
+              {modelNote}
+              {running && modelNote === 'restart to apply' && (
+                <> · <button type="button" onClick={restart} disabled={modelBusy} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)', textDecoration: 'underline' }}>Restart</button></>
+              )}
+            </span>
+          )}
+        </div>
+        <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />
+      </div>
       <KeyValueRow k="Office" v={office} />
       <KeyValueRow
         k="MCP"

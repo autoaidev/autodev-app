@@ -1,8 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { Modal, Button, ProviderChip } from '@renderer/ui'
 import { OfficeAgent } from './officeTypes'
 import { PROVIDER_FAMILIES, providerAccent, providerFamilyOf, type ProviderFamily } from '@renderer/services/identity'
-import { MODEL_KEY, modelSuggestionsFor } from '@renderer/lib/providers'
+import { ModelSelect } from '@renderer/components/ModelSelect'
 import * as officeService from '@renderer/services/officeService'
 
 /**
@@ -56,10 +56,6 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
     setModel(agent.model ?? '')
     setName(agent.name ?? '')
   }, [open, agent])
-
-  const modelKey = MODEL_KEY[family] ?? 'claudeModel'
-  const suggestions = useMemo(() => modelSuggestionsFor(family), [family])
-  const listId = 'char-model-suggest'
 
   const save = useCallback(async (): Promise<void> => {
     if (!agent) return
@@ -143,20 +139,8 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
 
       {/* MODEL */}
       <div style={{ marginBottom: 4 }}>
-        <span style={label}>Model ({modelKey})</span>
-        <input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="(provider default)"
-          aria-label="Model"
-          list={suggestions.length ? listId : undefined}
-          style={{ ...inputStyle, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)' }}
-        />
-        {suggestions.length > 0 && (
-          <datalist id={listId}>
-            {suggestions.map((m) => <option key={m} value={m} />)}
-          </datalist>
-        )}
+        <span style={label}>Model</span>
+        <ModelSelect vendor={family} value={model} onChange={setModel} />
       </div>
       <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>
         Leave empty for the provider's default model.
