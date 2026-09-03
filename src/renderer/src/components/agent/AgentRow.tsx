@@ -96,11 +96,13 @@ export interface AgentRowProps {
   /** Friendly model label (e.g. "Grok 4") resolved from the catalog by the rail;
    *  shown in the meta line when a non-default model is set. Undefined = default. */
   modelLabel?: string
+  /** Show the bulk-select checkbox. Basic hides the bulk workflow (default true). */
+  showCheck?: boolean
   /** open the context menu at the cursor (right-click OR inline ···) */
   onMenu: (e: React.MouseEvent, agent: AgentState) => void
 }
 
-export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, modelLabel, onMenu }: AgentRowProps): React.JSX.Element {
+export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, modelLabel, showCheck = true, onMenu }: AgentRowProps): React.JSX.Element {
   const meta = rowMeta(agent, modelLabel)
   const dim = isDim(agent)
   const dot: DotStatus = agent.activity
@@ -154,7 +156,7 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
         cursor: 'pointer'
       }}
     >
-      <Checkbox checked={checked} onChange={onToggleCheck} label={`Select ${agent.name}`} />
+      {showCheck && <Checkbox checked={checked} onChange={onToggleCheck} label={`Select ${agent.name}`} />}
       {/* identity tile — stable hue + initials (IDENTITY) with a provider-accent
           ring (which tool); state is carried by the spine + the dot on the right. */}
       <AgentAvatar

@@ -31,15 +31,19 @@ function rowSpine(a: AgentState): string {
 }
 
 /**
- * Grid template shared by the header row and every data row. The ELAPSED column
- * is dropped entirely when nothing is running (it would be all "—"), so the
- * template is derived from `showElapsed`.
+ * Grid template shared by the header row and every data row. The ELAPSED column is
+ * dropped when nothing is running (it would be all "—"); MODEL + ELAPSED are also
+ * dropped in Basic (they're expert columns), so the template is derived from
+ * `showModel` + `showElapsed`.
  */
-function gridFor(showElapsed: boolean): string {
-  // checkbox · AGENT · OFFICE · STATE · MODEL · CURRENT TASK · TASKS · [ELAPSED] · ACTION
-  return showElapsed
-    ? '14px 180px 112px 100px 132px minmax(0,1fr) 84px 72px 56px'
-    : '14px 180px 112px 100px 132px minmax(0,1fr) 84px 56px'
+function gridFor(showModel: boolean, showElapsed: boolean): string {
+  // checkbox · AGENT · OFFICE · STATE · [MODEL] · CURRENT TASK · TASKS · [ELAPSED] · ACTION
+  const cols = ['14px', '180px', '112px', '100px']
+  if (showModel) cols.push('132px')
+  cols.push('minmax(0,1fr)', '84px')
+  if (showElapsed) cols.push('72px')
+  cols.push('56px')
+  return cols.join(' ')
 }
 const COL_GAP = 14
 const ROW_PAD = '10px 12px'
@@ -286,25 +290,29 @@ function ModelCell({
 
 /* ---------------------------------- header -------------------------------- */
 
-function headCols(showElapsed: boolean): string[] {
-  const base = ['', 'AGENT', 'OFFICE', 'STATE', 'MODEL', 'CURRENT TASK', 'TASKS']
-  return showElapsed ? [...base, 'ELAPSED', ''] : [...base, '']
+function headCols(showModel: boolean, showElapsed: boolean): string[] {
+  const base = ['', 'AGENT', 'OFFICE', 'STATE']
+  if (showModel) base.push('MODEL')
+  base.push('CURRENT TASK', 'TASKS')
+  if (showElapsed) base.push('ELAPSED')
+  base.push('')
+  return base
 }
 
-function HeaderRow({ showElapsed }: { showElapsed: boolean }): React.JSX.Element {
+function HeaderRow({ showModel, showElapsed }: { showModel: boolean; showElapsed: boolean }): React.JSX.Element {
   return (
     <div
       role="row"
       style={{
         display: 'grid',
-        gridTemplateColumns: gridFor(showElapsed),
+        gridTemplateColumns: gridFor(showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: '9px 12px',
         borderBottom: '1px solid var(--bd-row)'
       }}
     >
-      {headCols(showElapsed).map((h, i) => (
+      {headCols(showModel, showElapsed).map((h, i) => (
         <span
           key={i}
           role="columnheader"
@@ -331,6 +339,7 @@ function HeaderRow({ showElapsed }: { showElapsed: boolean }): React.JSX.Element
 export interface FleetRowProps {
   agent: AgentState
   selected: boolean
+  showModel: boolean
   showElapsed: boolean
   elapsed: string
   elapsedColor: string
@@ -344,6 +353,7 @@ export interface FleetRowProps {
 function FleetRow({
   agent,
   selected,
+  showModel,
   showElapsed,
   elapsed,
   elapsedColor,
@@ -375,7 +385,7 @@ function FleetRow({
       onClick={onOpen}
       style={{
         display: 'grid',
-        gridTemplateColumns: gridFor(showElapsed),
+        gridTemplateColumns: gridFor(showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: ROW_PAD,
@@ -465,8 +475,8 @@ function FleetRow({
       {/* STATE */}
       <StateBadge a={agent} />
 
-      {/* MODEL (click-to-edit) */}
-      <ModelCell a={agent} catalog={catalog} onSet={onSetModel} />
+      {/* MODEL (click-to-edit) — Advanced only */}
+      {showModel && <ModelCell a={agent} catalog={catalog} onSet={onSetModel} />}
 
       {/* CURRENT TASK (ellipsis) */}
       <span
@@ -548,6 +558,8 @@ function FleetRow({
 export interface FleetTableProps {
   agents: AgentState[]
   selected: Set<string>
+  /** Advanced mode — reveals the expert MODEL + ELAPSED columns. */
+  advanced?: boolean
   elapsedFor: (a: AgentState) => { text: string; color: string }
   actionFor: (a: AgentState) => RowAction
   /** Persist a row's model (#10) — same `config set <vendorKey>` path as Setup. */
@@ -559,20 +571,22 @@ export interface FleetTableProps {
 export function FleetTable({
   agents,
   selected,
+  advanced = false,
   elapsedFor,
   actionFor,
   onSetModel,
   onToggleSelect,
   onOpen
 }: FleetTableProps): React.JSX.Element {
-  // Drop the ELAPSED column entirely when nothing is running — otherwise it's a
-  // full column of "—". It reappears the moment any agent starts working.
-  const showElapsed = anyRunning(agents)
+  // MODEL + ELAPSED are expert columns — Advanced only. ELAPSED additionally drops
+  // when nothing is running (else a full column of "—").
+  const showModel = advanced
+  const showElapsed = advanced && anyRunning(agents)
   // One shared catalog fetch for the whole table (resolves each row's model label).
   const { catalog } = useModelCatalog()
   return (
     <div role="table" aria-label="Fleet agents" style={{ minWidth: 0 }}>
-      <HeaderRow showElapsed={showElapsed} />
+      <HeaderRow showModel={showModel} showElapsed={showElapsed} />
       {agents.length === 0 ? (
         <div
           style={{
@@ -593,6 +607,7 @@ export function FleetTable({
               key={a.path}
               agent={a}
               selected={selected.has(a.path)}
+              showModel={showModel}
               showElapsed={showElapsed}
               elapsed={el.text}
               elapsedColor={el.color}

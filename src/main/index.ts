@@ -291,7 +291,7 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string> }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean }) => appSettings.updateSettings(patch ?? {}))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))

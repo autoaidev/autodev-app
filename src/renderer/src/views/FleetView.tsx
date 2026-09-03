@@ -16,6 +16,7 @@ import { BulkModelModal } from '@renderer/modals/BulkModelModal'
 import '@renderer/components/fleet/fleet.css'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 
 /**
  * 2b · Fleet — a single triage table that answers "what needs me" across the
@@ -55,6 +56,9 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   // ONE seed + subscribe + poll + elapsed-clock for the whole app. This view just
   // consumes the snapshot — no local fetch/subscribe/poll/merge lives here anymore.
   const agents = useAgents()
+  // Advanced gates the Throughput/Providers tiles, the MODEL + ELAPSED columns and
+  // the expert bulk verbs. Basic Fleet = triage table + Needs-you + Start/Stop-all.
+  const { advanced } = useAdvancedMode()
   // Typed app-actions bus: the global toast (bulk-action outcomes surface here so
   // feedback isn't swallowed), the stop-all fan-out, and top-nav routing. Named
   // `appActions` to avoid colliding with the agentStore `actions` used for the
@@ -324,17 +328,22 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           })
         }
       },
-      { label: 'Switch provider…', onClick: () => setProvModal({ paths: selPaths }) },
-      { label: 'Set model…', onClick: () => setModelModal({ paths: selPaths }) },
-      {
-        label: 'Add task to all…',
-        onClick: () => {
-          setTaskText('')
-          setTaskModal({ paths: selPaths })
-        }
-      }
+      // Expert bulk verbs — Advanced only; Basic keeps bulk Start/Stop.
+      ...(advanced
+        ? [
+            { label: 'Switch provider…', onClick: () => setProvModal({ paths: selPaths }) },
+            { label: 'Set model…', onClick: () => setModelModal({ paths: selPaths }) },
+            {
+              label: 'Add task to all…',
+              onClick: () => {
+                setTaskText('')
+                setTaskModal({ paths: selPaths })
+              }
+            }
+          ]
+        : [])
     ],
-    [selPaths, agents, start, stop]
+    [selPaths, agents, start, stop, advanced]
   )
 
   const menuAgent = menu ? agents.find((a) => a.path === menu.path) : null
@@ -367,9 +376,11 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
             busy={busy}
           />
           <div style={{ display: 'flex', gap: 12, marginTop: 16, marginBottom: 18 }}>
+            {/* NeedsYou is the triage tile — always shown. Throughput + Providers are
+                Advanced-only analytics. */}
             <NeedsYouTile agents={attention} actionFor={attentionAction} />
-            <ThroughputTile bars={bars} closed={closedToday} />
-            <ProvidersTile agents={agents} />
+            {advanced && <ThroughputTile bars={bars} closed={closedToday} />}
+            {advanced && <ProvidersTile agents={agents} />}
           </div>
         </div>
 
@@ -378,6 +389,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           <FleetTable
             agents={filtered}
             selected={selected}
+            advanced={advanced}
             elapsedFor={elapsedFor}
             actionFor={rowAction}
             onSetModel={setRowModel}

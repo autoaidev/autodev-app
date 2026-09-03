@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell, ErrorBoundary, CommandPalette, type Command } from '@renderer/ui'
 import { CliStatusProvider } from '@renderer/services/cliStatus'
+import { AdvancedModeProvider } from '@renderer/services/advancedMode'
 import { AgentsView } from '@renderer/views/AgentsView'
 import { FleetView } from '@renderer/views/FleetView'
 import { OfficeView } from '@renderer/views/OfficeView'
@@ -167,6 +168,7 @@ export default function App(): JSX.Element {
 
   return (
     <CliStatusProvider>
+    <AdvancedModeProvider>
     <AppActionsProvider
       onNavigate={go}
       onOpenAgentTab={() => go('agents')}
@@ -242,6 +244,7 @@ export default function App(): JSX.Element {
       <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
     </AppActionsProvider>
+    </AdvancedModeProvider>
     </CliStatusProvider>
   )
 }

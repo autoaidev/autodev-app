@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Modal, Button, SegmentedTabs } from '@renderer/ui'
+import { Modal, Button, SegmentedTabs, AdvancedSection } from '@renderer/ui'
 import { McpEditorModal } from './McpEditorModal'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { NativeSelect } from '@renderer/components/NativeSelect'
@@ -307,18 +307,6 @@ function AgentConfigModal(props: {
           <input value={sessionName} onChange={(e) => setSessionName(e.target.value)} placeholder={name || '(folder name)'} style={inputStyle} />
         </div>
 
-        {/* PROVIDER (run variant) */}
-        <div style={{ marginBottom: 6 }}>
-          <span style={label}>Provider</span>
-          <SegmentedTabs
-            variant="segmented"
-            value={variant}
-            onChange={(v) => { if (availableVariants.has(v as Variant)) setVariant(v as Variant) }}
-            tabs={VARIANTS.map((v) => ({ id: v.id, label: availableVariants.has(v.id) ? v.label : <span style={{ opacity: 0.4 }}>{v.label}</span> }))}
-          />
-        </div>
-        <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginBottom: 14 }}>{VARIANT_HINT[variant]}</div>
-
         {/* ENGINE + MODEL */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           <div style={{ flex: 1 }}>
@@ -338,50 +326,68 @@ function AgentConfigModal(props: {
           </div>
         </div>
 
-        {/* TASK TIMEOUT (UI-only — see TODO above). Hidden in 'new' mode: it doesn't
-            persist anywhere yet, so it would be a dead control on a create form. */}
-        {!isNew && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={label}>Task timeout</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-3)' }}>{timeout} min</span>
-            </div>
-            <input type="range" min={5} max={90} step={5} value={timeout} onChange={(e) => setTimeoutMin(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', cursor: 'pointer' }}>
-              <input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} />
-              Retry once on timeout, then ask me
-            </label>
+        {/* EXPERT CONTROLS — the run variant, task timeout, file browser and MCP
+            servers. Wrapped in an always-present "Advanced ▸" disclosure so Basic
+            stays Session name → Engine → Model → Save, yet every control is one click
+            away (and expanded by default when Advanced mode is on). */}
+        <AdvancedSection hint="Run variant, task timeout, file browser and MCP servers.">
+          {/* PROVIDER (run variant) */}
+          <div style={{ marginBottom: 6 }}>
+            <span style={label}>Provider</span>
+            <SegmentedTabs
+              variant="segmented"
+              value={variant}
+              onChange={(v) => { if (availableVariants.has(v as Variant)) setVariant(v as Variant) }}
+              tabs={VARIANTS.map((v) => ({ id: v.id, label: availableVariants.has(v.id) ? v.label : <span style={{ opacity: 0.4 }}>{v.label}</span> }))}
+            />
           </div>
-        )}
+          <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginBottom: 14 }}>{VARIANT_HINT[variant]}</div>
 
-        {/* ENABLE FILE BROWSER */}
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 14, cursor: 'pointer' }}>
-          <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} style={{ marginTop: 2 }} />
-          <span>
-            <span style={{ fontSize: 'var(--fs-body)', color: 'var(--tx-1)' }}>Enable file browser</span>
-            <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>lets the office browse &amp; edit this agent's files</div>
-          </span>
-        </label>
-
-        {/* MCP SERVERS row → opens the 2g editor. Hidden in 'new' mode: the
-            workspace doesn't exist until Create, so there's nothing to summarize or
-            edit yet — MCP is configured from the agent's Setup after it's created. */}
-        {!isNew && (
-          <>
-            <div style={{ borderTop: '1px solid var(--bd-card)', margin: '2px 0 14px' }} />
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ minWidth: 0 }}>
-                <span style={{ ...label, marginBottom: 3 }}>MCP servers</span>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)' }}>
-                  {mcp == null
-                    ? 'checking…'
-                    : <>{mcp.configured} configured{mcp.missing.length > 0 && <span style={{ color: 'var(--st-error)' }}> · {mcp.missing.join(', ')} {mcp.missing.length === 1 ? 'missing' : 'unreachable'}</span>}</>}
-                </div>
+          {/* TASK TIMEOUT (UI-only — see TODO above). Hidden in 'new' mode: it doesn't
+              persist anywhere yet, so it would be a dead control on a create form. */}
+          {!isNew && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={label}>Task timeout</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-3)' }}>{timeout} min</span>
               </div>
-              <Button variant="secondary" style={{ marginLeft: 'auto' }} onClick={() => setShowMcp(true)}>Edit .mcp.json</Button>
+              <input type="range" min={5} max={90} step={5} value={timeout} onChange={(e) => setTimeoutMin(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--accent)' }} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 'var(--fs-meta)', color: 'var(--tx-4)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} />
+                Retry once on timeout, then ask me
+              </label>
             </div>
-          </>
-        )}
+          )}
+
+          {/* ENABLE FILE BROWSER */}
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 9, marginBottom: 14, cursor: 'pointer' }}>
+            <input type="checkbox" checked={fileBrowser} onChange={(e) => setFileBrowser(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>
+              <span style={{ fontSize: 'var(--fs-body)', color: 'var(--tx-1)' }}>Enable file browser</span>
+              <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>lets the office browse &amp; edit this agent's files</div>
+            </span>
+          </label>
+
+          {/* MCP SERVERS row → opens the 2g editor. Hidden in 'new' mode: the
+              workspace doesn't exist until Create, so there's nothing to summarize or
+              edit yet — MCP is configured from the agent's Setup after it's created. */}
+          {!isNew && (
+            <>
+              <div style={{ borderTop: '1px solid var(--bd-card)', margin: '2px 0 14px' }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <span style={{ ...label, marginBottom: 3 }}>MCP servers</span>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-meta)', color: 'var(--tx-dim)' }}>
+                    {mcp == null
+                      ? 'checking…'
+                      : <>{mcp.configured} configured{mcp.missing.length > 0 && <span style={{ color: 'var(--st-error)' }}> · {mcp.missing.join(', ')} {mcp.missing.length === 1 ? 'missing' : 'unreachable'}</span>}</>}
+                  </div>
+                </div>
+                <Button variant="secondary" style={{ marginLeft: 'auto' }} onClick={() => setShowMcp(true)}>Edit .mcp.json</Button>
+              </div>
+            </>
+          )}
+        </AdvancedSection>
       </Modal>
 
       <McpEditorModal agentPath={agentPath} open={showMcp} onClose={() => setShowMcp(false)} />

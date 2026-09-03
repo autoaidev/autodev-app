@@ -2,6 +2,7 @@ import React from 'react'
 import { StatusDot, AgentAvatar, IconButton } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
@@ -58,6 +59,9 @@ export function CharacterCard({
   onToggleSelect
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
+  // Basic softens the CTA to a plain "Connect" and hides the online "Open console"
+  // (operating a live terminal is an Advanced action). Advanced keeps both.
+  const { advanced } = useAdvancedMode()
   const accent = providerAccent(agent.provider)
   const tick = tickFor(agent)
   const dotStatus = !connected ? 'idle' : tick === 'needs-you' ? 'needs-you' : 'running'
@@ -208,36 +212,41 @@ export function CharacterCard({
         {subtitle}
       </div>
 
-      {/* Operate affordance — ALWAYS present (D1). For an ONLINE character this is
-          the only way to open its live terminal; offline it doubles as connect. */}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation()
-          onOperate()
-        }}
-        disabled={busy}
-        aria-label={connected ? `Open console for ${agent.name}` : `Connect and operate ${agent.name}`}
-        style={{
-          alignSelf: 'flex-start',
-          padding: 0,
-          background: 'transparent',
-          border: 'none',
-          color: 'var(--accent)',
-          fontFamily: 'var(--font-sans)',
-          fontSize: 'var(--fs-desc)',
-          fontWeight: 600,
-          cursor: busy ? 'default' : 'pointer'
-        }}
-      >
-        {busy
-          ? connected
-            ? 'Opening…'
-            : 'Connecting…'
-          : connected
-            ? 'Open console'
-            : 'Connect & operate'}
-      </button>
+      {/* Operate affordance. Offline it doubles as connect (Basic reads simply
+          "Connect"); the online "Open console" opens a live terminal — an operate
+          action, shown only in Advanced. */}
+      {(advanced || !connected) && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onOperate()
+          }}
+          disabled={busy}
+          aria-label={connected ? `Open console for ${agent.name}` : `Connect ${agent.name}`}
+          style={{
+            alignSelf: 'flex-start',
+            padding: 0,
+            background: 'transparent',
+            border: 'none',
+            color: 'var(--accent)',
+            fontFamily: 'var(--font-sans)',
+            fontSize: 'var(--fs-desc)',
+            fontWeight: 600,
+            cursor: busy ? 'default' : 'pointer'
+          }}
+        >
+          {busy
+            ? connected
+              ? 'Opening…'
+              : 'Connecting…'
+            : connected
+              ? 'Open console'
+              : advanced
+                ? 'Connect & operate'
+                : 'Connect'}
+        </button>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { StatusDot } from './StatusDot'
 import { IconButton } from './IconButton'
 import { CliBanner } from './CliBanner'
 import { useCliStatus } from '@renderer/services/cliStatus'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { useAppActions } from '@renderer/services/appActions'
 
 /**
@@ -182,6 +183,65 @@ export function RunPill({
   )
 }
 
+/**
+ * AdvancedToggle — the small app-wide "Advanced" switch in the nav's right
+ * cluster. One click flips the persisted flag that reveals every expert control
+ * (MCP, raw logs, timeouts, bulk actions, extra columns). Reads/writes the shared
+ * useAdvancedMode context, so it stays in sync with the Settings → General switch.
+ */
+export function AdvancedToggle(): React.JSX.Element {
+  const { advanced, toggle } = useAdvancedMode()
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={advanced}
+      onClick={toggle}
+      title={advanced ? 'Advanced mode on — hide expert controls' : 'Advanced mode off — show expert controls'}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: '5px 9px',
+        borderRadius: 'var(--r-button)',
+        background: advanced ? 'var(--accent-tint)' : 'var(--bg-input)',
+        border: `1px solid ${advanced ? 'var(--accent)' : 'var(--bd-field)'}`,
+        cursor: 'pointer'
+      }}
+    >
+      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-desc)', fontWeight: 500, color: advanced ? 'var(--tx-hi)' : 'var(--tx-3)' }}>
+        Advanced
+      </span>
+      <span
+        aria-hidden
+        style={{
+          position: 'relative',
+          width: 24,
+          height: 14,
+          flex: 'none',
+          borderRadius: 'var(--r-pill)',
+          background: advanced ? 'var(--accent)' : 'var(--bg-topbar)',
+          border: `1px solid ${advanced ? 'var(--accent)' : 'var(--bd-1)'}`,
+          transition: 'background .12s ease'
+        }}
+      >
+        <span
+          style={{
+            position: 'absolute',
+            top: 1,
+            left: advanced ? 11 : 1,
+            width: 10,
+            height: 10,
+            borderRadius: '50%',
+            background: advanced ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+            transition: 'left .12s ease'
+          }}
+        />
+      </span>
+    </button>
+  )
+}
+
 /** A connection status pill (green dot + mono host), used by the Office screen. */
 export function ConnectionPill({
   label,
@@ -335,6 +395,9 @@ export function AppShell({
           )}
           {connectionLabel && <ConnectionPill label={connectionLabel} />}
           {right}
+          {/* App-wide Advanced quick toggle — one click reveals/hides expert controls
+              across every surface (mirrors Settings → General). */}
+          <AdvancedToggle />
           {/* Global Help affordance — opens the shared Help & getting-started panel
               (checklist + shortcuts + docs) through the typed app-actions bus, so a
               first-time user always has one discoverable entry to guidance. */}

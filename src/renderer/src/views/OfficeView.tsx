@@ -13,6 +13,7 @@ import { OfficeAgent, OfficeGroup, isAuthError } from '../components/office/offi
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
 import { useAppActions } from '../services/appActions'
+import { useAdvancedMode } from '../services/advancedMode'
 import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
 import { providerFamily } from '@renderer/services/model'
 
@@ -41,6 +42,9 @@ const EMPTY_AGENTS: OfficeAgent[] = []
 export function OfficeView({ visible = true }: { visible?: boolean } = {}): React.JSX.Element {
   // ── typed app-actions bus (stop-all subscription + open-agent dispatch) ──
   const actions = useAppActions()
+  // Advanced gates the Team bulk toolbar (select-all + Set model…). Add agent,
+  // per-character ⚙, Connect all / Stop all stay in Basic.
+  const { advanced } = useAdvancedMode()
   // ── connection + office list + conversations (owned by officeService) ──
   const office = officeService.useOffice()
   // ── open Operate/log terminals (owned by termRegistry) ──
@@ -692,29 +696,35 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 flexWrap: 'wrap'
               }}
             >
-              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-meta)', color: 'var(--tx-3)', cursor: selectedGroup.agents.length ? 'pointer' : 'default', userSelect: 'none' }}>
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  disabled={selectedGroup.agents.length === 0}
-                  ref={(el) => { if (el) el.indeterminate = selectedIds.length > 0 && !allSelected }}
-                  onChange={(e) => setBulkSelected(e.target.checked ? new Set(selectedGroup.agents.map((a) => a.id)) : new Set())}
-                  aria-label="Select all characters"
-                  style={{ cursor: 'pointer', margin: 0 }}
-                />
-                {selectedIds.length > 0 ? `${selectedIds.length} selected` : 'Select'}
-              </label>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={selectedIds.length === 0}
-                onClick={() => setShowBulkModel(true)}
-                title={selectedIds.length === 0 ? 'Select characters to set a model' : 'Set the model across the selected characters'}
-              >
-                Set model…
-              </Button>
-              {selectedIds.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setBulkSelected(new Set())}>Clear</Button>
+              {/* Bulk-select + Set model… is an Advanced power tool; Basic keeps the
+                  toolbar to "Add agent" (per-character ⚙ handles a single character). */}
+              {advanced && (
+                <>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-meta)', color: 'var(--tx-3)', cursor: selectedGroup.agents.length ? 'pointer' : 'default', userSelect: 'none' }}>
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      disabled={selectedGroup.agents.length === 0}
+                      ref={(el) => { if (el) el.indeterminate = selectedIds.length > 0 && !allSelected }}
+                      onChange={(e) => setBulkSelected(e.target.checked ? new Set(selectedGroup.agents.map((a) => a.id)) : new Set())}
+                      aria-label="Select all characters"
+                      style={{ cursor: 'pointer', margin: 0 }}
+                    />
+                    {selectedIds.length > 0 ? `${selectedIds.length} selected` : 'Select'}
+                  </label>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectedIds.length === 0}
+                    onClick={() => setShowBulkModel(true)}
+                    title={selectedIds.length === 0 ? 'Select characters to set a model' : 'Set the model across the selected characters'}
+                  >
+                    Set model…
+                  </Button>
+                  {selectedIds.length > 0 && (
+                    <Button variant="ghost" size="sm" onClick={() => setBulkSelected(new Set())}>Clear</Button>
+                  )}
+                </>
               )}
               <div style={{ flex: 1 }} />
               <Button variant="primary" size="sm" onClick={() => setShowAddChar(true)} title={`Add one character to ${selectedGroup.name}`}>
@@ -744,7 +754,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onOperate={() => operate(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
                   modelLabel={modelNameFor(a)}
-                  selectable
+                  selectable={advanced}
                   checked={bulkSelected.has(a.id)}
                   onToggleSelect={() => toggleBulk(a.id)}
                 />

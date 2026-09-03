@@ -10,6 +10,7 @@ import type { TodoItem, AgentTasks } from './useAgentTasks'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { useModelCatalog, effectiveModelDisplay } from '@renderer/lib/providers'
 import { actions } from '@renderer/services/agentStore'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 
 /**
  * Inspector — the fixed 308px right panel of the Agent-detail screen (2a). Three
@@ -321,6 +322,9 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
   const [mcp, setMcp] = React.useState<{ total: number; issues: number } | null>(null)
 
   const running = !!(agent.running || agent.activity === 'working')
+  // MCP + Files are expert setup rows — shown only in Advanced. Provider / Model /
+  // Office (and Edit…) stay in Basic.
+  const { advanced } = useAdvancedMode()
 
   // The live model catalog resolves the raw persisted id into the effective model
   // stated in plain words ("Grok 4 · 256k", or "Provider default (Grok 4)") — the
@@ -455,25 +459,30 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
         <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />
       </div>
       <KeyValueRow k="Office" v={office} />
-      <KeyValueRow
-        k="MCP"
-        v={
-          mcp === null ? (
-            <span style={{ color: 'var(--tx-5)' }}>—</span>
-          ) : (
-            <>
-              <button type="button" onClick={onEditMcp} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)' }}>
-                {mcp.total} {mcp.total === 1 ? 'server' : 'servers'}
-              </button>
-            </>
-          )
-        }
-        suffix={mcp && mcp.issues > 0 ? <span style={{ color: 'var(--st-error)' }}> · {mcp.issues} issue</span> : undefined}
-      />
-      <KeyValueRow
-        k="Files"
-        v={fileBrowser === null ? <span style={{ color: 'var(--tx-5)' }}>—</span> : fileBrowser ? 'browser on' : 'browser off'}
-      />
+      {/* MCP + Files — expert rows, Advanced only (edit them via Setup… otherwise). */}
+      {advanced && (
+        <>
+          <KeyValueRow
+            k="MCP"
+            v={
+              mcp === null ? (
+                <span style={{ color: 'var(--tx-5)' }}>—</span>
+              ) : (
+                <>
+                  <button type="button" onClick={onEditMcp} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)' }}>
+                    {mcp.total} {mcp.total === 1 ? 'server' : 'servers'}
+                  </button>
+                </>
+              )
+            }
+            suffix={mcp && mcp.issues > 0 ? <span style={{ color: 'var(--st-error)' }}> · {mcp.issues} issue</span> : undefined}
+          />
+          <KeyValueRow
+            k="Files"
+            v={fileBrowser === null ? <span style={{ color: 'var(--tx-5)' }}>—</span> : fileBrowser ? 'browser on' : 'browser off'}
+          />
+        </>
+      )}
     </div>
   )
 }
@@ -492,6 +501,9 @@ export interface InspectorProps {
 }
 
 export function Inspector({ agent, todo, configRev, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
+  // The live SESSION card (raw msgs·kb, Watch live, Open trace) is an expert probe —
+  // Advanced only. Basic keeps the Inspector to TODO + Setup.
+  const { advanced } = useAdvancedMode()
   return (
     <div
       style={{
@@ -537,7 +549,7 @@ export function Inspector({ agent, todo, configRev, onEditSetup, onEditMcp, onWa
         </span>
       </div>
       <TodoSection agent={agent} todo={todo} />
-      <SessionSection agent={agent} onWatch={onWatch} />
+      {advanced && <SessionSection agent={agent} onWatch={onWatch} />}
       <SetupSection agent={agent} configRev={configRev} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />
     </div>
   )

@@ -11,6 +11,7 @@ import {
 } from '@renderer/services/model'
 import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
 import { useAppActions } from '@renderer/services/appActions'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
@@ -152,8 +153,15 @@ export function AgentDetail({
   onMenu
 }: AgentDetailProps): React.JSX.Element {
   const { navigate } = useAppActions()
+  // Advanced gates the Raw-log toggle, the Terminal sub-tab and the id-hash chip.
+  // Activity / Chat / Follow / Start / Stop / Restart stay in Basic.
+  const { advanced } = useAdvancedMode()
   const [follow, setFollow] = React.useState(true)
   const [raw, setRaw] = React.useState(false)
+  // In Basic there is no Terminal tab; fall back to Activity so a parent-owned
+  // `tab==='terminal'` (e.g. set while Advanced) can never strand the body with no
+  // way to switch. The Terminal host stays mounted (display:none) for keep-alive.
+  const effectiveTab: DetailTab = advanced ? tab : tab === 'terminal' ? 'activity' : tab
   const [draft, setDraft] = React.useState('')
   // A per-agent dismiss for the (non-blocking) office-disconnected notice (R7).
   const [officeNoticeDismissed, setOfficeNoticeDismissed] = React.useState<string | null>(null)
@@ -296,9 +304,12 @@ export function AgentDetail({
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 9 }}>
           <PathChip agent={agent} onOpen={onOpenFolder} />
           <ProviderChip provider={agent.provider} />
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
-            {agentIdHash(agent.path)}
-          </span>
+          {/* id-hash chip — an expert identifier for support/bug reports; Advanced only. */}
+          {advanced && (
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
+              {agentIdHash(agent.path)}
+            </span>
+          )}
           {officeLinked &&
             (officeStatus === 'reconnecting' ? (
               // Non-blocking (R7): the local loop keeps running while the Pixel Office
@@ -376,7 +387,10 @@ export function AgentDetail({
               size="sm"
               onClick={() => {
                 onTabChange('activity')
-                setRaw(true)
+                // Raw log is an Advanced view; in Basic just surface the Activity
+                // stream (which already shows the run's errors) — no orphaned raw
+                // view without a toggle back.
+                if (advanced) setRaw(true)
               }}
             >
               View log
@@ -388,25 +402,29 @@ export function AgentDetail({
       {/* sub-tab bar */}
       <div style={{ padding: '0 18px', borderBottom: '1px solid var(--bd-card)' }}>
         <SegmentedTabs
+          // Terminal is an expert surface — offered only in Advanced.
           tabs={[
             { id: 'activity', label: 'Activity' },
             { id: 'chat', label: 'Chat' },
-            { id: 'terminal', label: 'Terminal' }
+            ...(advanced ? [{ id: 'terminal', label: 'Terminal' }] : [])
           ]}
-          value={tab}
+          value={effectiveTab}
           onChange={(id) => onTabChange(id as DetailTab)}
           right={
-            tab === 'activity' ? (
+            effectiveTab === 'activity' ? (
               <>
                 <FollowToggle on={follow} onChange={setFollow} />
-                <button
-                  type="button"
-                  onClick={() => setRaw((r) => !r)}
-                  aria-pressed={raw}
-                  style={{ all: 'unset', cursor: 'pointer', color: raw ? 'var(--accent)' : 'var(--tx-4)', fontSize: 'var(--fs-desc)' }}
-                >
-                  {raw ? 'Parsed' : 'Raw log'}
-                </button>
+                {/* Raw-log toggle — Advanced only (Basic reads the parsed stream). */}
+                {advanced && (
+                  <button
+                    type="button"
+                    onClick={() => setRaw((r) => !r)}
+                    aria-pressed={raw}
+                    style={{ all: 'unset', cursor: 'pointer', color: raw ? 'var(--accent)' : 'var(--tx-4)', fontSize: 'var(--fs-desc)' }}
+                  >
+                    {raw ? 'Parsed' : 'Raw log'}
+                  </button>
+                )}
               </>
             ) : undefined
           }
@@ -415,13 +433,13 @@ export function AgentDetail({
 
       {/* body — keep Chat/Terminal mounted (display toggle) so their PTYs survive tab switches */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ display: tab === 'activity' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+        <div style={{ display: effectiveTab === 'activity' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           <ActivityStream
             path={agent.path}
             lastOutput={agent.lastOutput}
             follow={follow}
             raw={raw}
-            active={tab === 'activity'}
+            active={effectiveTab === 'activity'}
             running={agent.running}
             tasksDone={agent.tasks.done}
             tasksTotal={agent.tasks.total}
@@ -470,13 +488,15 @@ export function AgentDetail({
           </div>
         </div>
 
-        <div style={{ display: tab === 'chat' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+        <div style={{ display: effectiveTab === 'chat' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           {/* Key per agent so ChatTab remounts fresh on selection change — it holds NO
               PTY, so re-keying is safe (unlike TerminalTab). This guarantees stale
               resolvedId/msgs/error can never leak a steer to the previously-selected agent. */}
           <ChatTab key={agent.path} agentPath={agent.path} />
         </div>
-        <div style={{ display: tab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
+        {/* Terminal host stays mounted for keep-alive even in Basic (display:none),
+            so a live PTY is never SIGKILLed by toggling Advanced off. */}
+        <div style={{ display: effectiveTab === 'terminal' ? 'flex' : 'none', flex: 1, minHeight: 0, flexDirection: 'column' }}>
           {termHostPaths.map((p) => (
             <div
               key={p}

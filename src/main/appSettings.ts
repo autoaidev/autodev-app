@@ -25,7 +25,7 @@ import { existsSync, readFileSync, writeFileSync, chmodSync } from 'fs'
 import { isSecureBaseUrl } from './officeSanitize'
 import { DEFAULT_OFFICE_BASE } from './pixelOffice'
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string> }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -69,9 +69,20 @@ export function getDefaultModels(): Record<string, string> {
   return m && typeof m === 'object' ? { ...m } : {}
 }
 
+/** Whether the UI runs in Advanced mode (expert controls shown). Defaults false. */
+export function getAdvancedMode(): boolean {
+  return load().advancedMode === true
+}
+
+/** Persist the Advanced-mode flag (a plain boolean UI preference). */
+export function setAdvancedMode(on: boolean): boolean {
+  persist({ ...load(), advancedMode: !!on })
+  return getAdvancedMode()
+}
+
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string> } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode() }
 }
 
 /**
@@ -119,8 +130,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string> }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string> } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -129,6 +140,9 @@ export function updateSettings(
     if ('defaultModels' in patch && patch.defaultModels && typeof patch.defaultModels === 'object') {
       setDefaultModels(patch.defaultModels)
     }
+    if ('advancedMode' in patch) {
+      setAdvancedMode(patch.advancedMode === true)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode() }
 }

@@ -21,6 +21,7 @@ import {
   AgentRow
 } from './AgentRow'
 import { useAppActions } from '@renderer/services/appActions'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
 
 /**
@@ -216,6 +217,7 @@ function GroupHeader({
   onToggleExpand,
   groupChecked,
   onToggleCheck,
+  selectable = true,
   folderActions,
   onRunFolder,
   onSpawnInFolder
@@ -235,6 +237,8 @@ function GroupHeader({
   onToggleExpand: () => void
   groupChecked: 'none' | 'some' | 'all'
   onToggleCheck: () => void
+  /** Show the bulk-select checkbox on the header (Basic hides the bulk workflow). */
+  selectable?: boolean
   /** Show the per-folder Run all / Spawn new agent controls (office grouping only). */
   folderActions: boolean
   onRunFolder: () => void
@@ -358,13 +362,16 @@ function GroupHeader({
         </span>
         <StatusDot status={worst(agents)} size={5} />
         {/* checkbox kept as a separate nested control — it stops propagation so
-            ticking a folder never also toggles its fold state */}
-        <Checkbox
-          checked={groupChecked === 'all'}
-          indeterminate={groupChecked === 'some'}
-          onChange={onToggleCheck}
-          label={`Select ${label}`}
-        />
+            ticking a folder never also toggles its fold state. Hidden in Basic
+            (the whole bulk-select workflow is Advanced-only). */}
+        {selectable && (
+          <Checkbox
+            checked={groupChecked === 'all'}
+            indeterminate={groupChecked === 'some'}
+            onChange={onToggleCheck}
+            label={`Select ${label}`}
+          />
+        )}
       </span>
       </div>
       {/* Actions row (office grouping only): Run all / Spawn new agent get their
@@ -426,6 +433,10 @@ export function AgentRail({
   onSpawnInFolder
 }: AgentRailProps): React.JSX.Element {
   const { openHelp } = useAppActions()
+  // Advanced gates the bulk-select workflow (checkboxes + toolbar + Select-all), the
+  // extra Group-by partitions, and the file-manager row actions. Basic = office
+  // grouping, no bulk chrome.
+  const { advanced } = useAdvancedMode()
   // The model catalog resolves each agent's raw model id into a friendly label
   // (one shared, process-cached fetch). Empty until it loads / on an older CLI, in
   // which case the raw id is shown — the fleet still surfaces the model.
@@ -437,6 +448,8 @@ export function AgentRail({
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
   const [groupBy, setGroupBy] = React.useState<GroupBy>('office')
+  // Basic restricts grouping to office folders; the other partitions are Advanced.
+  const effectiveGroupBy: GroupBy = advanced ? groupBy : 'office'
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set())
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
   // Installed app version for the rail footer (main-process app:version IPC).
@@ -474,13 +487,13 @@ export function AgentRail({
   const groups = React.useMemo(() => {
     const map = new Map<string, { label: string; sub: string; agents: AgentState[] }>()
     for (const a of filtered) {
-      const g = groupKeyFor(a, groupBy, modelNameFor(a))
+      const g = groupKeyFor(a, effectiveGroupBy, modelNameFor(a))
       const cur = map.get(g.key)
       if (cur) cur.agents.push(a)
       else map.set(g.key, { label: g.label, sub: g.sub, agents: [a] })
     }
     return Array.from(map.entries())
-  }, [filtered, groupBy, modelNameFor])
+  }, [filtered, effectiveGroupBy, modelNameFor])
 
   const toggleCheck = (path: string): void => {
     const next = new Set(checked)
@@ -512,9 +525,15 @@ export function AgentRail({
 
   const menuItems = (a: AgentState): ContextMenuEntry[] => [
     { label: 'Open agent folder', icon: 'folder', kbd: '⌘⏎', active: true, onClick: () => onAction('openFolder', a) },
-    { label: 'Open in editor', icon: 'editor', onClick: () => onAction('openEditor', a) },
-    { label: 'Open terminal here', icon: 'terminal', onClick: () => onAction('openTerminal', a) },
-    { label: 'Copy path', icon: 'copy', onClick: () => onAction('copyPath', a) },
+    // Open-in-editor / Open-terminal-here / Copy-path are power-user file actions —
+    // Advanced only. Open folder, Stop, Restart, Setup, Remove stay in Basic.
+    ...(advanced
+      ? ([
+          { label: 'Open in editor', icon: 'editor', onClick: () => onAction('openEditor', a) },
+          { label: 'Open terminal here', icon: 'terminal', onClick: () => onAction('openTerminal', a) },
+          { label: 'Copy path', icon: 'copy', onClick: () => onAction('copyPath', a) }
+        ] as ContextMenuEntry[])
+      : []),
     { separator: true },
     { label: 'Stop loop', icon: 'stop', disabled: !a.running, onClick: () => onAction('stop', a) },
     { label: 'Restart', icon: 'restart', onClick: () => onAction('restart', a) },
@@ -603,7 +622,7 @@ export function AgentRail({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
           <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>Group by</span>
           <select
-            value={groupBy}
+            value={effectiveGroupBy}
             onChange={(e) => setGroupBy(e.target.value as GroupBy)}
             style={{
               flex: 'none',
@@ -617,30 +636,34 @@ export function AgentRail({
               cursor: 'pointer'
             }}
           >
-            {GROUP_OPTIONS.map((o) => (
+            {/* Basic offers office folders only; role/provider/model/state are Advanced. */}
+            {(advanced ? GROUP_OPTIONS : GROUP_OPTIONS.filter((o) => o.id === 'office')).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            onClick={selectAll}
-            style={{
-              marginLeft: 'auto',
-              all: 'unset',
-              cursor: 'pointer',
-              color: 'var(--accent)',
-              fontSize: 'var(--fs-desc)'
-            }}
-          >
-            {checked.size === filtered.length && filtered.length > 0 ? 'Clear' : `Select all ${filtered.length}`}
-          </button>
+          {/* Select-all is part of the Advanced bulk-select workflow. */}
+          {advanced && (
+            <button
+              type="button"
+              onClick={selectAll}
+              style={{
+                marginLeft: 'auto',
+                all: 'unset',
+                cursor: 'pointer',
+                color: 'var(--accent)',
+                fontSize: 'var(--fs-desc)'
+              }}
+            >
+              {checked.size === filtered.length && filtered.length > 0 ? 'Clear' : `Select all ${filtered.length}`}
+            </button>
+          )}
         </div>
       </div>
 
-      {/* bulk-select toolbar */}
-      {checked.size > 0 && (
+      {/* bulk-select toolbar — Advanced only */}
+      {advanced && checked.size > 0 && (
         <Toolbar count={checked.size}>
           <IconButton label="Start" icon="play" iconColor="var(--st-running)" onClick={() => onBulk('start')} />
           <IconButton label="Stop" iconColor="var(--st-error)" onClick={() => onBulk('stop')}>
@@ -707,13 +730,13 @@ export function AgentRail({
           // row in the group shares one provider AND we aren't already grouping
           // by provider (which would make the header label + this redundant).
           const provs = new Set(g.agents.map((a) => providerShort(a.provider)))
-          const providerLabel = groupBy !== 'provider' && provs.size === 1 ? [...provs][0] : undefined
+          const providerLabel = effectiveGroupBy !== 'provider' && provs.size === 1 ? [...provs][0] : undefined
           // Shared MODEL on the header when every agent in the group runs the same
           // non-default model (uniform-value pattern, mirroring providerLabel).
           // Suppressed while grouping by model (the header label already is it).
           const models = new Set(g.agents.map((a) => modelNameFor(a)))
           const onlyModel = models.size === 1 ? [...models][0] : ''
-          const uniformModel = groupBy !== 'model' && onlyModel ? onlyModel : undefined
+          const uniformModel = effectiveGroupBy !== 'model' && onlyModel ? onlyModel : undefined
           return (
             <div key={key} style={{ marginBottom: 4 }}>
               <GroupHeader
@@ -733,10 +756,11 @@ export function AgentRail({
                 }
                 groupChecked={groupCheckState(g.agents)}
                 onToggleCheck={() => toggleGroup(g.agents)}
+                selectable={advanced}
                 // Run all / Spawn belong to real folder groups only (office
                 // grouping). Under Role/Provider/State a "group" isn't a folder,
                 // so a folder-scoped spawn would be meaningless.
-                folderActions={groupBy === 'office'}
+                folderActions={effectiveGroupBy === 'office'}
                 onRunFolder={() => onRunFolder(g.agents)}
                 onSpawnInFolder={() => onSpawnInFolder(containingDir(g.agents[0].path))}
               />
@@ -760,6 +784,7 @@ export function AgentRail({
                       onSelect={() => onSelect(a.path)}
                       onToggleCheck={() => toggleCheck(a.path)}
                       modelLabel={modelNameFor(a)}
+                      showCheck={advanced}
                       onMenu={openMenu}
                     />
                   ))}

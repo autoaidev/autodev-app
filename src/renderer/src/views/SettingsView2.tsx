@@ -10,6 +10,7 @@ import {
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { ServerRow } from '@renderer/components/mcp/ServerRow'
 import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -31,6 +32,7 @@ import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpSta
  */
 
 type SectionId =
+  | 'general'
   | 'providers'
   | 'default-models'
   | 'pixel-office'
@@ -38,11 +40,14 @@ type SectionId =
   | 'storage'
   | 'about'
 
-const NAV: { id: SectionId; label: string }[] = [
+// Full nav (Advanced). In Basic the MCP section is hidden — it's an expert,
+// per-agent (.mcp.json) concern — and returns the moment Advanced is on.
+const NAV_ALL: { id: SectionId; label: string; advancedOnly?: boolean }[] = [
+  { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },
   { id: 'default-models', label: 'Default models' },
   { id: 'pixel-office', label: 'Pixel Office' },
-  { id: 'mcp', label: 'MCP' },
+  { id: 'mcp', label: 'MCP', advancedOnly: true },
   { id: 'storage', label: 'Storage & logs' },
   { id: 'about', label: 'About' }
 ]
@@ -155,8 +160,12 @@ function fmtWhen(iso?: string | null): string {
 }
 
 export function SettingsView2(): JSX.Element {
-  // Open on the Providers pane — the first section that reflects a real value.
-  const [active, setActive] = useState<SectionId>('providers')
+  // App-wide Advanced flag — gates the MCP section + the Providers detail below.
+  const { advanced, setAdvanced } = useAdvancedMode()
+  const NAV = useMemo(() => NAV_ALL.filter((n) => advanced || !n.advancedOnly), [advanced])
+
+  // Open on the General pane so the Advanced switch is the first thing a novice sees.
+  const [active, setActive] = useState<SectionId>('general')
 
   // --- REAL, persisted preference: Pixel Office server URL ---------------------
   const [base, setBase] = useState('')
@@ -346,7 +355,8 @@ export function SettingsView2(): JSX.Element {
     )
     for (const el of Object.values(sectionRefs.current)) if (el) obs.observe(el)
     return () => obs.disconnect()
-  }, [])
+    // Re-observe when Advanced toggles a section (MCP) in/out of the DOM.
+  }, [advanced])
 
   const goTo = useCallback((id: SectionId) => {
     setActive(id)
@@ -489,6 +499,70 @@ export function SettingsView2(): JSX.Element {
       {/* right sectioned form (flex, scrolls) */}
       <div ref={contentRef} style={S.content}>
         <div style={S.inner}>
+          {/* ── General (Advanced mode) ────────────────────────────────── */}
+          <Section
+            id="general"
+            innerRef={setRef('general')}
+            title="General"
+            subtitle="How much of the app you see. Basic keeps a calm surface for everyday work; Advanced reveals every expert control."
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderBottom: 'none' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>Advanced mode</div>
+                <div style={S.rowDesc}>
+                  Show expert controls — MCP, raw logs, task timeouts, bulk actions and extra fleet
+                  columns. Off by default; nothing essential is ever hidden.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={advanced}
+                  onClick={() => setAdvanced(!advanced)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: advanced ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {advanced ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: advanced ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${advanced ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: advanced ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: advanced ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+          </Section>
+
           {/* ── Providers ──────────────────────────────────────────────── */}
           <Section
             id="providers"
@@ -508,7 +582,10 @@ export function SettingsView2(): JSX.Element {
                     <span style={S.providerVendor}>{g.vendor}</span>
                     <code style={S.authCmd}>sign in:&nbsp;{auth.cmd}</code>
                   </div>
-                  {g.options.map((o, i) => (
+                  {/* Basic collapses each vendor to just its sign-in command (the head
+                      above). The per-variant "recognized" rows are an expert detail —
+                      shown only in Advanced. */}
+                  {advanced && g.options.map((o, i) => (
                     <SettingRow
                       key={o.id}
                       label={
@@ -533,28 +610,32 @@ export function SettingsView2(): JSX.Element {
             })}
 
             {/* Per-account key usage from the office vault (Claude 5h+weekly,
-                OpenRouter credit, …). Degrades gracefully: loading spinner-word,
-                an honest empty state when disconnected, per-account soft errors. */}
-            <div style={S.subHead}>
-              <span style={S.subHeadTitle}>Key usage</span>
-              <InfoTip label="Key usage" width={270}>
-                Live provider key usage/limits from the connected Pixel Office’s deployer vault —
-                one card per credential. Not connected to an office ⇒ nothing to show here.
-              </InfoTip>
-            </div>
-            {keyUsage == null ? (
-              <div style={S.usageMuted}>Checking key usage…</div>
-            ) : keyUsage.length === 0 ? (
-              <div style={S.emptyNote}>
-                No provider key usage to show. Sign in to a Pixel Office on the Office tab — its
-                credential vault reports the live usage/limits for each provider account here.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {keyUsage.map((u, i) => (
-                  <KeyUsageCard key={`${u.provider}-${u.label ?? i}`} u={u} />
-                ))}
-              </div>
+                OpenRouter credit, …). An expert diagnostic (usage limit bars) — shown
+                only in Advanced; Basic keeps the Providers pane to sign-in commands. */}
+            {advanced && (
+              <>
+                <div style={S.subHead}>
+                  <span style={S.subHeadTitle}>Key usage</span>
+                  <InfoTip label="Key usage" width={270}>
+                    Live provider key usage/limits from the connected Pixel Office’s deployer vault —
+                    one card per credential. Not connected to an office ⇒ nothing to show here.
+                  </InfoTip>
+                </div>
+                {keyUsage == null ? (
+                  <div style={S.usageMuted}>Checking key usage…</div>
+                ) : keyUsage.length === 0 ? (
+                  <div style={S.emptyNote}>
+                    No provider key usage to show. Sign in to a Pixel Office on the Office tab — its
+                    credential vault reports the live usage/limits for each provider account here.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {keyUsage.map((u, i) => (
+                      <KeyUsageCard key={`${u.provider}-${u.label ?? i}`} u={u} />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             <div style={{ ...S.helpText, borderTop: 'none', paddingTop: 8 }}>
@@ -715,6 +796,9 @@ export function SettingsView2(): JSX.Element {
           </Section>
 
           {/* ── MCP ────────────────────────────────────────────────────── */}
+          {/* Expert, per-agent (.mcp.json) surface — hidden in Basic, one click (the
+              Advanced switch above) away. */}
+          {advanced && (
           <Section
             id="mcp"
             innerRef={setRef('mcp')}
@@ -820,6 +904,7 @@ export function SettingsView2(): JSX.Element {
               </>
             )}
           </Section>
+          )}
 
           {/* ── Storage & logs ─────────────────────────────────────────── */}
           <Section
