@@ -148,17 +148,23 @@ function groupKeyFor(a: AgentState, by: GroupBy, modelName?: string): { key: str
   return { key: `f:${folder}`, label, sub: officePathLabel(a) }
 }
 
-/** A small square action button on the folder band (Run all / Spawn new agent).
+/** A small action button on the folder band (Run all / Spawn new agent). On the
+ *  actions ROW it carries a visible `text` label beside its icon so each control
+ *  clearly belongs to the folder; without `text` it renders as a bare 18px glyph.
  *  Stops propagation so it never toggles the header's fold state. */
 function HeaderAction({
   icon,
   label,
+  text,
   color,
   disabled,
   onClick
 }: {
   icon: 'play' | 'plus'
   label: string
+  /** Optional visible label (rendered on the actions row); `label` stays the
+   *  full aria/title text for a11y even when `text` is a shorter caption. */
+  text?: string
   color?: string
   disabled?: boolean
   onClick: () => void
@@ -177,18 +183,25 @@ function HeaderAction({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        width: 18,
+        gap: text ? 4 : 0,
+        width: text ? 'auto' : 18,
         height: 18,
+        padding: text ? '0 7px' : 0,
         flex: 'none',
         borderRadius: 'var(--r-tiny)',
         background: 'var(--bg-input)',
         border: '1px solid var(--bd-track)',
         color: disabled ? 'var(--tx-faint)' : color ?? 'var(--tx-3)',
+        fontFamily: 'var(--font-sans)',
+        fontSize: 'var(--fs-micro)',
+        lineHeight: 1,
+        whiteSpace: 'nowrap',
         cursor: disabled ? 'default' : 'pointer',
         opacity: disabled ? 0.5 : 1
       }}
     >
       <Icon name={icon} size={11} color={disabled ? 'var(--tx-faint)' : color} />
+      {text && <span>{text}</span>}
     </button>
   )
 }
@@ -251,8 +264,10 @@ function GroupHeader({
       onMouseLeave={() => setHover(false)}
       style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: 7,
+        // Column: a top line (name + count + checkbox) and, for real folders, a
+        // second actions line below it — so Run all / Spawn never overlap the name.
+        flexDirection: 'column',
+        gap: 5,
         padding: '7px 9px',
         // Warm cap: a subtle warm top-lit gradient + a warm top-highlight edge so
         // the office-folder band reads as a distinct, slightly-lifted chrome header
@@ -267,7 +282,9 @@ function GroupHeader({
         transition: 'background .12s ease'
       }}
     >
-      {/* disclosure chevron — leads, far left, higher-contrast, rotates on expand */}
+      {/* Top line: chevron + glyphs + name/sub + provider·model + count + checkbox */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, width: '100%', minWidth: 0 }}>
+        {/* disclosure chevron — leads, far left, higher-contrast, rotates on expand */}
       <span
         style={{
           display: 'flex',
@@ -321,22 +338,6 @@ function GroupHeader({
         )}
       </div>
       <span style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 'none' }}>
-        {/* Per-folder actions (office grouping only): start every idle agent, and
-            spawn a new agent scoped to this folder. Kept on the GROUP header (never
-            the rows) so the list stays clean; they surface on hover (or while the
-            folder is checked) so a resting list shows no extra chrome. */}
-        {folderActions && (hover || groupChecked !== 'none') && (
-          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <HeaderAction
-              icon="play"
-              color="var(--st-running)"
-              disabled={notRunning === 0}
-              label={notRunning === 0 ? 'All agents running' : `Run all (${notRunning})`}
-              onClick={onRunFolder}
-            />
-            <HeaderAction icon="plus" label="Spawn new agent in this folder" onClick={onSpawnInFolder} />
-          </span>
-        )}
         {(providerLabel || modelLabel) && (
           <span
             style={{
@@ -365,6 +366,40 @@ function GroupHeader({
           label={`Select ${label}`}
         />
       </span>
+      </div>
+      {/* Actions row (office grouping only): Run all / Spawn new agent get their
+          OWN line below the name so they can never overlap or truncate long folder
+          names. Hover-revealed (or while the folder is checked) so a resting list
+          shows no extra chrome; buttons stop-propagate so the fold toggle still
+          works. flex-wrap keeps them inside the rail on very narrow labels. */}
+      {folderActions && (hover || groupChecked !== 'none') && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: 6,
+            // Indent past the chevron + folder glyph so the row visibly belongs to
+            // the header content above it (aligns under the name area).
+            paddingLeft: 19
+          }}
+        >
+          <HeaderAction
+            icon="play"
+            color="var(--st-running)"
+            disabled={notRunning === 0}
+            label={notRunning === 0 ? 'All agents running' : `Run all (${notRunning})`}
+            text={notRunning === 0 ? 'All running' : `Run all (${notRunning})`}
+            onClick={onRunFolder}
+          />
+          <HeaderAction
+            icon="plus"
+            label="Spawn new agent in this folder"
+            text="Spawn new agent"
+            onClick={onSpawnInFolder}
+          />
+        </div>
+      )}
     </div>
   )
 }
