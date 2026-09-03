@@ -1,5 +1,6 @@
 import React from 'react'
 import { Pill, Button } from '@renderer/ui'
+import { identityTokens } from '@renderer/services/identity'
 import { OfficeGroup, tickFor, TickState } from './officeTypes'
 
 /**
@@ -10,10 +11,15 @@ import { OfficeGroup, tickFor, TickState } from './officeTypes'
  * half-buttons. Selected card = accent border + inset blue rail.
  */
 
-const TICK_COLOR: Record<TickState, string> = {
+// Live/needs-you carry STATE color; an idle seat is no longer dead grey — it
+// takes the character's own IDENTITY hue (muted tile bg), so an office at rest
+// still shows a row of distinct colored seats instead of a grey ladder.
+const STATE_TICK: Record<Exclude<TickState, 'idle'>, string> = {
   live: 'var(--st-running)',
-  'needs-you': 'var(--st-needsyou)',
-  idle: 'var(--st-track)'
+  'needs-you': 'var(--st-needsyou)'
+}
+function tickColor(state: TickState, id: string): string {
+  return state === 'idle' ? identityTokens(id).bg : STATE_TICK[state]
 }
 
 export interface OfficeCardProps {
@@ -60,9 +66,14 @@ export function OfficeCard({
         gap: 9,
         padding: '11px 12px',
         borderRadius: 'var(--r-card)',
-        background: 'var(--bg-panel)',
-        border: `1px solid ${selected ? 'var(--bd-panel-sel)' : 'var(--bd-nav)'}`,
-        boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
+        // Lifted card (top-lit gradient + composite depth) so the office reads as a
+        // raised object on the rail. At rest it carries a per-office identity hue on
+        // its left edge (inset rail); selected swaps in the accent rail.
+        background: 'var(--grad-card)',
+        border: `1px solid ${selected ? 'var(--bd-panel-sel)' : 'var(--bd-card)'}`,
+        boxShadow: selected
+          ? 'inset 2px 0 0 var(--accent), var(--depth-card)'
+          : `inset 3px 0 0 ${identityTokens(group.slug).fg}, var(--depth-card)`,
         cursor: 'pointer'
       }}
     >
@@ -96,7 +107,7 @@ export function OfficeCard({
               flex: 1,
               height: 4,
               borderRadius: 'var(--r-bar)',
-              background: TICK_COLOR[tickFor(a)]
+              background: tickColor(tickFor(a), a.id)
             }}
           />
         ))}

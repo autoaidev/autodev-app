@@ -94,10 +94,13 @@ export function Modal({
         // side); the body below scrolls while header/footer stay pinned, so a tall
         // generate/config dialog can't clip its header or ✕.
         maxHeight: 'calc(100vh - 48px)',
-        background: 'var(--bg-panel)',
+        // Floating dialog sits on the TOP rung (float) over the scrim, with the
+        // composite float depth (top-highlight + deep shadow) so it clearly lifts
+        // above every card/canvas behind it rather than sharing the panel grey.
+        background: 'var(--surface-float)',
         border: '1px solid var(--bd-strong)',
         borderRadius: 'var(--r-modal)',
-        boxShadow: 'var(--shadow-modal)',
+        boxShadow: 'var(--depth-float), var(--hl-top-strong), var(--shadow-modal)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',

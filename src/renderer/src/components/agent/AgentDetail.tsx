@@ -437,7 +437,7 @@ export function AgentDetail({
                 gap: 10,
                 padding: '9px 12px',
                 borderRadius: 'var(--r-card)',
-                background: 'var(--bg-panel)',
+                background: 'var(--bg-input)',
                 border: '1px solid var(--bd-1)'
               }}
             >

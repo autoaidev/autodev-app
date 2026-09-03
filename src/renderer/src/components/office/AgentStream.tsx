@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Pill, Button, Icon } from '@renderer/ui'
-import { OfficeAgent, ChatMessage, initials, hhmm } from './officeTypes'
+import { Pill, Button, Icon, AgentAvatar } from '@renderer/ui'
+import { OfficeAgent, ChatMessage, hhmm } from './officeTypes'
 
 /**
  * AgentStream — the focused character's read-only activity stream (2c, left of
@@ -77,24 +77,16 @@ export function AgentStream({
           borderBottom: '1px solid var(--bd-2)'
         }}
       >
-        <div
-          style={{
-            width: 'var(--sz-avatar)',
-            height: 'var(--sz-avatar)',
-            flex: 'none',
-            borderRadius: 'var(--r-chip)',
-            background: 'var(--role-blue-av-bg)',
-            color: 'var(--accent-ink)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-micro)',
-            fontWeight: 700
-          }}
-        >
-          {initials(agent.name)}
-        </div>
+        <AgentAvatar
+          name={agent.name}
+          idKey={agent.id}
+          provider={agent.provider}
+          size={22}
+          avatarUrl={agent.avatarUrl}
+          avatarColor={agent.color}
+          online={agent.online}
+          title={agent.name}
+        />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--tx-hi)' }}>{agent.name}</div>
           <div
@@ -160,7 +152,7 @@ export function AgentStream({
           gap: 8,
           margin: '0 14px 12px',
           padding: '9px 12px',
-          background: 'var(--bg-panel)',
+          background: 'var(--bg-input)',
           border: '1px solid var(--bd-1)',
           borderRadius: 'var(--r-card)'
         }}

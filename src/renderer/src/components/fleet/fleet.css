@@ -6,6 +6,12 @@
 .fleet-row {
   transition: background 0.1s ease;
 }
+/* De-flatten: a faint cool zebra (the recessed stage-2 rung) so a long roster
+   reads as scannable bands rather than one flat sheet. Placed BEFORE hover /
+   selected / attention-wash so those keep priority at equal specificity. */
+.fleet-row:nth-child(even) {
+  background: var(--surface-stage-2);
+}
 .fleet-row:hover {
   background: var(--bg-selected);
 }

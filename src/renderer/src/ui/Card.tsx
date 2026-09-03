@@ -41,14 +41,20 @@ export function Card({
   children,
   ...rest
 }: CardProps): React.JSX.Element {
+  // A default card gets the top-lit CARD gradient; a toned (attention) card keeps
+  // its flat status wash. Either way it now LIFTS off the surface behind it with
+  // the composite card depth (inset top-highlight + drop shadow) — the same
+  // reference elevation StatTiles established — so panels read as raised objects
+  // instead of one flat sheet. `selected` prepends the cross-cutting accent rail.
+  const depth = selected ? 'inset 2px 0 0 var(--accent), var(--depth-card)' : 'var(--depth-card)'
   return (
     <div
       className={className}
       style={{
-        background: TONE_BG[tone],
+        background: tone === 'default' ? 'var(--grad-card)' : TONE_BG[tone],
         border: `1px solid ${selected ? 'var(--bd-panel-sel)' : TONE_BD[tone]}`,
         borderRadius: 'var(--r-card)',
-        boxShadow: selected ? 'inset 2px 0 0 var(--accent)' : undefined,
+        boxShadow: depth,
         padding: pad,
         ...style
       }}

@@ -74,13 +74,18 @@ export function AgentAvatar({
 }: AgentAvatarProps): React.JSX.Element {
   const id = identityTokens(idKey || name)
   const accent = providerAccent(provider)
+  const hasBrand = accent.family !== 'unknown'
   // Initials scale with the tile: ~45% of the box, floored so a 16px chip stays legible.
   const fontSize = Math.max(9, Math.round(size * 0.42))
-  const border = disconnected
-    ? '1px dashed var(--bd-idle-box)'
-    : '1px solid transparent'
-  // The provider ring is an inset stroke so it never changes the tile's box size.
-  const ringShadow = ring && !disconnected ? `inset 0 0 0 1.5px ${accent.ring}` : undefined
+  // The provider ring is a 2px SOLID brand hue (was a faint .5 stroke) so "which
+  // tool" actually reaches the screen — and it is kept even when disconnected
+  // (dimmed via `dim`), so a stopped/offline agent never loses its provider color.
+  const showRing = ring && hasBrand
+  const ringShadow = showRing ? `inset 0 0 0 2px ${accent.fg}` : undefined
+  // Dashed shape is now the LAST resort — only an unknown-provider offline tile
+  // (no brand ring to carry color) falls back to it; a known provider keeps its
+  // solid ring when offline instead of going grey+dashed.
+  const border = disconnected && !showRing ? '1px dashed var(--bd-idle-box)' : '1px solid transparent'
 
   // Show the REAL pixel-art face only when the character is online, has a resolvable
   // sprite, and that sprite actually loaded — otherwise fall back to the monogram so

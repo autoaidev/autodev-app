@@ -47,7 +47,7 @@ function SectionLabel({ children, right }: { children: React.ReactNode; right?: 
           fontSize: 'var(--fs-section)',
           fontWeight: 700,
           letterSpacing: 'var(--ls-section)',
-          color: 'var(--tx-4)',
+          color: 'var(--tx-section)',
           textTransform: 'uppercase'
         }}
       >
@@ -98,7 +98,7 @@ function KeyValueRow({ k, v, suffix }: { k: string; v: React.ReactNode; suffix?:
           fontWeight: 500,
           letterSpacing: 'var(--ls-state)',
           textTransform: 'uppercase',
-          color: 'var(--tx-4)'
+          color: 'var(--tx-section)'
         }}
       >
         {k}
@@ -284,7 +284,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
         <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>No session discovered for this workspace yet.</div>
       )}
       {session && (
-        <div style={{ background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', padding: '10px 12px' }}>
+        <div style={{ background: 'var(--grad-card)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', padding: '10px 12px', boxShadow: 'var(--depth-card)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <StatusDot status={session.live ? 'running' : 'idle'} glow={session.live} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -426,7 +426,7 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
           replaces it. A 1-click inline change lives in the dropdown below. */}
       <div style={{ padding: '5px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-          <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-4)' }}>Model</span>
+          <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-section)' }}>Model</span>
           {/* value line — the effective model, always legible (never a status word) */}
           <span
             title={effective}

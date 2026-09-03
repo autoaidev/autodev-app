@@ -149,7 +149,9 @@ body {
 .chat-composer button { flex-shrink: 0; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+/* De-flatten: the legacy stat card lifts onto the warm CARD rung with the same
+   top-lit gradient + composite depth as the redesigned ui/Card primitive. */
+.card { background: var(--grad-card); border: 1px solid var(--bd-card); border-radius: var(--r-card); padding: 12px 14px; box-shadow: var(--depth-card); }
 .card .k { color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
 .card .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
 
@@ -175,7 +177,9 @@ label.field .lbl { color: var(--fg2); font-size: 11px; display: block; margin-bo
 .legacy-app input:focus, .legacy-app select:focus, .legacy-app textarea:focus { outline: none; border-color: var(--accent); }
 
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 22px; width: 460px; max-width: 92vw; }
+/* De-flatten: the legacy modal floats on the TOP rung over the scrim with the
+   composite float depth (mirrors ui/Modal). */
+.modal { background: var(--surface-float); border: 1px solid var(--bd-strong); border-radius: var(--r-modal); padding: 22px; width: 460px; max-width: 92vw; box-shadow: var(--depth-float), var(--hl-top-strong), var(--shadow-modal); }
 .modal h3 { margin: 0 0 16px; }
 .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--bg3); border: 1px solid var(--border); color: var(--fg2); }

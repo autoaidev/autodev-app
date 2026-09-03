@@ -234,7 +234,7 @@ export function OfficeRoom({
             alignItems: 'center',
             gap: 8,
             padding: '8px 11px',
-            background: 'var(--bg-panel)',
+            background: 'var(--bg-input)',
             border: '1px solid var(--bd-1)',
             borderRadius: 'var(--r-card)'
           }}

@@ -849,7 +849,7 @@ function TermSteer({ disabled, name, onSend }: { disabled: boolean; name: string
           if (e.key === 'Enter') { e.preventDefault(); const t = text.trim(); if (t) { onSend(t); setText('') } }
         }}
         style={{
-          flex: 1, minWidth: 0, background: 'var(--bg-panel)', border: '1px solid var(--bd-1)',
+          flex: 1, minWidth: 0, background: 'var(--bg-input)', border: '1px solid var(--bd-1)',
           borderRadius: 'var(--r-card)', padding: '7px 11px', color: 'var(--tx-1)',
           fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)'
         }}

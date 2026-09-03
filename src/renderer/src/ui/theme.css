@@ -47,10 +47,10 @@
    * (stage->chrome dL* 9.1, chrome->card 6.3) so panes read as layered planes,
    * not one flat sheet. STAGE is cool near-black; CHROME/CARD are warm-neutral. */
   --surface-stage: #08090c;    /* rung 1 — cool near-black; the recessed CENTER stage */
-  --surface-stage-2: #0f1216;  /* rung 2 — recessed insets / wells inside the stage */
-  --surface-chrome: #1a1f27;   /* rung 3 — warm CHROME: left rail, pane caps, toolbars */
-  --surface-card: #262c37;     /* rung 4 — lifted CARDS sitting on the stage */
-  --surface-float: #313846;    /* rung 5 — floating: menus, popovers, tooltips */
+  --surface-stage-2: #0f1216;  /* rung 2 — recessed insets / wells inside the stage (cool zebra) */
+  --surface-chrome: #211e1c;   /* rung 3 — warm CHROME (R≥G>B): left rail, pane caps, toolbars */
+  --surface-card: #2b2723;     /* rung 4 — warm lifted CARDS sitting on the stage */
+  --surface-float: #35302b;    /* rung 5 — warm floating: menus, popovers, tooltips (lighter than card) */
 
   /* ----- DEPTH: 1px inset top-highlight + readable drop shadow (composites).
    * The app previously had ZERO of these — every plane was flat. Apply --hl-top*
@@ -106,24 +106,26 @@
    * the existing violet (--role-violet-av-bg). The next phase hashes agent.id
    * -> 1..8 and indexes here (see officeTypes.initials()). Every pair is AA
    * (fg-on-bg >=5.0:1). ----- */
-  --id-1-bg: #2f4a6d; --id-1-fg: #9cc5f5;   /* blue    (existing role) */
-  --id-2-bg: #3a3550; --id-2-fg: #c9b8ff;   /* violet  (existing role) */
-  --id-3-bg: #123f3b; --id-3-fg: #7fe0d2;   /* teal    */
-  --id-4-bg: #4a2c26; --id-4-fg: #f2ad97;   /* coral   */
-  --id-5-bg: #43371c; --id-5-fg: #f0cf94;   /* amber   */
-  --id-6-bg: #47243a; --id-6-fg: #f2a3cb;   /* magenta */
-  --id-7-bg: #1c3f2d; --id-7-fg: #8fd9ab;   /* green   */
-  --id-8-bg: #2b2f52; --id-8-fg: #b4bcff;   /* indigo  */
+  /* bg rungs lifted ~+8–12 L* (and chroma) over v3 so a 22px tile reads as a
+   * saturated colored object at rest instead of a near-black square; fg kept AA. */
+  --id-1-bg: #3a597f; --id-1-fg: #bcd9f8;   /* blue    (existing role) */
+  --id-2-bg: #473f63; --id-2-fg: #d4c7ff;   /* violet  (existing role) */
+  --id-3-bg: #1a544e; --id-3-fg: #97ecdf;   /* teal    */
+  --id-4-bg: #5d3830; --id-4-fg: #f6c2af;   /* coral   */
+  --id-5-bg: #564724; --id-5-fg: #f4d9a6;   /* amber   */
+  --id-6-bg: #5b304b; --id-6-fg: #f6b9d6;   /* magenta */
+  --id-7-bg: #26533a; --id-7-fg: #a6e6bf;   /* green   */
+  --id-8-bg: #383d68; --id-8-fg: #c4ccff;   /* indigo  */
 
   /* ----- palette: backgrounds (layered, darkest app shell -> elevated) ----- */
   --bg-app: #0b0d11;          /* chrome-less card backdrop (2f/2g) */
-  --bg-0: #0f1216;            /* legacy main detail surface (kept for non-pane consumers) */
-  --bg-1: #12151a;           /* legacy inspector / secondary panel */
-  --bg-2: #13161b;           /* faint dashed placeholder card */
-  --bg-topbar: #14171c;      /* title bar + nav bar + bottom status bar */
-  --bg-sidebar: #16191f;     /* rails, cards, panels */
-  --bg-panel: #16191f;
-  --bg-panel-alt: #171b21;   /* provider badge chip / inline error panel bg */
+  --bg-0: var(--surface-stage);  /* CANVAS — remapped onto the recessed cool STAGE rung (was #0f1216) */
+  --bg-1: #16130f;           /* legacy inspector / secondary panel (warmed) */
+  --bg-2: #191510;           /* faint dashed placeholder card (warmed) */
+  --bg-topbar: #181410;      /* title bar + nav bar + bottom status bar (warm chrome) */
+  --bg-sidebar: var(--surface-chrome);  /* RAILS/panels — remapped onto the warm CHROME rung (was #16191f) */
+  --bg-panel: var(--surface-card);      /* CARDS — remapped onto the warm CARD rung so panels lift off chrome (was #16191f) */
+  --bg-panel-alt: #1c1815;   /* provider badge chip / inline error panel bg (warmed) */
 
   /* ----- three-pane elevation model (Agent-detail 2a): chrome vs stage -----
    * The center detail is the recessed STAGE (darkest); the left rail + right
@@ -133,18 +135,18 @@
    * darks split by an invisible hairline). */
   --bg-detail: var(--surface-stage);  /* CENTER stage — remapped onto the cool near-black ladder rung (was #0e1116) */
   --bg-rail: var(--surface-chrome);   /* LEFT agent rail — remapped onto the warm CHROME rung (was #191d24) */
-  --bg-inspector: #171b21;   /* RIGHT inspector — lifted chrome (a hair below the rail) */
-  --bg-pane-cap: #1f242c;    /* rail / inspector titled header band (lifted above its pane) */
-  --bg-detail-cap: #14171c;  /* center titled header band (lifted above the dark stage) */
-  --bg-group-header: #1d222a;/* office-folder group header band in the rail */
+  --bg-inspector: #1c1916;   /* RIGHT inspector — warm lifted chrome (a hair below the rail) */
+  --bg-pane-cap: #26221d;    /* rail / inspector titled header band (warm, lifted above its pane) */
+  --bg-detail-cap: #191512;  /* center titled header band (warm, lifted above the dark stage) */
+  --bg-group-header: #241f18;/* office-folder group header band in the rail (warm) */
   --bg-group-guide: transparent;
-  --bg-elev: #181c22;        /* floating context menu */
-  --bg-input: #1c2027;       /* inputs, secondary buttons, chips */
-  --bg-todo-active: #1a1f27; /* active todo row */
-  --bg-selected: #1e2530;    /* selected nav item / agent row */
+  --bg-elev: #221e19;        /* floating context menu (warm, near float rung) */
+  --bg-input: #201c19;       /* inputs, secondary buttons, chips — warm, recessed BELOW the card rung */
+  --bg-todo-active: #201c18; /* active todo row (warm) */
+  --bg-selected: #1e2530;    /* selected nav item / agent row (kept cool-blue so selection reads as accent) */
   --bg-sel-header: #1a2530;  /* bulk-select toolbar band */
   --bg-accent-soft: #22303f; /* accent pill / segmented-active bg */
-  --bg-chip-idle: #22262e;   /* avatar tile / idle chip */
+  --bg-chip-idle: #26221d;   /* avatar tile / idle chip (warm) */
 
   /* ----- palette: borders ----- */
   --bd-seam: #2f353e;        /* STRUCTURAL pane seams (rail↔stage↔inspector) — visible */
@@ -166,13 +168,14 @@
   --tx-1: #d5dae1;           /* body */
   --tx-2: #c3c9d2;
   --tx-3: #9aa1ab;
-  --tx-4: #8f96a0;           /* raised to ~4.8:1 for informational meta text */
-  --tx-5: #8d949f;           /* raised to ~4.9:1 (was 3.9:1) */
-  --tx-dim: #9098a2;         /* raised to ~5.3:1 (was 3.68:1) — the main secondary-text tier */
-  --tx-faint: #868d97;       /* raised to ~4.6:1 (was 3.04:1) — collapsed meta tier */
-  --tx-ghost: #7d848f;       /* raised to ~3.9:1 (was 2.65:1) — kbd/hint decorative text */
-  --tx-gutter: #6c737e;      /* log timestamp gutter / code line numbers (decorative) */
+  --tx-4: #9ba2ac;           /* de-flatten pass: +1 tier (~5.6:1) for informational meta text */
+  --tx-5: #99a0aa;           /* +1 tier (~5.7:1) */
+  --tx-dim: #9098a2;         /* ~5.3:1 — the main secondary-text tier */
+  --tx-faint: #9198a2;       /* +1 tier (~5.4:1) — collapsed meta tier now legible */
+  --tx-ghost: #8b929c;       /* +2 tiers (~4.8:1) — kbd/hint text now readable, not decorative-only */
+  --tx-gutter: #838a95;      /* +1 tier (~4.4:1) — log timestamp gutter / code line numbers legible */
   --tx-onaccent: #08111d;    /* ink on accent-filled surfaces */
+  --tx-section: #b3a696;     /* warm-neutral UPPERCASE section labels (SETUP / SESSION / PROVIDERS) */
 
   /* ----- palette: the ONE accent ----- */
   --accent: #4a9eff;

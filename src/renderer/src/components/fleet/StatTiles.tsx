@@ -30,7 +30,7 @@ function SectionLabel({
           fontWeight: 700,
           letterSpacing: 'var(--ls-section)',
           textTransform: 'uppercase',
-          color: tone === 'amber' ? 'var(--st-needsyou)' : 'var(--tx-4)'
+          color: tone === 'amber' ? 'var(--st-needsyou)' : 'var(--tx-section)'
         }}
       >
         {children}

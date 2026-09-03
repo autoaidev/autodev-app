@@ -1,6 +1,7 @@
 import React from 'react'
 import { StatusDot, AgentAvatar, IconButton } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
+import { providerAccent } from '@renderer/services/identity'
 import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
@@ -57,6 +58,7 @@ export function CharacterCard({
   onToggleSelect
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
+  const accent = providerAccent(agent.provider)
   const tick = tickFor(agent)
   const dotStatus = !connected ? 'idle' : tick === 'needs-you' ? 'needs-you' : 'running'
   // subtitle: amber attention line, else the raw status, else provider hint.
@@ -84,10 +86,20 @@ export function CharacterCard({
         gap: 7,
         padding: '10px 11px',
         borderRadius: 'var(--r-card)',
-        background: 'var(--bg-panel)',
-        border: `1px solid ${selected && connected ? 'var(--bd-panel-sel)' : 'var(--bd-nav)'}`,
-        boxShadow: selected && connected ? 'inset 0 0 0 1px var(--accent-tint)' : undefined,
-        opacity: connected ? 1 : 0.55,
+        // Lifted card (top-lit gradient + composite depth) that carries the PROVIDER
+        // hue on its left edge even at rest / offline, so a stopped character is a
+        // recognizable colored object rather than a dim grey tile.
+        background: 'var(--grad-card)',
+        border: `1px solid ${selected && connected ? 'var(--bd-panel-sel)' : 'var(--bd-card)'}`,
+        boxShadow: [
+          `inset 3px 0 0 ${accent.fg}`,
+          selected && connected ? 'inset 0 0 0 1px var(--accent)' : '',
+          'var(--depth-card)'
+        ]
+          .filter(Boolean)
+          .join(', '),
+        // Offline is dimmed, but far less than before so its provider hue still reads.
+        opacity: connected ? 1 : 0.74,
         cursor: 'pointer',
         minWidth: 0
       }}

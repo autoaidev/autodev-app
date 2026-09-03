@@ -117,7 +117,9 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
     ? 'var(--st-running-spine)'
     : attention
       ? 'var(--st-needsyou)'
-      : providerAccent(agent.provider).ring
+      : // At rest, the spine is the SOLID provider brand hue (was the faint .5 ring),
+        // so an idle row still declares its tool in full color down its left edge.
+        providerAccent(agent.provider).fg
   // Selection = brighter background + a hairline inset ring; the spine stays state/
   // provider-colored so selecting a row never erases its identity.
   const bg = selected

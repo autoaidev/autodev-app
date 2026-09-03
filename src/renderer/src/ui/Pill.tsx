@@ -20,7 +20,9 @@ interface Style {
 
 const V: Record<PillVariant, Style> = {
   accent: { bg: 'var(--bg-accent-soft)', bd: 'var(--bd-accent)', fg: 'var(--accent-ink)' },
-  neutral: { bg: 'var(--bg-input)', bd: 'var(--bd-1)', fg: 'var(--tx-3)' },
+  // Idle/neutral is no longer dead grey: a faint WARM chip + warm ink so a STOPPED
+  // pill (0/N LIVE, READ-ONLY, unselected filters) reads as resting, not disabled.
+  neutral: { bg: 'var(--bg-chip-idle)', bd: 'var(--bd-1)', fg: 'var(--tx-section)' },
   green: { bg: 'var(--st-running-soft)', bd: 'var(--st-running-bd)', fg: 'var(--st-running)' },
   amber: { bg: 'var(--st-needsyou-soft)', bd: 'var(--st-needsyou-bd)', fg: 'var(--st-needsyou)' },
   red: { bg: 'var(--st-error-soft)', bd: 'var(--st-error-bd)', fg: 'var(--st-error)' }
