@@ -79,24 +79,15 @@ export const MODEL_KEY: Record<string, string> = {
 }
 export const modelKeyFor = (p: string): string => MODEL_KEY[vendorOf(p)] ?? 'claudeModel'
 
-/**
- * Suggested model ids per vendor, surfaced as a <datalist> next to the free-text
- * model field so a user gets sensible defaults instead of guessing (a typo only
- * fails at runtime today). Free text is still allowed — these are hints, and an
- * empty value always means "provider default". Only vendors with well-known,
- * stable ids are listed; the rest fall back to free text (no wrong suggestions).
- */
-export const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  claude: ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'],
-  grok: ['grok-4', 'grok-code-fast-1']
-}
-export const modelSuggestionsFor = (p: string): string[] => MODEL_SUGGESTIONS[vendorOf(p)] ?? []
-
 // ---------------------------------------------------------------------------
 // Model catalog — the REAL, per-family model list sourced from the bundled CLI
-// (`autodev models --json`, exposed as window.api.listModels()). This is the
-// source of truth for the model pickers; MODEL_SUGGESTIONS above is now only the
-// OFFLINE fallback for an older CLI that lacks the `models` command.
+// (`autodev models --json`, exposed as window.api.listModels()). This is the SOLE
+// source of truth for the model pickers. There is deliberately NO hand-written
+// model-id list here: a hardcoded fallback drifted (`claude-sonnet-5` vs the real
+// `claude-sonnet-4-5`, `grok-code-fast-1` vs `grok-code`) and was removed. main's
+// `models:list` already falls back to a GENERATED model-catalog.json shipped with
+// the bundled CLI, so this catalog is populated even offline; the `.length`
+// fallbacks below degrade to "provider default / Custom…" only if it is ever empty.
 // ---------------------------------------------------------------------------
 
 /** One model the picker can offer (contextLimit is optional for fallback ids). */
@@ -144,15 +135,15 @@ export function useModelCatalog(): { catalog: ModelCatalogEntry[]; loading: bool
 }
 
 /**
- * The models to offer for a vendor/family, resolved from the live catalog with a
- * graceful fallback to the offline MODEL_SUGGESTIONS (ids only) so the picker is
- * never empty on an older CLI.
+ * The models to offer for a vendor/family, from the catalog. Empty when the
+ * catalog has no entry for the family (older CLI with no `models` command AND no
+ * generated fallback) — callers then degrade to "provider default / Custom…"
+ * rather than showing stale, possibly-wrong hardcoded ids.
  */
 export function modelsForFamily(catalog: ModelCatalogEntry[], vendor: string): ModelInfo[] {
   const fam = vendorOf(vendor)
   const entry = catalog.find((e) => e.family === fam)
-  if (entry && entry.models.length) return entry.models
-  return modelSuggestionsFor(fam).map((id) => ({ id, label: id }))
+  return entry && entry.models.length ? entry.models : []
 }
 
 /**

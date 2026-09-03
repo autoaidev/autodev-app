@@ -35,6 +35,21 @@ export function resolveCliJs(): string | null {
   return null
 }
 
+/**
+ * The GENERATED model catalog shipped next to the bundled CLI
+ * (resources/autodev-cli/model-catalog.json, written by scripts/bundle-cli.mjs
+ * from `autodev models --json` at build time). It sits one dir above bin/, so
+ * derive it from the resolved CLI entry. This is the OFFLINE fallback for the
+ * model pickers — real, versioned with the CLI, and never hand-maintained (so it
+ * cannot drift). Returns null when no CLI (hence no catalog) is present.
+ */
+export function resolveModelCatalogJson(): string | null {
+  const cliJs = resolveCliJs()
+  if (!cliJs) return null
+  const p = join(dirname(dirname(cliJs)), 'model-catalog.json')
+  return existsSync(p) ? p : null
+}
+
 import { execFileSync } from 'child_process'
 
 let _systemNode: string | null | undefined

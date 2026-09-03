@@ -7,7 +7,7 @@ import { InfoTip, Button, Pill, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAgents } from '@renderer/services/agentStore'
-import { PROVIDER_GROUPS, modelKeyFor, modelSuggestionsFor, slugify, providerAuthFor, fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
+import { PROVIDER_GROUPS, modelKeyFor, useModelCatalog, modelsForFamily, slugify, providerAuthFor, fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
 
 interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
 /** Per-agent editable fields the user can tweak before spawning. `id`/`slug` are
@@ -110,6 +110,10 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // Typed app-actions bus — used only to navigate to the Agents tab from the
   // success CTA (no routing owned here).
   const app = useAppActions()
+
+  // Real per-vendor model ids (from the bundled CLI's catalog) that back the
+  // model-field <datalist> hints below — the single source, never a hardcoded list.
+  const { catalog: modelCatalog } = useModelCatalog()
 
   // Remove the login DEAD-END: the funnel documents a local-only path, so let the
   // user proceed WITHOUT a Pixel Office. `localOnly` bypasses the sign-in gate and
@@ -606,9 +610,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   <input className="makeapp-input" value={a.model} onChange={(e) => patchEdit(i, { model: e.target.value })} placeholder="default model" aria-label={`Agent ${i + 1} model`}
                     list={`models-${a.provider.split('-')[0]}`}
                     style={{ ...inp, margin: 0, flex: '0 0 130px' }} disabled={spawning} />
-                  {modelSuggestionsFor(a.provider).length > 0 && (
+                  {modelsForFamily(modelCatalog, a.provider).length > 0 && (
                     <datalist id={`models-${a.provider.split('-')[0]}`}>
-                      {modelSuggestionsFor(a.provider).map((m) => <option key={m} value={m} />)}
+                      {modelsForFamily(modelCatalog, a.provider).map((m) => <option key={m.id} value={m.id} />)}
                     </datalist>
                   )}
                 </div>

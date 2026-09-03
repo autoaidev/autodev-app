@@ -4,8 +4,9 @@ import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
-import { resolveCliJs } from './cli'
+import { resolveCliJs, resolveModelCatalogJson } from './cli'
 import * as appSettings from './appSettings'
+import { readFileSync } from 'fs'
 
 /** One provider family's model catalog, as emitted by `autodev models --json`. */
 interface ModelCatalogEntry {
@@ -218,9 +219,19 @@ ipcMain.handle('agent:mcpStatus', (_e, path: string) => manager.mcpStatus(path))
 ipcMain.handle('cli:run', (_e, args: string[], cwd?: string) => manager.runCli(args, cwd))
 // The provider model catalog (id/label/contextLimit per family) sourced from the
 // bundled CLI's `autodev models --json`. The catalog is STATIC for a given CLI
-// version, so cache it in-memory after the first successful read. On failure or
-// an older CLI without the `models` command, return [] — the renderer falls back
-// to its offline MODEL_SUGGESTIONS so the pickers never break.
+// version, so cache it in-memory after the first successful read. If the live CLI
+// run ever fails (slow/errored IPC), fall back to the GENERATED model-catalog.json
+// shipped beside the bundled CLI (written from that same `autodev models --json`
+// at build time) — a REAL, versioned catalog, so the fallback can never drift.
+// Only when neither is available (no CLI at all) do we return [].
+function readGeneratedCatalog(): ModelCatalog | null {
+  try {
+    const p = resolveModelCatalogJson()
+    if (!p) return null
+    const parsed = JSON.parse(readFileSync(p, 'utf8')) as ModelCatalog
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+  } catch { return null }
+}
 let _modelCatalog: ModelCatalog | null = null
 ipcMain.handle('models:list', async (): Promise<ModelCatalog> => {
   if (_modelCatalog) return _modelCatalog
@@ -230,7 +241,9 @@ ipcMain.handle('models:list', async (): Promise<ModelCatalog> => {
       const parsed = JSON.parse(r.stdout) as ModelCatalog
       if (Array.isArray(parsed) && parsed.length > 0) { _modelCatalog = parsed; return parsed }
     }
-  } catch { /* older CLI / parse failure — fall through to offline fallback */ }
+  } catch { /* live CLI failed — fall through to the generated on-disk catalog */ }
+  const gen = readGeneratedCatalog()
+  if (gen) { _modelCatalog = gen; return gen }
   return []
 })
 ipcMain.handle('agent:exportTrace', (_e, path: string, output: string) => manager.exportTrace(path, output))

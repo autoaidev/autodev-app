@@ -19,7 +19,7 @@ import * as officeService from '@renderer/services/officeService'
  * We deliberately reuse the shared vocabulary: identity's PROVIDER_FAMILIES /
  * providerAccent (the same brand hues the avatar ring + ProviderChip use, so the
  * editor's selection recolors exactly like the card badge will) and providers.ts'
- * MODEL_KEY / MODEL_SUGGESTIONS (the model-hint datalist). Editable: provider
+ * MODEL_KEY + the live model catalog (via ModelSelect). Editable: provider
  * FAMILY (the office character's provider is a family, not a `-tui/-cli` variant —
  * the variant is chosen at operate time), model, and display name.
  */

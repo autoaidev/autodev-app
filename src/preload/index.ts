@@ -36,8 +36,9 @@ const api = {
   confirmDialog: (message: string, detail?: string) => ipcRenderer.invoke('dialog:confirm', message, detail),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   // The provider model catalog (id/label/contextLimit per family) from the bundled
-  // CLI's `autodev models --json`, cached in main. Returns [] on an older CLI —
-  // callers fall back to the offline MODEL_SUGGESTIONS.
+  // CLI's `autodev models --json`, cached in main. main falls back to the generated
+  // model-catalog.json shipped with the CLI, so this is populated even offline;
+  // returns [] only when no bundled CLI/catalog is present at all.
   listModels: (): Promise<ModelCatalogEntry[]> => ipcRenderer.invoke('models:list'),
   exportTrace: (path: string, output: string): Promise<{ ok: true; output: string; note?: string } | { error: string }> => ipcRenderer.invoke('agent:exportTrace', path, output),
   cliCheck: () => ipcRenderer.invoke('cli:check'),

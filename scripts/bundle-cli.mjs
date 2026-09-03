@@ -4,7 +4,7 @@
 // app's devDependencies, so bumping the package there is the single source of
 // truth. Run automatically before `npm run dist` / `npm run pack`.
 import { execSync } from 'node:child_process'
-import { rmSync, mkdirSync, readFileSync, existsSync } from 'node:fs'
+import { rmSync, mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -77,4 +77,26 @@ if (cmp(staged, MIN_VERSION) < 0) {
   console.error(`[bundle-cli] FAILED — staged ${staged} is below the minimum ${MIN_VERSION}`)
   process.exit(1)
 }
+// Generate a REAL model catalog from the CLI we just staged, and ship it next to
+// the bin (extraResources copies vendor/autodev-cli → resources/autodev-cli, so
+// this lands at resources/autodev-cli/model-catalog.json). This is the app's
+// OFFLINE fallback for the model pickers — main's `models:list` reads it when the
+// live `autodev models --json` IPC ever fails. Generating it from the bundled CLI
+// (rather than hand-maintaining a list) is what keeps the fallback from drifting
+// out of sync with the real catalog — the whole point of this file.
+const catalogRaw = execSync(`node ${JSON.stringify(join(dest, 'bin', 'autodev.js'))} models --json`, { encoding: 'utf8' })
+let catalog
+try {
+  catalog = JSON.parse(catalogRaw)
+} catch {
+  console.error('[bundle-cli] FAILED — `autodev models --json` did not emit valid JSON')
+  process.exit(1)
+}
+if (!Array.isArray(catalog) || catalog.length === 0 || !catalog.every((f) => f && typeof f.family === 'string' && Array.isArray(f.models))) {
+  console.error('[bundle-cli] FAILED — generated model catalog is not a non-empty [{ family, default, models[] }] array')
+  process.exit(1)
+}
+writeFileSync(join(dest, 'model-catalog.json'), JSON.stringify(catalog))
+console.log(`[bundle-cli] wrote model-catalog.json — ${catalog.length} families (${catalog.map((f) => f.family).join(', ')})`)
+
 console.log(`[bundle-cli] done — staged autodev-cli@${staged}`)
