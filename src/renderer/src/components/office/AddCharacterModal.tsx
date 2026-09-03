@@ -128,6 +128,24 @@ export function AddCharacterModal({
         // hand the row back so the roster shows it.
         setStatus(r.error)
       }
+      // Optimistically insert the new character's card NOW so it appears immediately
+      // (in its offline/pending state) instead of ~5s later on the next WS round-trip
+      // — a silent delay reads as failure and invites double-submits. The store
+      // reconciles this placeholder to the real row on the next poll (matched by id).
+      officeService.insertOptimisticCharacter({
+        office: officeName,
+        officeSlug,
+        id: created.id,
+        name: nm,
+        slug: String(created.slug ?? ''),
+        online: false,
+        status: 'just added',
+        provider: family,
+        model,
+        avatarIndex,
+        color,
+        emoji
+      })
       onCreated({ id: created.id, slug: String(created.slug ?? '') })
       onClose()
     } catch (e) {

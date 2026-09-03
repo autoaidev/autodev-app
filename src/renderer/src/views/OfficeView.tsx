@@ -13,6 +13,8 @@ import { OfficeAgent, OfficeGroup, isAuthError } from '../components/office/offi
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
 import { useAppActions } from '../services/appActions'
+import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
+import { providerFamily } from '@renderer/services/model'
 
 /**
  * OfficeView — SCREEN 2c. One stream at a time (not 3 scrolling columns).
@@ -135,6 +137,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   const onlineAgentIds = useMemo(
     () => new Set(office.agents.filter((a) => a.online).map((a) => a.id)),
     [office.agents]
+  )
+
+  // Effective model as a friendly label for a character card (e.g. "Grok 4"), so a
+  // set — or a just-applied bulk-set — model is confirmable in-app without reading
+  // the DB. Empty when no model is set (the card omits the line). Mirrors AgentRail's
+  // modelNameFor; the catalog is one shared, process-cached fetch.
+  const { catalog } = useModelCatalog()
+  const modelNameFor = useCallback(
+    (a: OfficeAgent): string => (a.model ? modelLabel(catalog, providerFamily(a.provider), a.model) : ''),
+    [catalog]
   )
 
   // Remember every office slug we've ever seen so a term whose office transiently drops
@@ -348,16 +360,23 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         // Optionally seed a starter team so a fresh office isn't empty (reuses the
         // same office-backed AI generation Make-app uses). Best-effort: a failure
         // to generate still leaves the created office selected.
+        let seeded = false
         if (genStarter && desc && typeof r.office.id === 'number') {
-          try { await window.api.officeGenerateTeam(r.office.id, desc, 4) } catch { /* keep the empty office */ }
+          try { await window.api.officeGenerateTeam(r.office.id, desc, 4); seeded = true } catch { /* keep the empty office */ }
         }
         setNewOfficeName(''); setNewOfficeDesc(''); setGenStarter(false); setShowNewOffice(false)
-        if (r.office.slug) setSelectedSlug(r.office.slug)
-        void officeService.refresh()
+        // Refresh BEFORE selecting so the new office (empty offices now fold into the
+        // rail) is already in the list — otherwise the keep-selection-valid effect
+        // would bounce the selection back to grouped[0]. Then land on its Team tab so
+        // the very next step ("Add agent") is right there, and confirm with a toast so
+        // a silent success can't read as a failure and invite a duplicate create.
+        await officeService.refresh()
+        if (r.office.slug) { setSelectedSlug(r.office.slug); setOfficeTab('team') }
+        actions.toast(seeded ? `Office “${name}” created with a starter team` : `Office “${name}” created — add its first agent`)
       } else setActionErr(r?.error || 'Could not create the office')
     } catch (e) { setActionErr(String((e as Error)?.message ?? e)) }
     finally { setCreatingOffice(false) }
-  }, [newOfficeName, newOfficeDesc, genStarter, creatingOffice])
+  }, [newOfficeName, newOfficeDesc, genStarter, creatingOffice, actions])
 
   // Open a character in the Agents tab (2a): App brings the tab forward and
   // AgentsView resolves the office identity → local workspace and selects it.
@@ -724,6 +743,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onSelect={() => setFocusedId(a.id)}
                   onOperate={() => operate(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
+                  modelLabel={modelNameFor(a)}
                   selectable
                   checked={bulkSelected.has(a.id)}
                   onToggleSelect={() => toggleBulk(a.id)}
@@ -776,7 +796,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           office API (officeService.updateCharacter). Resolved from the live list so
           it always edits the current character (survives polls). */}
       <CharacterSettingsModal
-        agent={office.agents.find((a) => a.id === settingsCharId) ?? null}
+        // Resolve from the flat store list OR the selected office's roster (both
+        // include OFFLINE and just-added optimistic characters) so the ⚙ gear opens
+        // a functional editor regardless of the character's connection state — an
+        // offline character's model must stay viewable/editable.
+        agent={
+          office.agents.find((a) => a.id === settingsCharId) ??
+          selectedGroup?.agents.find((a) => a.id === settingsCharId) ??
+          null
+        }
         open={!!settingsCharId}
         onClose={() => setSettingsCharId('')}
       />

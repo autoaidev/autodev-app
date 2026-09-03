@@ -133,9 +133,18 @@ export interface OfficeConnection {
   authError: string // hard expiry — only set when NO live terms exist
 }
 
+/** One entry of the authoritative office list (`/api/offices`) — carries offices
+ *  that have NO characters yet, which the flat `officeAgents()` list omits. */
+interface OfficeMetaEntry {
+  slug: string
+  id: number
+  name: string
+}
+
 interface OfficeState extends OfficeConnection {
   agents: OfficeAgent[] // normalized flat character list (stable ref when unchanged)
-  offices: OfficeGroup[] // folded from `agents` (stable ref when unchanged)
+  offices: OfficeGroup[] // folded from `agents` + empty offices from `officeMeta`
+  officeMeta: OfficeMetaEntry[] // authoritative office list (incl. 0-character offices)
 }
 
 let state: OfficeState = {
@@ -149,7 +158,8 @@ let state: OfficeState = {
   listError: '',
   authError: '',
   agents: [],
-  offices: []
+  offices: [],
+  officeMeta: []
 }
 
 const listeners = new Set<() => void>()
@@ -174,6 +184,52 @@ function foldOffices(agents: OfficeAgent[]): OfficeGroup[] {
     if (a.online) g.onlineCount++
   }
   return [...m.values()]
+}
+
+/**
+ * Optimistically-inserted characters (id → agent), keyed by their real server id.
+ * A freshly-created character does not surface in the flat `officeAgents()` list
+ * until the office's next WS round-trip (~5s), so the Add-character flow inserts a
+ * pending card here immediately; the entry is reconciled (dropped) the moment a
+ * real poll returns a character with the same id (see applyAgents). This is the
+ * client-side analogue of updateCharacter's optimistic field patch.
+ */
+const optimisticChars = new Map<string, OfficeAgent>()
+
+/** Append any optimistic character not yet present in `agents` (matched by id). */
+function mergeOptimistic(agents: OfficeAgent[]): OfficeAgent[] {
+  if (optimisticChars.size === 0) return agents
+  const have = new Set(agents.map((a) => a.id))
+  const extra: OfficeAgent[] = []
+  for (const a of optimisticChars.values()) if (!have.has(a.id)) extra.push(a)
+  return extra.length ? [...agents, ...extra] : agents
+}
+
+/**
+ * Fold the flat character list into offices AND fold in any office from the
+ * authoritative list (`officeMeta`) that currently has NO characters — so a
+ * just-created empty office is visible + selectable in the rail (the user can't
+ * add its first character to an office they can't see). Agent-derived groups win;
+ * empty offices are appended in their list order.
+ */
+function computeOffices(agents: OfficeAgent[], meta: OfficeMetaEntry[]): OfficeGroup[] {
+  const groups = foldOffices(agents)
+  if (meta.length) {
+    const have = new Set(groups.map((g) => g.slug))
+    for (const o of meta) {
+      if (!have.has(o.slug)) groups.push({ slug: o.slug, name: o.name || o.slug, agents: [], onlineCount: 0 })
+    }
+  }
+  return groups
+}
+
+/** Field-equality for the authoritative office list (avoid re-fold on identical polls). */
+function officeMetaEqual(a: OfficeMetaEntry[], b: OfficeMetaEntry[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].slug !== b[i].slug || a[i].name !== b[i].name || a[i].id !== b[i].id) return false
+  }
+  return true
 }
 
 /** Shallow field-equality for one character (avoid re-render on identical polls). */
@@ -204,8 +260,12 @@ function agentsEqual(a: OfficeAgent[], b: OfficeAgent[]): boolean {
  * the data is identical so an unchanged poll triggers zero re-renders, then feeds
  * the present office slugs to termRegistry so it can advance its absence counters.
  */
-async function applyAgents(raw: RawOfficeAgent[]): Promise<void> {
+async function applyAgents(raw: RawOfficeAgent[], meta?: OfficeMetaEntry[]): Promise<void> {
   const next = normalizeAgents(Array.isArray(raw) ? raw : [])
+  // Reconcile optimistic inserts: any pending character now present in the real
+  // list is authoritative — drop its optimistic placeholder so the two never
+  // duplicate. Ones still absent survive (merged below) until they land.
+  if (optimisticChars.size) for (const a of next) optimisticChars.delete(a.id)
   // Empty poll while live terms exist → keep the last-known list (never collapse
   // the office grid and SIGKILL a running Operate PTY on a transient empty 200).
   if (next.length === 0 && termRegistry.hasLiveTerms()) {
@@ -249,11 +309,19 @@ async function applyAgents(raw: RawOfficeAgent[]): Promise<void> {
         ]
   const wantError = keptSlugs ? PARTIAL_KEEP : ''
 
-  if (agentsEqual(merged, state.agents)) {
+  // Fold optimistic (not-yet-polled) characters into the stored list so their
+  // pending cards persist across polls until reconciled above.
+  const finalAgents = mergeOptimistic(merged)
+  // Adopt the authoritative office list when this fetch carried one (a failed
+  // /api/offices leaves `meta` undefined → keep the last-known list).
+  const nextMeta = meta ?? state.officeMeta
+  const metaChanged = meta !== undefined && !officeMetaEqual(meta, state.officeMeta)
+
+  if (agentsEqual(finalAgents, state.agents) && !metaChanged) {
     if (state.listError !== wantError) emit({ listError: wantError })
   } else {
-    const offices = foldOffices(merged)
-    emit({ agents: merged, offices, listError: wantError })
+    const offices = computeOffices(finalAgents, nextMeta)
+    emit({ agents: finalAgents, offices, officeMeta: nextMeta, listError: wantError })
   }
   // Slugs kept above are present in the (merged) state.offices, so reconcilePresence
   // never advances an absence counter for an office merely missing from a partial poll.
@@ -263,10 +331,18 @@ async function applyAgents(raw: RawOfficeAgent[]): Promise<void> {
 /* --------------------------------------------------------------- fetch ----- */
 
 let listInFlight = false
-/** Raw fetch → applyAgents. Throws on IPC/auth failure (caller handles auth). */
+/** Raw fetch → applyAgents. Throws on IPC/auth failure (caller handles auth).
+ *  Fetches the authoritative office list alongside the flat character list so
+ *  0-character offices (which `officeAgents()` omits) still fold into the rail. A
+ *  failed office-list fetch is non-fatal — applyAgents keeps the last-known meta. */
 async function fetchList(): Promise<void> {
-  const raw = (await api().officeAgents()) as RawOfficeAgent[]
-  await applyAgents(raw)
+  const [raw, meta] = await Promise.all([
+    api().officeAgents() as Promise<RawOfficeAgent[]>,
+    api()
+      .officeOffices()
+      .catch(() => undefined)
+  ])
+  await applyAgents(raw, meta)
   if (!state.loaded) emit({ loaded: true })
 }
 
@@ -468,7 +544,8 @@ export async function disconnect(): Promise<void> {
   } catch {
     /* ignore */
   }
-  emit({ connected: false, agents: [], offices: [], loaded: false, listError: '', authError: '' })
+  optimisticChars.clear()
+  emit({ connected: false, agents: [], offices: [], officeMeta: [], loaded: false, listError: '', authError: '' })
 }
 
 /**
@@ -530,8 +607,24 @@ export async function updateCharacter(
     if (nextName !== undefined && nextName !== '' && merged.name !== nextName) { merged.name = nextName; changed = true }
     return merged
   })
-  if (changed) emit({ agents, offices: foldOffices(agents) })
+  if (changed) emit({ agents, offices: computeOffices(agents, state.officeMeta) })
   return { ok: true }
+}
+
+/**
+ * insertOptimisticCharacter(agent) — show a just-created character's card at once,
+ * before the office's ~5s WS round-trip surfaces it in `officeAgents()`. The card
+ * renders in its (offline) pending state and is reconciled to the real row the
+ * moment a poll returns a character with the same id (see applyAgents). The `id`
+ * MUST be the real server-minted id so reconciliation matches. Safe to call twice
+ * (keyed by id). No-op-safe: a character that never polls back simply lingers as a
+ * pending card, never a duplicate.
+ */
+export function insertOptimisticCharacter(agent: OfficeAgent): void {
+  if (!agent?.id) return
+  optimisticChars.set(agent.id, agent)
+  const agents = mergeOptimistic(state.agents)
+  emit({ agents, offices: computeOffices(agents, state.officeMeta) })
 }
 
 /* ------------------------------------------------------------- imperative --- */

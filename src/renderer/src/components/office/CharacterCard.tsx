@@ -33,6 +33,9 @@ export interface CharacterCardProps {
   onOperate: () => void
   /** Open the SETTINGS editor for this character (provider / model / name). */
   onSettings?: () => void
+  /** The character's effective model as a friendly label (e.g. "Grok 4"), shown as a
+   *  muted line so a set (or bulk-set) model is confirmable at a glance. Empty = hidden. */
+  modelLabel?: string
   /** When true, show a bulk-selection checkbox (independent of the focus `selected`). */
   selectable?: boolean
   /** Whether this card is in the bulk selection. */
@@ -48,6 +51,7 @@ export function CharacterCard({
   onSelect,
   onOperate,
   onSettings,
+  modelLabel,
   selectable,
   checked,
   onToggleSelect
@@ -143,6 +147,20 @@ export function CharacterCard({
               }}
             >
               {providerLabel(agent.provider)}
+            </div>
+          )}
+          {modelLabel && (
+            <div
+              title={`Model: ${modelLabel}`}
+              style={{
+                fontSize: 'var(--fs-tiny)',
+                color: 'var(--tx-5)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {modelLabel}
             </div>
           )}
         </div>
