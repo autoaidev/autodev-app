@@ -4,6 +4,8 @@ import TerminalTabs, { OpenTerm } from '../TerminalTabs'
 import { OfficeCard } from '../components/office/OfficeCard'
 import { CharacterCard } from '../components/office/CharacterCard'
 import { CharacterSettingsModal } from '../components/office/CharacterSettingsModal'
+import { AddCharacterModal } from '../components/office/AddCharacterModal'
+import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { OfficeRoom } from '../components/office/OfficeRoom'
 import { SignInForm } from '../components/office/SignInForm'
@@ -56,6 +58,12 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   // ── per-character SETTINGS editor (provider / model / name) ──
   const [settingsCharId, setSettingsCharId] = useState('')
+
+  // ── bulk selection of characters (ids) + the two office-window management modals:
+  //    a bulk Set-model over the selection, and a single-character Add. ──
+  const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
+  const [showBulkModel, setShowBulkModel] = useState(false)
+  const [showAddChar, setShowAddChar] = useState(false)
 
   // ── spawn / operate (progress + action-level errors) ──
   const [operatingId, setOperatingId] = useState('')
@@ -284,6 +292,40 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     } finally { setStoppingOffice('') }
   }, [stoppingOffice, handleAuthExpiry])
 
+  // Reconnect a whole office in place — stop its loops, then connect-all again — so a
+  // just-saved model (bulk Set-model) takes hold now. Office loops are office-scoped
+  // (there is no per-character reconnect), so this is the honest "apply now" for the
+  // bulk model follow-up: it relaunches the characters THIS app is running. Mirrors
+  // spawnOffice's success wiring (log panes + spawned set) but bypasses its
+  // online-guard since we've just stopped the office.
+  const reconnectOffice = useCallback(async (g: OfficeGroup) => {
+    setActionErr('')
+    try {
+      await window.api.officeStopOffice(g.slug)
+      termRegistry.closeLogsForOffice(g.slug)
+      const r = await window.api.officeSpawnOffice(g.slug, g.agents.map((a) => ({ agentId: a.id, provider: a.provider || '' })))
+      if ('error' in r) {
+        if (isAuthError(r.error)) handleAuthExpiry()
+        else setActionErr(r.error)
+        setSpawnedOffices((prev) => { const n = new Set(prev); n.delete(g.slug); return n })
+        return
+      }
+      setSpawnedOffices((prev) => new Set(prev).add(g.slug))
+      for (const s of r.agents) if (!logsRef.current.has(s.path)) logsRef.current.set(s.path, '')
+      termRegistry.openLogs(
+        g.slug,
+        g.name,
+        r.agents.map((s) => ({ agentId: s.agentId, name: s.name, path: s.path, provider: s.provider }))
+      )
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e)
+      if (isAuthError(msg)) handleAuthExpiry()
+      else setActionErr(msg)
+    } finally {
+      void officeService.refresh()
+    }
+  }, [handleAuthExpiry])
+
   // Live instant-message (steer) — NOT a queued TODO task. The service delivers it and
   // optimistically echoes our message into the shared conversation.
   const steer = useCallback(async (agentId: string, text: string) => {
@@ -333,6 +375,49 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     const url = slug ? `${root.replace(/\/+$/, '')}/office/${slug}` : root
     void window.api.openExternal(url)
   }, [office.base, selectedGroup])
+
+  // ── bulk selection (character ids) — scoped to the SELECTED office (the team grid
+  //    shows one office at a time), so a stale id can't leak across offices. ──
+  const toggleBulk = useCallback((id: string) => {
+    setBulkSelected((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }, [])
+  useEffect(() => { setBulkSelected(new Set()) }, [selectedSlug])
+  // Drop ids that no longer exist in the selected office (deleted / office switched).
+  const selectedIds = useMemo(() => {
+    const live = new Set((selectedGroup?.agents ?? []).map((a) => a.id))
+    return [...bulkSelected].filter((id) => live.has(id))
+  }, [bulkSelected, selectedGroup])
+  const allSelected = !!selectedGroup && selectedGroup.agents.length > 0 && selectedIds.length === selectedGroup.agents.length
+
+  // The office backend for the shared BulkModelModal: persist each character's model
+  // via the OFFICE path (updateCharacter → PATCH /api/agents/{id}), NOT `config set`.
+  // Each character keeps its OWN provider (mixed-provider aware); the follow-up
+  // reconnects the office so ONLINE characters pick up the new model now.
+  const bulkAdapter = useMemo<BulkModelAdapter>(() => {
+    const chosen = (selectedGroup?.agents ?? []).filter((a) => bulkSelected.has(a.id))
+    return {
+      unit: 'character',
+      items: chosen.map((a) => ({ key: a.id, provider: a.provider || 'claude', active: !!a.online })),
+      setModel: async (item, model) => {
+        const r = await officeService.updateCharacter(item.key, { model })
+        return 'ok' in r
+      },
+      applyNow: {
+        subtitle: (n) => `${n} online character${n === 1 ? '' : 's'} · reconnect to apply now`,
+        body: (n) =>
+          `Model saved to the office. An online character keeps its current model until it reconnects — reconnect this office to relaunch the ${n} online character${n === 1 ? '' : 's'} on the new model now, or leave them to pick it up on their next connect.`,
+        buttonLabel: (n) => `Reconnect ${n} online`,
+        pendingLabel: 'Reconnecting…',
+        toast: () => 'Reconnecting this office…',
+        run: async () => { if (selectedGroup) await reconnectOffice(selectedGroup) }
+      }
+    }
+  }, [selectedGroup, bulkSelected, reconnectOffice])
 
   // The rail's error box aggregates the action error, the service's soft keep-alive
   // notice, and the registry's reap notice.
@@ -577,6 +662,47 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               </Button>
             </div>
 
+            {/* team management toolbar — bulk-select + the two single-office actions
+                (Add one character, Set model across the selection). A Team-view concern. */}
+            <div
+              style={{
+                display: officeTab === 'team' ? 'flex' : 'none',
+                alignItems: 'center',
+                gap: 10,
+                padding: '10px 18px 0',
+                flexWrap: 'wrap'
+              }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-meta)', color: 'var(--tx-3)', cursor: selectedGroup.agents.length ? 'pointer' : 'default', userSelect: 'none' }}>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  disabled={selectedGroup.agents.length === 0}
+                  ref={(el) => { if (el) el.indeterminate = selectedIds.length > 0 && !allSelected }}
+                  onChange={(e) => setBulkSelected(e.target.checked ? new Set(selectedGroup.agents.map((a) => a.id)) : new Set())}
+                  aria-label="Select all characters"
+                  style={{ cursor: 'pointer', margin: 0 }}
+                />
+                {selectedIds.length > 0 ? `${selectedIds.length} selected` : 'Select'}
+              </label>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={selectedIds.length === 0}
+                onClick={() => setShowBulkModel(true)}
+                title={selectedIds.length === 0 ? 'Select characters to set a model' : 'Set the model across the selected characters'}
+              >
+                Set model…
+              </Button>
+              {selectedIds.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={() => setBulkSelected(new Set())}>Clear</Button>
+              )}
+              <div style={{ flex: 1 }} />
+              <Button variant="primary" size="sm" onClick={() => setShowAddChar(true)} title={`Add one character to ${selectedGroup.name}`}>
+                <Icon name="plus" size={11} /> Add agent
+              </Button>
+            </div>
+
             {/* character grid — a Team-view concern (hidden in the Room stream) */}
             <div
               style={{
@@ -598,16 +724,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onSelect={() => setFocusedId(a.id)}
                   onOperate={() => operate(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
+                  selectable
+                  checked={bulkSelected.has(a.id)}
+                  onToggleSelect={() => toggleBulk(a.id)}
                 />
               ))}
-              {/* create-character tile — now a real inline create (resolves the numeric
-                  officeId on demand from officeOffices() and calls officeCreateCharacter). */}
-              <NewCharacterTile
-                officeName={selectedGroup.name}
-                officeSlug={selectedGroup.slug}
-                onError={setActionErr}
-                onCreated={() => void officeService.refresh()}
-              />
+              {/* create-character tile — opens the single-character Add modal (name +
+                  engine/model + face), distinct from the "Generate team" wizard. */}
+              <NewCharacterTile officeName={selectedGroup.name} onClick={() => setShowAddChar(true)} />
             </div>
 
             {/* lower area: TEAM (focused stream / live terminals) or the unified ROOM.
@@ -656,6 +780,27 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         open={!!settingsCharId}
         onClose={() => setSettingsCharId('')}
       />
+
+      {/* Bulk Set-model across the selected characters — persisted via the OFFICE path
+          (updateCharacter), mixed-provider aware, with a reconnect-office follow-up. */}
+      <BulkModelModal
+        open={showBulkModel}
+        adapter={bulkAdapter}
+        onClose={() => setShowBulkModel(false)}
+        onApplied={() => { setShowBulkModel(false); setBulkSelected(new Set()) }}
+      />
+
+      {/* Add ONE character to the selected office (distinct from Generate team). */}
+      {selectedGroup && (
+        <AddCharacterModal
+          open={showAddChar}
+          officeSlug={selectedGroup.slug}
+          officeName={selectedGroup.name}
+          existingCount={selectedGroup.agents.length}
+          onClose={() => setShowAddChar(false)}
+          onCreated={({ id }) => { setFocusedId(id); void officeService.refresh() }}
+        />
+      )}
     </div>
   )
 }
@@ -689,87 +834,26 @@ function TermSteer({ disabled, name, onSend }: { disabled: boolean; name: string
 }
 
 /**
- * Create-character dashed tile — now a REAL inline create. The folded OfficeGroup
- * doesn't carry the numeric officeId that officeCreateCharacter needs, so we resolve
- * it on demand from officeOffices() (matched by slug) rather than threading it through
- * every layer. Click → name input → create → refresh.
+ * Create-character dashed tile — a launcher for the single-character Add modal
+ * (name + engine/model + face). The rich create flow lives in AddCharacterModal;
+ * this is just the in-grid affordance that opens it (there's also an "Add agent"
+ * button in the team toolbar). Distinct from the "Generate team" wizard.
  */
-function NewCharacterTile({
-  officeName,
-  officeSlug,
-  onCreated,
-  onError
-}: {
-  officeName: string
-  officeSlug: string
-  onCreated: () => void
-  onError: (msg: string) => void
-}): React.JSX.Element {
-  const [editing, setEditing] = useState(false)
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const create = useCallback(async () => {
-    const n = name.trim()
-    if (!n || busy) return
-    setBusy(true)
-    onError('')
-    try {
-      const list = (await window.api.officeOffices()) as Array<{ slug: string; id: number }>
-      const off = Array.isArray(list) ? list.find((o) => o.slug === officeSlug) : undefined
-      if (!off) { onError('Could not resolve this office to add a character.'); return }
-      const r = (await window.api.officeCreateCharacter(off.id, n)) as { ok?: boolean; id?: string; error?: string }
-      if (r?.error || !r?.id) { onError(r?.error || 'Could not create the character.'); return }
-      setName(''); setEditing(false)
-      onCreated()
-    } catch (e) { onError(String((e as Error)?.message ?? e)) }
-    finally { setBusy(false) }
-  }, [name, busy, officeSlug, onCreated, onError])
-
-  if (!editing) {
-    return (
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        title={`Add a character to ${officeName}`}
-        style={{
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-          gap: 6, padding: '10px 11px', borderRadius: 'var(--r-card)', background: 'var(--bg-2)',
-          border: '1px dashed var(--bd-idle-box)', color: 'var(--tx-4)', minHeight: 78, cursor: 'pointer'
-        }}
-      >
-        <Icon name="plus" size={14} />
-        <span style={{ fontSize: 'var(--fs-desc)' }}>New character</span>
-      </button>
-    )
-  }
-
+function NewCharacterTile({ officeName, onClick }: { officeName: string; onClick: () => void }): React.JSX.Element {
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); void create() }}
+    <button
+      type="button"
+      onClick={onClick}
+      title={`Add a character to ${officeName}`}
       style={{
-        display: 'flex', flexDirection: 'column', gap: 6, padding: '9px 10px', borderRadius: 'var(--r-card)',
-        background: 'var(--bg-2)', border: '1px solid var(--bd-1)', minHeight: 78, justifyContent: 'center'
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        gap: 6, padding: '10px 11px', borderRadius: 'var(--r-card)', background: 'var(--bg-2)',
+        border: '1px dashed var(--bd-idle-box)', color: 'var(--tx-4)', minHeight: 78, cursor: 'pointer'
       }}
     >
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Character name…"
-        aria-label={`New character in ${officeName}`}
-        autoFocus
-        disabled={busy}
-        onKeyDown={(e) => { if (e.key === 'Escape') { setEditing(false); setName('') } }}
-        style={{
-          minWidth: 0, padding: '5px 8px', background: 'var(--bg-input)', border: '1px solid var(--bd-1)',
-          borderRadius: 'var(--r-input)', color: 'var(--tx-1)', fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-meta)'
-        }}
-      />
-      <div style={{ display: 'flex', gap: 5 }}>
-        <Button variant="primary" size="sm" type="submit" disabled={busy || !name.trim()}>{busy ? '…' : 'Add'}</Button>
-        <Button variant="secondary" size="sm" type="button" disabled={busy} onClick={() => { setEditing(false); setName('') }}>Cancel</Button>
-      </div>
-    </form>
+      <Icon name="plus" size={14} />
+      <span style={{ fontSize: 'var(--fs-desc)' }}>New character</span>
+    </button>
   )
 }
 

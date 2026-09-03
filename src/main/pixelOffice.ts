@@ -786,13 +786,24 @@ export class PixelOfficeClient {
    * of the office UI's "+ Agent". Returns the minted id/slug so the caller can
    * immediately Operate it. Mirrors the shape connectSession already posts.
    */
-  async createCharacter(officeId: number, name: string): Promise<{ ok: true; id: string; slug: string; name: string } | { error: string }> {
+  async createCharacter(
+    officeId: number,
+    name: string,
+    opts?: { avatarIndex?: number; color?: string; emoji?: string }
+  ): Promise<{ ok: true; id: string; slug: string; name: string } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     const nm = String(name ?? '').replace(/[^\w .-]+/g, '').trim().slice(0, 20)
     if (!nm) return { error: 'Give the character a name.' }
     if (!officeId) return { error: 'Pick an office.' }
+    // Clamp appearance to safe shapes (sprite index 0..6, #rrggbb hex, one emoji glyph);
+    // any invalid/absent value falls back to the historical defaults so the row always
+    // creates. Provider/model are NOT set here — the caller PATCHes them after create.
+    const rawIdx = Number(opts?.avatarIndex)
+    const avatarIndex = Number.isInteger(rawIdx) && rawIdx >= 0 && rawIdx <= 6 ? rawIdx : 0
+    const color = /^#[0-9a-fA-F]{6}$/.test(String(opts?.color ?? '')) ? String(opts!.color) : '#00d4ff'
+    const emoji = String(opts?.emoji ?? '').trim().slice(0, 8) || '🤖'
     try {
-      const created = (await this.postJson('/api/agents', { name: nm, officeId, avatarIndex: 0, color: '#00d4ff', emoji: '🤖' }))?.data ?? {}
+      const created = (await this.postJson('/api/agents', { name: nm, officeId, avatarIndex, color, emoji }))?.data ?? {}
       if (!created.id) return { error: 'The office did not return a new character.' }
       return { ok: true, id: String(created.id), slug: String(created.slug ?? ''), name: nm }
     } catch (e) {

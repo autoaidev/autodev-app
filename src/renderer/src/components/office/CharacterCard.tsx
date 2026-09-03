@@ -33,6 +33,12 @@ export interface CharacterCardProps {
   onOperate: () => void
   /** Open the SETTINGS editor for this character (provider / model / name). */
   onSettings?: () => void
+  /** When true, show a bulk-selection checkbox (independent of the focus `selected`). */
+  selectable?: boolean
+  /** Whether this card is in the bulk selection. */
+  checked?: boolean
+  /** Toggle the bulk selection for this character. */
+  onToggleSelect?: () => void
 }
 
 export function CharacterCard({
@@ -41,7 +47,10 @@ export function CharacterCard({
   busy,
   onSelect,
   onOperate,
-  onSettings
+  onSettings,
+  selectable,
+  checked,
+  onToggleSelect
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
   const tick = tickFor(agent)
@@ -80,6 +89,19 @@ export function CharacterCard({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={!!checked}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+              e.stopPropagation()
+              onToggleSelect?.()
+            }}
+            aria-label={`Select ${agent.name} for bulk actions`}
+            style={{ cursor: 'pointer', margin: 0, flex: 'none' }}
+          />
+        )}
         {/* shared identity tile — per-character hue + provider ring (same system the
             Agents rail / Fleet table use), so every office character is a distinct
             colored object instead of the same fixed blue square. */}
