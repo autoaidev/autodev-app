@@ -5,6 +5,7 @@ import { useOfficeMessages, useOfficeConnection, deriveOfficeLinkStatus, steer }
 import type { ChatMessage } from '../office/officeTypes'
 import { renderMarkdown } from './useMarkdown'
 import './ChatTab.css'
+import './markdown.css'
 
 /**
  * ChatTab (redesign screen 2f — the agent detail "Chat" sub-tab).
@@ -289,11 +290,15 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
                   // as formatting and keeps their exact text/whitespace).
                   <div className="dv-chat__text">{m.text}</div>
                 ) : (
-                  // Agent / A2A narration is LLM-authored markdown → render it as
-                  // sanitized (DOMPurify) rich HTML. Streaming/partial text is just
-                  // a shorter source string, so it renders the same way each poll.
+                  // Agent / A2A narration is LLM-authored markdown → render it via
+                  // the SHARED `.dv-md` ruleset (markdown.css) as sanitized (DOMPurify)
+                  // rich HTML. Base font/colour are set inline (not via `.dv-chat__text`)
+                  // so `.dv-md`'s `white-space:normal` can't be beaten by CSS load order.
+                  // Streaming/partial text is just a shorter source string, so it
+                  // renders the same way each poll.
                   <div
-                    className="dv-chat__text dv-chat__md"
+                    className="dv-md"
+                    style={{ fontSize: 'var(--fs-meta)', lineHeight: 1.55, color: 'var(--tx-2)' }}
                     dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }}
                   />
                 )}

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentAvatar } from '@renderer/ui'
 import { OfficeAgent, authorColor, hhmm } from './officeTypes'
 import type { RoomEntry } from '@renderer/services/officeService'
+import { renderMarkdown } from '../agent/useMarkdown'
+import '../agent/markdown.css'
 
 /**
  * OfficeRoom — the office ROOM view (a top-level "Room" tab in the Office area).
@@ -181,9 +183,20 @@ export function OfficeRoom({
                     {hhmm(e.msg.at)}
                   </span>
                 </div>
-                <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-2)', wordBreak: 'break-word', lineHeight: 1.5 }}>
-                  {e.msg.text}
-                </div>
+                {/* Agent / A2A narration is LLM-authored markdown → render it rich via
+                    the SHARED `.dv-md` ruleset (sanitized in useMarkdown). The user's
+                    own messages stay literal. */}
+                {isUser ? (
+                  <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-2)', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                    {e.msg.text}
+                  </div>
+                ) : (
+                  <div
+                    className="dv-md"
+                    style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-2)', lineHeight: 1.5 }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(e.msg.text) }}
+                  />
+                )}
               </div>
             </div>
           )

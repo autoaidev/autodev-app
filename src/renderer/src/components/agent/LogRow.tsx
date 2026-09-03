@@ -1,4 +1,6 @@
 import React from 'react'
+import { renderMarkdown } from './useMarkdown'
+import './markdown.css'
 
 /**
  * LogRow — one parsed line of the ActivityStream (2a).
@@ -99,16 +101,21 @@ export function LogRow({ ts, severity, body, foldCount, foldedLines, calm = fals
       </span>
 
       <div style={{ flex: 1, minWidth: 0, lineHeight: lh }}>
-        <span
+        {/* Agent narration is LLM-authored markdown, rendered rich via the SHARED
+            dv-md ruleset (sanitized in useMarkdown). Each parsed line is its own row,
+            so a bullet line becomes a real bullet and inline emphasis/code render,
+            while a plain prose line collapses to one margin-free paragraph. The
+            severity colour rides the container and each block inherits it. */}
+        <div
+          className="dv-md"
           style={{
             fontFamily: 'var(--font-sans)',
             fontSize: 'var(--fs-body)',
             color: BODY_COLOR[severity],
-            wordBreak: 'break-word'
+            lineHeight: lh
           }}
-        >
-          {body}
-        </span>
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }}
+        />
 
         {folded && (
           <>

@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Pill, Button, Icon, AgentAvatar } from '@renderer/ui'
 import { OfficeAgent, ChatMessage, hhmm } from './officeTypes'
+import { renderMarkdownInline } from '../agent/useMarkdown'
+import '../agent/markdown.css'
 
 /**
  * AgentStream — the focused character's read-only activity stream (2c, left of
@@ -109,9 +111,21 @@ export function AgentStream({
             latest.map((m) => (
               <div key={m.id} style={{ display: 'flex', gap: 10, padding: '3px 0', alignItems: 'baseline' }}>
                 <span style={{ flex: 'none', width: 34, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-section)', color: 'var(--tx-gutter)' }}>{hhmm(m.at)}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: bodyColor(m.role), lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.text}>
-                  {m.text}
-                </span>
+                {/* Compact single-line preview — INLINE-only markdown (bold/italic/
+                    code/links) so it stays rich but never breaks the one-line layout.
+                    User's own text stays literal. */}
+                {m.role === 'user' ? (
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: bodyColor(m.role), lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.text}>
+                    {m.text}
+                  </span>
+                ) : (
+                  <span
+                    className="dv-md-inline"
+                    style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: bodyColor(m.role), lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={m.text}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdownInline(m.text) }}
+                  />
+                )}
               </div>
             ))
           )}
@@ -189,7 +203,13 @@ export function AgentStream({
               {m.author && m.role === 'a2a' && (
                 <span style={{ color: 'var(--role-violet)', fontWeight: 600, marginRight: 6 }}>{m.author}</span>
               )}
-              {m.text}
+              {/* Ticker stream — INLINE-only markdown (rich marks, no block layout).
+                  User's own text stays literal. */}
+              {m.role === 'user' ? (
+                m.text
+              ) : (
+                <span className="dv-md-inline" dangerouslySetInnerHTML={{ __html: renderMarkdownInline(m.text) }} />
+              )}
             </span>
           </div>
         ))}

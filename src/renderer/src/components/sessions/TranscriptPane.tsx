@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Pill, Button, Icon } from '@renderer/ui'
 import { type SessionMeta, type SessionMsg, baseName, clock } from './types'
+import { renderMarkdown } from '../agent/useMarkdown'
+import '../agent/markdown.css'
 
 /** Initials for an avatar tile — user vs the agent (workspace basename). */
 function initials(label: string): string {
@@ -133,7 +135,14 @@ export function TranscriptPane({
               <div className={'sv-av ' + who}>{m.role === 'user' ? 'YOU' : m.role === 'system' ? '··' : initials(agent)}</div>
               <div className="sv-bubble">
                 <div className="sv-msg-author">{author}{m.ts ? ` · ${clock(m.ts)}` : ''}</div>
-                {m.text}
+                {/* Assistant / system narration is LLM-authored markdown → render it
+                    rich via the SHARED `.dv-md` ruleset (sanitized in useMarkdown).
+                    The user's own messages stay literal (pre-wrap from `.sv-bubble`). */}
+                {m.role === 'user' ? (
+                  m.text
+                ) : (
+                  <div className="dv-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }} />
+                )}
               </div>
             </div>
           )

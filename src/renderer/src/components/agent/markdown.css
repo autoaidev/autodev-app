@@ -1,0 +1,105 @@
+/*
+ * Shared rich-markdown stylesheet — the ONE token-based ruleset for every panel
+ * that renders agent / assistant / A2A / system narration as sanitized markdown
+ * (see useMarkdown.ts). ChatTab, the ActivityStream rows, OfficeRoom and the
+ * Sessions TranscriptPane all use `.dv-md`; the compact office AgentStream ticker
+ * uses `.dv-md-inline`. Tokens only (theme.css) — theme-aware in dark + light. No
+ * hardcoded hex. The container owns base font-size / colour; these rules style the
+ * markdown block/inline elements and inherit that colour unless a mark overrides it.
+ */
+
+/* ---- FULL block markdown ---- */
+.dv-md {
+  white-space: normal;
+  word-break: break-word;
+}
+.dv-md > :first-child { margin-top: 0; }
+.dv-md > :last-child { margin-bottom: 0; }
+.dv-md p { margin: 0 0 6px; }
+.dv-md h1,
+.dv-md h2,
+.dv-md h3,
+.dv-md h4,
+.dv-md h5,
+.dv-md h6 {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-selected);
+  color: var(--tx-hi);
+  margin: 10px 0 4px;
+  line-height: 1.35;
+}
+.dv-md ul,
+.dv-md ol { margin: 4px 0 6px; padding-left: 20px; }
+.dv-md li { margin: 2px 0; }
+.dv-md li > ul,
+.dv-md li > ol { margin: 2px 0; }
+.dv-md strong { color: var(--tx-hi); font-weight: var(--fw-selected); }
+.dv-md em { font-style: italic; }
+.dv-md del { text-decoration: line-through; opacity: 0.8; }
+.dv-md a { color: var(--accent); text-decoration: underline; }
+.dv-md a:hover { color: var(--accent-ink); }
+.dv-md code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-tiny);
+  background: var(--bg-input);
+  border: 1px solid var(--bd-2);
+  padding: 1px 4px;
+  border-radius: var(--r-chip);
+}
+.dv-md pre {
+  margin: 6px 0;
+  padding: 9px 11px;
+  background: var(--bg-0);
+  border: 1px solid var(--bd-1);
+  border-radius: var(--r-card);
+  overflow-x: auto;
+}
+.dv-md pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--fs-tiny);
+  line-height: 1.5;
+  white-space: pre;
+}
+.dv-md blockquote {
+  margin: 6px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--bd-accent);
+  color: var(--tx-3);
+}
+.dv-md hr { border: none; border-top: 1px solid var(--bd-2); margin: 10px 0; }
+.dv-md img { max-width: 100%; height: auto; border-radius: var(--r-chip); }
+.dv-md table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.dv-md th,
+.dv-md td {
+  border: 1px solid var(--bd-1);
+  padding: 4px 8px;
+  text-align: left;
+}
+.dv-md th { background: var(--bg-panel-alt); color: var(--tx-hi); font-weight: var(--fw-selected); }
+
+/* ---- INLINE-only rich text (compact single-line tickers/previews) ----
+ * The renderer (renderMarkdownInline) emits only inline elements and collapses
+ * whitespace, so these rules just theme the marks and inherit the container's
+ * white-space (nowrap + ellipsis) — nothing here can push a second line. */
+.dv-md-inline { white-space: inherit; }
+.dv-md-inline strong { color: var(--tx-hi); font-weight: var(--fw-selected); }
+.dv-md-inline em { font-style: italic; }
+.dv-md-inline del { text-decoration: line-through; opacity: 0.8; }
+.dv-md-inline a { color: var(--accent); text-decoration: underline; }
+.dv-md-inline a:hover { color: var(--accent-ink); }
+.dv-md-inline code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-input);
+  border: 1px solid var(--bd-2);
+  padding: 0 3px;
+  border-radius: var(--r-chip);
+}
