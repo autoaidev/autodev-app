@@ -11,6 +11,7 @@ import { ModelSelect } from '@renderer/components/ModelSelect'
 import { ServerRow } from '@renderer/components/mcp/ServerRow'
 import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
+import { useTheme, type ThemePref } from '@renderer/services/theme'
 
 /**
  * 2h — Settings, sectioned (replaces the legacy SettingsView).
@@ -162,6 +163,8 @@ function fmtWhen(iso?: string | null): string {
 export function SettingsView2(): JSX.Element {
   // App-wide Advanced flag — gates the MCP section + the Providers detail below.
   const { advanced, setAdvanced } = useAdvancedMode()
+  // App-wide theme preference (System/Dark/Light) — mirrors the top-nav ThemeToggle.
+  const { theme, setTheme } = useTheme()
   const NAV = useMemo(() => NAV_ALL.filter((n) => advanced || !n.advancedOnly), [advanced])
 
   // Open on the General pane so the Advanced switch is the first thing a novice sees.
@@ -559,6 +562,43 @@ export function SettingsView2(): JSX.Element {
                     />
                   </span>
                 </button>
+              </div>
+            </div>
+
+            {/* Appearance — System / Dark / Light. Default System follows the OS. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>Appearance</div>
+                <div style={S.rowDesc}>
+                  The app theme. System follows your OS light/dark setting; Dark and Light pin it.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'inline-flex', borderRadius: 'var(--r-button)', border: '1px solid var(--bd-field)', background: 'var(--bg-input)', overflow: 'hidden' }}>
+                {(['system', 'dark', 'light'] as ThemePref[]).map((opt) => {
+                  const on = theme === opt
+                  const lbl = opt === 'system' ? 'System' : opt === 'dark' ? 'Dark' : 'Light'
+                  return (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setTheme(opt)}
+                      style={{
+                        padding: '6px 14px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: 'var(--fs-desc)',
+                        fontWeight: on ? 700 : 500,
+                        background: on ? 'var(--accent)' : 'transparent',
+                        color: on ? 'var(--tx-onaccent)' : 'var(--tx-3)'
+                      }}
+                    >
+                      {lbl}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           </Section>

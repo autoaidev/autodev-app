@@ -5,6 +5,7 @@ import { IconButton } from './IconButton'
 import { CliBanner } from './CliBanner'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
+import { useTheme, type ThemePref } from '@renderer/services/theme'
 import { useAppActions } from '@renderer/services/appActions'
 
 /**
@@ -99,16 +100,16 @@ export function NavItem({
       style={{
         padding: '6px 12px',
         borderRadius: 'var(--r-button)',
-        // Active tab reads unmistakably: an accent-tinted fill PLUS a 2px accent
-        // underline (inset box-shadow, so it adds no layout box and never shifts the
-        // inactive items). The faint --bg-selected alone was too close to hover.
-        background: active ? 'var(--accent-tint)' : 'transparent',
+        // Active tab is the BOLDEST thing in the bar: a SOLID accent fill (not a
+        // faint tint) with onaccent ink + a soft accent glow, so the current view
+        // is unmistakable at a glance. Inactive items stay transparent/ghost.
+        background: active ? 'var(--accent)' : 'transparent',
         border: 'none',
-        boxShadow: active ? 'inset 0 -2px 0 0 var(--accent)' : 'none',
-        color: active ? 'var(--tx-hi)' : 'var(--tx-3)',
+        boxShadow: active ? '0 1px 4px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .18)' : 'none',
+        color: active ? 'var(--tx-onaccent)' : 'var(--tx-3)',
         fontFamily: 'var(--font-sans)',
         fontSize: 'var(--fs-body)',
-        fontWeight: active ? 600 : 400,
+        fontWeight: active ? 700 : 400,
         cursor: 'pointer',
         ...style
       }}
@@ -242,6 +243,50 @@ export function AdvancedToggle(): React.JSX.Element {
   )
 }
 
+/**
+ * ThemeToggle — a compact quick control in the nav's right cluster that cycles the
+ * app theme System → Light → Dark → System. Reads/writes the shared useTheme
+ * context, so it stays in sync with the Settings → General → Appearance control.
+ * Each mode shows a glyph (◐ system · ☀ light · ☾ dark) so the current choice is
+ * legible at a glance; the active-view accent is never spent here.
+ */
+const THEME_ORDER: ThemePref[] = ['system', 'light', 'dark']
+const THEME_META: Record<ThemePref, { glyph: string; label: string }> = {
+  system: { glyph: '◐', label: 'System' },
+  light: { glyph: '☀', label: 'Light' },
+  dark: { glyph: '☾', label: 'Dark' }
+}
+export function ThemeToggle(): React.JSX.Element {
+  const { theme, setTheme } = useTheme()
+  const meta = THEME_META[theme]
+  const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length]
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(next)}
+      aria-label={`Theme: ${meta.label}. Switch to ${THEME_META[next].label}`}
+      title={`Theme: ${meta.label} — click for ${THEME_META[next].label}`}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '5px 9px',
+        borderRadius: 'var(--r-button)',
+        background: 'var(--bg-input)',
+        border: '1px solid var(--bd-field)',
+        cursor: 'pointer'
+      }}
+    >
+      <span aria-hidden style={{ fontSize: 13, lineHeight: 1, color: 'var(--tx-2)' }}>
+        {meta.glyph}
+      </span>
+      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-desc)', fontWeight: 500, color: 'var(--tx-3)' }}>
+        {meta.label}
+      </span>
+    </button>
+  )
+}
+
 /** A connection status pill (green dot + mono host), used by the Office screen. */
 export function ConnectionPill({
   label,
@@ -324,9 +369,11 @@ export function AppShell({
   style,
   children
 }: AppShellProps): React.JSX.Element {
+  // The top bar carries an identity: a subtle brand gradient + a bold 2px accent
+  // bottom border (the one saturated line that anchors the chrome).
   const barBase: React.CSSProperties = {
-    background: 'var(--bg-topbar)',
-    borderBottom: '1px solid var(--bd-nav)'
+    background: 'var(--grad-topbar)',
+    borderBottom: '2px solid var(--accent)'
   }
 
   // The AutoDev-CLI-missing banner is painted here — in its OWN full-width row
@@ -395,6 +442,9 @@ export function AppShell({
           )}
           {connectionLabel && <ConnectionPill label={connectionLabel} />}
           {right}
+          {/* App-wide theme quick control — cycles System/Light/Dark (mirrors
+              Settings → General → Appearance). */}
+          <ThemeToggle />
           {/* App-wide Advanced quick toggle — one click reveals/hides expert controls
               across every surface (mirrors Settings → General). */}
           <AdvancedToggle />

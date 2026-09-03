@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell, ErrorBoundary, CommandPalette, type Command } from '@renderer/ui'
 import { CliStatusProvider } from '@renderer/services/cliStatus'
 import { AdvancedModeProvider } from '@renderer/services/advancedMode'
+import { ThemeProvider } from '@renderer/services/theme'
 import { AgentsView } from '@renderer/views/AgentsView'
 import { FleetView } from '@renderer/views/FleetView'
 import { OfficeView } from '@renderer/views/OfficeView'
@@ -167,6 +168,7 @@ export default function App(): JSX.Element {
   )
 
   return (
+    <ThemeProvider>
     <CliStatusProvider>
     <AdvancedModeProvider>
     <AppActionsProvider
@@ -246,6 +248,7 @@ export default function App(): JSX.Element {
     </AppActionsProvider>
     </AdvancedModeProvider>
     </CliStatusProvider>
+    </ThemeProvider>
   )
 }
 

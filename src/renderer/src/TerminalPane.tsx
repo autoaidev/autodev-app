@@ -25,11 +25,20 @@ export default function TerminalPane({
     const stale = pendingKills.get(id)
     if (stale) { clearTimeout(stale); pendingKills.delete(id) }
 
+    // xterm's theme takes concrete color strings (CSS vars don't resolve inside the
+    // canvas renderer), so resolve the design tokens from the live root at mount —
+    // the terminal then paints in whichever theme (dark/light) is active.
+    const css = getComputedStyle(document.documentElement)
+    const tok = (name: string, fallback: string): string =>
+      css.getPropertyValue(name).trim() || fallback
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#0d1117', foreground: '#e6edf3' },
+      theme: {
+        background: tok('--surface-stage', '#050608'),
+        foreground: tok('--tx-1', '#d5dae1')
+      },
       scrollback: 5000
     })
     const fit = new FitAddon()

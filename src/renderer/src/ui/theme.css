@@ -1,14 +1,21 @@
 /*
- * AutoDev redesign v2 — design tokens (committed DARK theme).
- * Every value is recovered verbatim from docs/redesign/DESIGN-SPEC.md /
- * mockup-v2.html. Primitives in this folder consume ONLY these vars — no
- * hardcoded hex. There is intentionally no light theme yet; the mockup is dark.
+ * AutoDev design tokens — the SINGLE authoritative token surface for the app.
+ *
+ * Stage-1 design-system pass: this file is now the one source of truth for every
+ * color, surface, border, shadow and size the UI renders off. The old competing
+ * "cool trio" that lived in styles.css (--bg/--bg2/--bg3/--border) is RETIRED —
+ * those names are still defined (bottom of :root) but now point at the ladder
+ * rungs here, so legacy consumers inherit the same palette instead of a second,
+ * conflicting one. There are NO hardcoded hex colors anywhere outside this file.
+ *
+ * Because every value is a token, the app is theme-aware: the :root[data-theme=light]
+ * block at the bottom overrides the whole surface for a tasteful light palette. The
+ * default (no data-theme, or data-theme=dark) is the dark theme defined in :root.
  */
 /*
  * Inter — the app UI face, self-hosted (CSP: default-src 'self' → the bundled
  * woff2 is same-origin). Variable weight axis (100–900) so one file covers every
- * weight token. Replaces the old 'Helvetica Neue' stack that silently fell to
- * Arial on the Electron/Linux target.
+ * weight token.
  */
 @font-face {
   font-family: 'Inter';
@@ -32,84 +39,67 @@
 
 :root {
   /* =========================================================================
-   * DE-MONOTONY FOUNDATION (v3) — surfaces·depth, provider+state color, an
-   * identity palette, display type, and gradients. Added to break the unanimous
-   * 5-lens "too monotonous / one flat sheet / 29 identical grey rows" verdict.
-   * Color here is deployed with MEANING (identity, provider, state) — never
-   * decoration. The legacy --bg-* / --st-* names further down are PRESERVED and
-   * a couple are remapped onto this ladder, so existing consumers inherit the
-   * depth with no component churn (this phase ships tokens only).
+   * DARK THEME (default) — BOLD de-flatten.
+   * A true-black canvas with a WIDE surface ramp (≥10 L* between planes) so the
+   * stage, the rails and the cards read as three distinct, layered planes — not
+   * one flat sheet. Color is deployed with MEANING (identity, provider, state),
+   * never decoration.
    * ========================================================================= */
 
-  /* ----- SURFACE LADDER: 5 rungs, cool STAGE <-> warm-neutral CHROME hue split.
-   * Each rung is a real perceptual step (CIE L*): stage 2.5 · stage-2 5.3 ·
-   * chrome 11.6 · card 17.9 · float 23.4. The 3 primary planes are far apart
-   * (stage->chrome dL* 9.1, chrome->card 6.3) so panes read as layered planes,
-   * not one flat sheet. STAGE is cool near-black; CHROME/CARD are warm-neutral. */
-  --surface-stage: #08090c;    /* rung 1 — cool near-black; the recessed CENTER stage */
-  --surface-stage-2: #0f1216;  /* rung 2 — recessed insets / wells inside the stage (cool zebra) */
-  --surface-chrome: #211e1c;   /* rung 3 — warm CHROME (R≥G>B): left rail, pane caps, toolbars */
-  --surface-card: #2b2723;     /* rung 4 — warm lifted CARDS sitting on the stage */
-  --surface-float: #35302b;    /* rung 5 — warm floating: menus, popovers, tooltips (lighter than card) */
+  /* ----- SURFACE LADDER — 4 primary planes on a true-black stage, far apart in
+   * lightness so panes read as stacked planes. stage (canvas) → chrome (rails/
+   * toolbars) → card (lifted cards) → float (menus/modals). stage-2 is the
+   * recessed zebra/well rung between stage and chrome. */
+  --surface-stage: #050608;    /* canvas — the recessed near-black stage */
+  --surface-stage-2: #0d1016;  /* recessed wells / zebra odd rows */
+  --surface-chrome: #14171e;   /* rails, pane caps, toolbars, top bar */
+  --surface-card: #20252f;     /* lifted cards sitting on the stage */
+  --surface-float: #2b313d;    /* floating: menus, popovers, modals (lightest) */
 
-  /* ----- DEPTH: 1px inset top-highlight + readable drop shadow (composites).
-   * The app previously had ZERO of these — every plane was flat. Apply --hl-top*
-   * as an inset top edge; --depth-* bundle highlight + shadow for one box-shadow. */
-  --hl-top: inset 0 1px 0 rgba(255, 255, 255, .05);        /* faint top-lit edge (chrome) */
-  --hl-top-strong: inset 0 1px 0 rgba(255, 255, 255, .08); /* card top-highlight */
-  --depth-chrome: inset 0 1px 0 rgba(255, 255, 255, .04);
-  --depth-card: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .28);
-  --depth-float: inset 0 1px 0 rgba(255, 255, 255, .07), 0 18px 44px rgba(0, 0, 0, .6);
+  /* ----- DEPTH — a 1px top-highlight + a real drop shadow so elevated surfaces
+   * cast an unmistakable shadow. --depth-card is the reference card elevation. */
+  --hl-top: inset 0 1px 0 rgba(255, 255, 255, .05);
+  --hl-top-strong: inset 0 1px 0 rgba(255, 255, 255, .08);
+  --depth-chrome: inset 0 1px 0 rgba(255, 255, 255, .05);
+  --depth-card: inset 0 1px 0 rgba(255, 255, 255, .08), 0 2px 6px rgba(0, 0, 0, .55), 0 10px 28px rgba(0, 0, 0, .45);
+  --depth-float: inset 0 1px 0 rgba(255, 255, 255, .09), 0 24px 60px rgba(0, 0, 0, .66);
 
-  /* ----- GRADIENTS (also net-new): stage vignette + top-lit surfaces. ----- */
-  --grad-stage: radial-gradient(140% 100% at 50% -8%, #0d0f15 0%, var(--surface-stage) 58%); /* subtle top-center vignette */
-  --grad-chrome: linear-gradient(180deg, #1d222b 0%, var(--surface-chrome) 100%);
-  --grad-card: linear-gradient(180deg, #2b313d 0%, var(--surface-card) 100%);
+  /* ----- GRADIENTS — stage vignette + top-lit surfaces + the brand top bar. ----- */
+  --grad-stage: radial-gradient(140% 100% at 50% -8%, #0a0d14 0%, var(--surface-stage) 58%);
+  --grad-chrome: linear-gradient(180deg, #1a1e27 0%, var(--surface-chrome) 100%);
+  --grad-card: linear-gradient(180deg, #262c38 0%, var(--surface-card) 100%);
+  /* The top bar's brand identity — a subtle indigo→chrome gradient (see AppShell). */
+  --grad-topbar: linear-gradient(180deg, #1b2233 0%, var(--surface-chrome) 100%);
 
-  /* ----- CTA: the ONE accent-filled gradient button per view. accent->accent-2,
-   * top-lit inset highlight + soft shadow. Dark ink (--tx-onaccent) stays >=5.3:1
-   * over the whole gradient. Saturated blue is reserved for THIS + the LIVE dot. */
-  --accent-2: #6f7bff;          /* indigo companion to --accent for the CTA gradient */
+  /* ----- CTA: the ONE accent-filled gradient button per view. ----- */
+  --accent-2: #6f7bff;
   --grad-cta: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
   --grad-cta-hover: linear-gradient(180deg, #5aa8ff 0%, #7d88ff 100%);
   --depth-cta: inset 0 1px 0 rgba(255, 255, 255, .22), 0 2px 8px rgba(60, 90, 200, .38);
-  --accent-warm: #e8a05a;       /* warm secondary accent (brand mark 2nd color) so blue isn't the only color */
+  --accent-warm: #e8a05a;       /* warm secondary accent so blue isn't the only color */
 
-  /* ----- PER-PROVIDER ACCENTS — hue answers "which tool". -fg = the brand hue
-   * (spine / avatar-ring / dot — graphical, >=3:1); -ink = lightened label text
-   * (AA >=6.5:1 on the matching -tint chip); -tint = chip / wash bg; -ring =
-   * tinted avatar-ring stroke. claude coral · grok violet · opencode teal ·
-   * copilot magenta. ----- */
+  /* ----- PER-PROVIDER ACCENTS — hue answers "which tool". claude coral · grok
+   * violet · opencode teal · copilot magenta. ----- */
   --prov-claude: #d97757;   --prov-claude-ink: #f0a488;   --prov-claude-tint: rgba(217, 119, 87, .16);   --prov-claude-ring: rgba(217, 119, 87, .5);
   --prov-grok: #a78bfa;     --prov-grok-ink: #c9b8ff;     --prov-grok-tint: rgba(167, 139, 250, .16);    --prov-grok-ring: rgba(167, 139, 250, .5);
   --prov-opencode: #2fc0b5; --prov-opencode-ink: #6bdccf; --prov-opencode-tint: rgba(47, 192, 181, .16); --prov-opencode-ring: rgba(47, 192, 181, .5);
   --prov-copilot: #e26aa8;  --prov-copilot-ink: #f2a3cb;  --prov-copilot-tint: rgba(226, 106, 168, .16);  --prov-copilot-ring: rgba(226, 106, 168, .5);
 
-  /* ----- SEMANTIC STATE — decoupled from identity; the provider/avatar hue is
-   * kept even when stopped so no screen is ever 100% grey. needs-you is the ONE
-   * state allowed to shout (loud amber wash + glowing dot). running/done share
-   * the green; active (in-progress viz) is the reserved blue; idle recedes via
-   * elevation, not a grey spine. (Base --st-running/-needsyou/-idle exist below.) */
-  --st-done: #46b17b;                          /* completed bars (green) */
-  --st-active: var(--accent);                  /* in-progress data-viz bars (blue) */
-  --st-running-spine: var(--st-running);       /* 3px row spine — running */
-  --st-needsyou-ink: #e9c078;                  /* loud amber TEXT (AA ~8:1 on chrome/card) */
-  --st-needsyou-loud: rgba(216, 165, 74, .18); /* the shout wash (louder than the .05 state washes) */
-  --st-needsyou-glow: 0 0 0 3px rgba(216, 165, 74, .22), 0 0 8px rgba(216, 165, 74, .45); /* glowing needs-you dot */
-  --st-idle-spine: var(--st-idle);             /* idle spine (recedes; hue carried by avatar, not here) */
-  --spine-w: 3px;                              /* colored row-spine width (provider / state) */
+  /* ----- SEMANTIC STATE — decoupled from identity. needs-you is the ONE state
+   * allowed to shout. running/done share green; active is the reserved blue. ----- */
+  --st-done: #46b17b;                          /* completed (green) */
+  --st-active: var(--accent);                  /* in-progress viz (blue) */
+  --st-running-spine: var(--st-running);
+  --st-needsyou-ink: #e9c078;
+  --st-needsyou-loud: rgba(216, 165, 74, .18);
+  --st-needsyou-glow: 0 0 0 3px rgba(216, 165, 74, .22), 0 0 8px rgba(216, 165, 74, .45);
+  --st-idle-spine: var(--st-idle);
+  --st-auth: #d2a8ff;                          /* needs-authentication accent (violet) */
+  --spine-w: 4px;                              /* colored row-spine width (provider / state) */
 
-  /* ----- IDENTITY avatar palette — deterministic per-agent hue tiles, the
-   * highest-impact fix (29 grey rows -> recognizable colored objects). This
-   * EXTENDS (does not replace) the role tokens CharacterCard already uses:
-   * --id-1 == the existing blue (--role-blue-av-bg / --accent-ink), --id-2 ==
-   * the existing violet (--role-violet-av-bg). The next phase hashes agent.id
-   * -> 1..8 and indexes here (see officeTypes.initials()). Every pair is AA
-   * (fg-on-bg >=5.0:1). ----- */
-  /* bg rungs lifted ~+8–12 L* (and chroma) over v3 so a 22px tile reads as a
-   * saturated colored object at rest instead of a near-black square; fg kept AA. */
-  --id-1-bg: #3a597f; --id-1-fg: #bcd9f8;   /* blue    (existing role) */
-  --id-2-bg: #473f63; --id-2-fg: #d4c7ff;   /* violet  (existing role) */
+  /* ----- IDENTITY avatar palette — deterministic per-agent hue tiles. ----- */
+  --id-1-bg: #3a597f; --id-1-fg: #bcd9f8;   /* blue    */
+  --id-2-bg: #473f63; --id-2-fg: #d4c7ff;   /* violet  */
   --id-3-bg: #1a544e; --id-3-fg: #97ecdf;   /* teal    */
   --id-4-bg: #5d3830; --id-4-fg: #f6c2af;   /* coral   */
   --id-5-bg: #564724; --id-5-fg: #f4d9a6;   /* amber   */
@@ -117,71 +107,77 @@
   --id-7-bg: #26533a; --id-7-fg: #a6e6bf;   /* green   */
   --id-8-bg: #383d68; --id-8-fg: #c4ccff;   /* indigo  */
 
-  /* ----- palette: backgrounds (layered, darkest app shell -> elevated) ----- */
-  --bg-app: #0b0d11;          /* chrome-less card backdrop (2f/2g) */
-  --bg-0: var(--surface-stage);  /* CANVAS — remapped onto the recessed cool STAGE rung (was #0f1216) */
-  --bg-1: #16130f;           /* legacy inspector / secondary panel (warmed) */
-  --bg-2: #191510;           /* faint dashed placeholder card (warmed) */
-  --bg-topbar: #181410;      /* title bar + nav bar + bottom status bar (warm chrome) */
-  --bg-sidebar: var(--surface-chrome);  /* RAILS/panels — remapped onto the warm CHROME rung (was #16191f) */
-  --bg-panel: var(--surface-card);      /* CARDS — remapped onto the warm CARD rung so panels lift off chrome (was #16191f) */
-  --bg-panel-alt: #1c1815;   /* provider badge chip / inline error panel bg (warmed) */
+  /* ----- DATA swatches — character / role identity color pickers. These are
+   * data (a purple role stays purple in both themes), referenced by the office
+   * character picker + the Make-app role list so no component carries raw hex. */
+  --pick-1: #00d4ff; --pick-2: #7c5cff; --pick-3: #ff8a5c; --pick-4: #31c48d;
+  --pick-5: #f6c445; --pick-6: #ff6b9d; --pick-7: #4dabf7; --pick-8: #b197fc;
+  --role-1: #6366f1; --role-2: #0ea5e9; --role-3: #22c55e; --role-4: #f59e0b;
+  --role-5: #ef4444; --role-6: #ec4899; --role-7: #14b8a6; --role-8: #8b5cf6;
+  --swatch-fallback: #556074; /* neutral fallback when a role/character has no color */
 
-  /* ----- three-pane elevation model (Agent-detail 2a): chrome vs stage -----
-   * The center detail is the recessed STAGE (darkest); the left rail + right
-   * inspector are lifted CHROME on a clearly-separated rung, each capped by a
-   * titled header band and divided from the stage by a strong --bd-seam. This
-   * is what makes the three columns read as distinct regions (was: 3 near-equal
-   * darks split by an invisible hairline). */
-  --bg-detail: var(--surface-stage);  /* CENTER stage — remapped onto the cool near-black ladder rung (was #0e1116) */
-  --bg-rail: var(--surface-chrome);   /* LEFT agent rail — remapped onto the warm CHROME rung (was #191d24) */
-  --bg-inspector: #1c1916;   /* RIGHT inspector — warm lifted chrome (a hair below the rail) */
-  --bg-pane-cap: #26221d;    /* rail / inspector titled header band (warm, lifted above its pane) */
-  --bg-detail-cap: #191512;  /* center titled header band (warm, lifted above the dark stage) */
-  --bg-group-header: #241f18;/* office-folder group header band in the rail (warm) */
+  /* ----- palette: backgrounds — every semantic surface derives from a rung, so
+   * the light theme flips the whole app by overriding the rungs alone. ----- */
+  --bg-app: var(--surface-stage);
+  --bg-0: var(--surface-stage);          /* CANVAS */
+  --bg-1: var(--surface-chrome);         /* secondary panel */
+  --bg-2: var(--surface-chrome);         /* placeholder card */
+  --bg-topbar: var(--surface-chrome);    /* title bar + nav bar + status bar */
+  --bg-sidebar: var(--surface-chrome);   /* RAILS/panels */
+  --bg-panel: var(--surface-card);       /* CARDS */
+  --bg-panel-alt: var(--surface-stage-2);/* badge chip / inline error panel */
+  --bg-detail: var(--surface-stage);     /* CENTER stage */
+  --bg-rail: var(--surface-chrome);      /* LEFT agent rail */
+  --bg-inspector: var(--surface-chrome); /* RIGHT inspector */
+  --bg-pane-cap: var(--surface-card);    /* rail / inspector titled header band */
+  --bg-detail-cap: var(--surface-chrome);/* center titled header band */
+  --bg-section-band: #171c26;            /* filled section-header band (SETUP / group headers) */
+  --bg-group-header: var(--bg-section-band); /* office-folder group header band */
   --bg-group-guide: transparent;
-  --bg-elev: #221e19;        /* floating context menu (warm, near float rung) */
-  --bg-input: #201c19;       /* inputs, secondary buttons, chips — warm, recessed BELOW the card rung */
-  --bg-todo-active: #201c18; /* active todo row (warm) */
-  --bg-selected: #1e2530;    /* selected nav item / agent row (kept cool-blue so selection reads as accent) */
-  --bg-sel-header: #1a2530;  /* bulk-select toolbar band */
-  --bg-accent-soft: #22303f; /* accent pill / segmented-active bg */
-  --bg-chip-idle: #26221d;   /* avatar tile / idle chip (warm) */
+  --bg-elev: var(--surface-float);       /* floating context menu */
+  --bg-input: var(--surface-stage-2);    /* inputs, secondary buttons, chips (recessed) */
+  --bg-todo-active: var(--surface-stage-2);
+  --bg-hover: rgba(255, 255, 255, .045); /* neutral row / item hover */
+  --bg-selected: rgba(74, 158, 255, .18);/* accent-tinted selection fill (unmistakable) */
+  --bg-sel-header: rgba(74, 158, 255, .14);
+  --bg-accent-soft: rgba(74, 158, 255, .14);
+  --bg-chip-idle: var(--surface-card);
 
-  /* ----- palette: borders ----- */
-  --bd-seam: #2f353e;        /* STRUCTURAL pane seams (rail↔stage↔inspector) — visible */
-  --bd-strong: #2f353e;      /* menu / avatar-tile / idle track */
-  --bd-1: #2a2f38;           /* default control / card border */
-  --bd-field: #6c737e;       /* interactive input / checkbox / primary-outline border (>=3:1) */
-  --bd-nav: #22262e;         /* topbar + nav dividers, chrome-less card */
-  --bd-card: #262b33;        /* card / task-card / composer border */
-  --bd-2: #1c2027;           /* subtle interior divider */
-  --bd-row: #171b21;         /* table row divider */
+  /* ----- palette: borders — card rims are LIGHTER than the fill so a card reads
+   * as a raised object with a lit top edge. ----- */
+  --bd-seam: #2b313c;        /* structural pane seams (rail↔stage↔inspector) */
+  --bd-strong: #363d4a;      /* menu / avatar-tile / float border */
+  --bd-1: #2a303b;           /* default control / card border */
+  --bd-field: #545c6a;       /* interactive input / checkbox border (≥3:1) */
+  --bd-nav: #232935;         /* topbar + nav dividers */
+  --bd-card: #363d4a;        /* card rim (LIGHTER than the #20252f card fill) */
+  --bd-2: #1e232c;           /* subtle interior divider */
+  --bd-row: #1b2029;         /* table row divider */
   --bd-accent: #2f4a6d;      /* accent pill border */
-  --bd-panel-sel: #2a3646;   /* selected panel border */
-  --bd-idle-box: #6c737e;    /* empty checkbox border (raised to >=3:1) */
+  --bd-panel-sel: #3a4a63;   /* selected panel border */
+  --bd-idle-box: #545c6a;    /* empty checkbox border */
   --bd-icon-btn: #2f3f4f;    /* toolbar icon button border */
   --bd-track: #3a4657;       /* inline ··· button border / mini-bar */
 
-  /* ----- palette: text tiers (high contrast -> ghost) ----- */
-  --tx-hi: #eef1f5;          /* brightened primary — headings / selected names */
+  /* ----- palette: text tiers (high contrast → ghost) ----- */
+  --tx-hi: #eef1f5;          /* primary — headings / selected names */
   --tx-1: #d5dae1;           /* body */
   --tx-2: #c3c9d2;
   --tx-3: #9aa1ab;
-  --tx-4: #9ba2ac;           /* de-flatten pass: +1 tier (~5.6:1) for informational meta text */
-  --tx-5: #99a0aa;           /* +1 tier (~5.7:1) */
-  --tx-dim: #9098a2;         /* ~5.3:1 — the main secondary-text tier */
-  --tx-faint: #9198a2;       /* +1 tier (~5.4:1) — collapsed meta tier now legible */
-  --tx-ghost: #8b929c;       /* +2 tiers (~4.8:1) — kbd/hint text now readable, not decorative-only */
-  --tx-gutter: #838a95;      /* +1 tier (~4.4:1) — log timestamp gutter / code line numbers legible */
+  --tx-4: #9ba2ac;
+  --tx-5: #99a0aa;
+  --tx-dim: #9098a2;         /* main secondary-text tier */
+  --tx-faint: #9198a2;
+  --tx-ghost: #8b929c;
+  --tx-gutter: #838a95;      /* log timestamp gutter / stopped chip */
   --tx-onaccent: #08111d;    /* ink on accent-filled surfaces */
-  --tx-section: #b3a696;     /* warm-neutral UPPERCASE section labels (SETUP / SESSION / PROVIDERS) */
+  --tx-section: #9aa3b2;     /* cool UPPERCASE section labels */
 
   /* ----- palette: the ONE accent ----- */
   --accent: #4a9eff;
   --accent-ink: #9cc5f5;     /* accent text on soft-accent bg */
   --accent-ink2: #dbe7f7;    /* own chat bubble text */
-  --accent-tint: rgba(74, 158, 255, .12);
+  --accent-tint: rgba(74, 158, 255, .14);
 
   /* ----- palette: status (reserved strictly for state) ----- */
   --st-running: #46b17b;
@@ -191,14 +187,13 @@
   --st-idle: #3d434c;
   --st-track: #2f353e;
   --st-track-bg: #222730;
-  /* status tint washes (<=7%) + soft pill backgrounds */
   --st-running-soft: rgba(70, 177, 123, .12);
   --st-running-bd: rgba(70, 177, 123, .28);
   --st-running-wash: rgba(70, 177, 123, .05);
   --st-needsyou-soft: rgba(216, 165, 74, .12);
   --st-needsyou-bd: rgba(216, 165, 74, .3);
   --st-needsyou-wash: rgba(216, 165, 74, .05);
-  --st-error-soft: rgba(224, 106, 92, .06);
+  --st-error-soft: rgba(224, 106, 92, .1);
   --st-error-bd: rgba(224, 106, 92, .26);
   --st-error-wash: rgba(224, 106, 92, .05);
 
@@ -215,51 +210,63 @@
   --diff-add: #46b17b;
   --diff-del: #e06a5c;
 
+  /* ========================================================================
+   * RETIRED COOL TRIO + legacy aliases — formerly a competing palette in
+   * styles.css. Now defined ONCE, here, pointing at the ladder rungs / semantic
+   * tokens above so every legacy consumer (.sidebar/.topbar/.agent-row/.card/
+   * .modal + inline var(--border)/var(--muted) styles) shares the one palette
+   * and flips with the theme.
+   * ======================================================================== */
+  --bg: var(--surface-stage);
+  --bg2: var(--surface-chrome);
+  --bg3: var(--surface-card);
+  --border: var(--bd-1);
+  --fg: var(--tx-1);
+  --fg2: var(--tx-dim);
+  --muted: var(--tx-dim);
+  --text: var(--tx-1);
+  --green: var(--st-running);
+  --amber: var(--st-needsyou);
+  --red: var(--st-error);
+  --gray: var(--tx-gutter);
+  --accent-dim: var(--accent-tint);
+
   /* ----- typography ----- */
   --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  /* type sizes — collapsed to a clean integer scale (no more half-pixel steps).
-   * The token NAMES are kept so every existing consumer remaps automatically;
-   * only the VALUES changed. Real, visible steps: 20 / 16 / 15 / 14 / 13 / 12 /
-   * 11 / 10, with 13 as the body floor for content and 11 for uppercase labels. */
-  --fs-page-title: 20px;     /* page / welcome titles */
-  --fs-agent-name: 16px;     /* agent name (detail header) */
-  --fs-panel-title: 15px;    /* pane header caps (Agents / Inspector) */
+  --fs-page-title: 20px;
+  --fs-agent-name: 16px;
+  --fs-panel-title: 15px;
   --fs-session-title: 14px;
   --fs-modal-title: 14px;
   --fs-brand: 13px;
-  --fs-office-label: 13px;   /* office-folder group label */
-  --fs-body: 13px;           /* nav + row name + tab + body */
-  --fs-meta: 12px;           /* meta / secondary btn / chat body */
+  --fs-office-label: 13px;
+  --fs-body: 13px;
+  --fs-meta: 12px;
   --fs-mono-code: 12px;
-  --fs-desc: 12px;           /* chips / small btn / descriptions */
-  --fs-section: 11px;        /* UPPERCASE section labels */
-  --fs-tiny: 11px;           /* tiny mono ids / LIVE / kbd */
-  --fs-micro: 10px;          /* group path / avatar initials (decorative) */
+  --fs-desc: 12px;
+  --fs-section: 11px;
+  --fs-tiny: 11px;
+  --fs-micro: 10px;
 
-  /* DISPLAY TYPE TIER — render exactly ONE hero number per view (Fleet
-   * closed-today / agent count, agent header NNNN/NNNN done, rail 29). Mono 700
-   * + tabular figures so digits don't jitter; a real focal point above the
-   * 20px page-title tier. Use --fvn-tabular via font-feature-settings. */
-  --fs-display: 34px;        /* the hero metric */
-  --fs-metric: 26px;         /* secondary big number */
+  /* DISPLAY TYPE TIER — the ONE bold hero number per view. Bumped 34→44 so it
+   * decisively wins the blur test. */
+  --fs-display: 44px;
+  --fs-metric: 28px;
   --lh-display: 1.04;
   --ls-display: -.02em;
   --fw-display: 700;
   --fvn-tabular: 'tnum' 1, 'lnum' 1;
 
-  /* line-heights */
-  --lh-tight: 1.2;           /* headings / single-line labels */
-  --lh-body: 1.5;            /* multi-line body + chat */
+  --lh-tight: 1.2;
+  --lh-body: 1.5;
 
-  /* weights */
   --fw-body: 400;
-  --fw-mono: 500;            /* mono counts + state */
-  --fw-selected: 600;       /* selected labels + names */
-  --fw-bold: 700;           /* headings + brand + primary btn + section labels */
+  --fw-mono: 500;
+  --fw-selected: 600;
+  --fw-bold: 700;
 
-  /* letter-spacing */
   --ls-section: .11em;
   --ls-group: .09em;
   --ls-state: .06em;
@@ -279,13 +286,13 @@
   --r-bar: 2px;
 
   /* ----- spacing / gaps ----- */
-  --gap-tight: 6px;          /* button clusters, chip rows (5-7) */
-  --gap-base: 9px;           /* list rows, header clusters (9-12) */
-  --gap-section: 14px;       /* stat tiles, form sections (14-18) */
+  --gap-tight: 6px;
+  --gap-base: 9px;
+  --gap-section: 14px;
 
-  /* ----- row heights ----- */
-  --h-agent-row: 34px;
-  --h-table-row: 40px;
+  /* ----- row heights — taller so rows breathe. ----- */
+  --h-agent-row: 40px;
+  --h-table-row: 48px;
   --h-menu-item: 26px;
   --h-server-row: 34px;
   --h-setting-row: 46px;
@@ -296,7 +303,7 @@
   --w-office-rail: 282px;
   --w-sessions-list: 352px;
   --w-settings-nav: 208px;
-  --w-inspector: 308px;      /* agent-detail right inspector */
+  --w-inspector: 308px;
   --w-office-room: 300px;
   --w-commandbar: 210px;
   --w-screen-card: 1280px;
@@ -308,8 +315,8 @@
   --h-statusbar: 30px;
 
   /* ----- misc sizing ----- */
-  --sz-icon-btn: 24px;       /* toolbar icon button */
-  --sz-row-btn: 18px;        /* inline row ··· button */
+  --sz-icon-btn: 24px;
+  --sz-row-btn: 18px;
   --sz-checkbox: 14px;
   --sz-status-dot: 6px;
   --sz-avatar: 22px;
@@ -319,17 +326,174 @@
 
   /* ----- elevation ----- */
   --shadow-menu: 0 18px 44px rgba(0, 0, 0, .6);
-  --shadow-modal: 0 24px 60px rgba(0, 0, 0, .6);
-  --shadow-card: 0 6px 24px rgba(0, 0, 0, .14);
-  --scrim: rgba(8, 10, 13, .62);
+  --shadow-modal: 0 30px 80px rgba(0, 0, 0, .75);
+  --shadow-card: 0 6px 24px rgba(0, 0, 0, .2);
+  --scrim: rgba(4, 5, 7, .72);
 }
 
 /*
- * Global keyboard focus ring (accessibility). Applies app-wide to any element
- * focused via the keyboard — :focus-visible, so a mouse click never draws it —
- * giving every token-styled control (buttons/inputs/tabs/rows that reset the
- * native outline via inline styles) a consistent, visible focus indicator. The
- * legacy bare-element focus rules in styles.css stay scoped to .legacy-app.
+ * =============================================================================
+ * LIGHT THEME — a tasteful (not naive-inverted) light palette for the ENTIRE
+ * token surface. Applied when the root carries data-theme=light (see useTheme).
+ * Light surface ladder (soft-grey canvas → white chrome/cards/float differentiated
+ * by borders + soft cool shadows), dark ink, accents re-tuned to stay legible on
+ * white, lighter borders, softer/cooler shadows, and a light zebra.
+ * =============================================================================
+ */
+:root[data-theme='light'] {
+  /* surface ladder */
+  --surface-stage: #f4f5f7;    /* canvas */
+  --surface-stage-2: #eceef2;  /* recessed wells / zebra odd rows */
+  --surface-chrome: #ffffff;   /* rails, toolbars, top bar */
+  --surface-card: #ffffff;     /* cards (differentiated by border + shadow) */
+  --surface-float: #ffffff;    /* menus / modals */
+
+  /* depth — soft, cool, low-opacity ink shadows */
+  --hl-top: inset 0 1px 0 rgba(255, 255, 255, .7);
+  --hl-top-strong: inset 0 1px 0 rgba(255, 255, 255, .9);
+  --depth-chrome: inset 0 1px 0 rgba(255, 255, 255, .6);
+  --depth-card: inset 0 1px 0 rgba(255, 255, 255, .8), 0 1px 2px rgba(16, 24, 40, .06), 0 6px 16px rgba(16, 24, 40, .08);
+  --depth-float: 0 12px 32px rgba(16, 24, 40, .16);
+
+  /* gradients */
+  --grad-stage: linear-gradient(180deg, #f8f9fb 0%, var(--surface-stage) 100%);
+  --grad-chrome: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  --grad-card: linear-gradient(180deg, #ffffff 0%, #ffffff 100%);
+  --grad-topbar: linear-gradient(180deg, #ffffff 0%, #f5f8fd 100%);
+
+  /* CTA — accent gradient stays blue; ink flips to white */
+  --accent-2: #4f46e5;
+  --grad-cta: linear-gradient(180deg, var(--accent) 0%, var(--accent-2) 100%);
+  --grad-cta-hover: linear-gradient(180deg, #1d4ed8 0%, #4338ca 100%);
+  --depth-cta: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 6px rgba(37, 99, 235, .28);
+  --accent-warm: #c2751f;
+
+  /* per-provider — hue kept identifiable, ink darkened for AA on white tints */
+  --prov-claude: #c1502e;   --prov-claude-ink: #a8431f;   --prov-claude-tint: rgba(217, 119, 87, .14);   --prov-claude-ring: rgba(193, 80, 46, .5);
+  --prov-grok: #6d4fe0;     --prov-grok-ink: #5a35d6;     --prov-grok-tint: rgba(124, 92, 255, .14);     --prov-grok-ring: rgba(109, 79, 224, .5);
+  --prov-opencode: #0f9a8f; --prov-opencode-ink: #0b7d74; --prov-opencode-tint: rgba(15, 154, 143, .14); --prov-opencode-ring: rgba(15, 154, 143, .5);
+  --prov-copilot: #c43d84;  --prov-copilot-ink: #a52d6e;  --prov-copilot-tint: rgba(196, 61, 132, .14);  --prov-copilot-ring: rgba(196, 61, 132, .5);
+
+  /* semantic state — deeper, AA on white */
+  --st-done: #1f9d57;
+  --st-active: var(--accent);
+  --st-needsyou-ink: #8a5a00;
+  --st-needsyou-loud: rgba(183, 121, 31, .16);
+  --st-needsyou-glow: 0 0 0 3px rgba(183, 121, 31, .18), 0 0 8px rgba(183, 121, 31, .35);
+  --st-auth: #7c3aed;
+
+  /* identity tiles — light fills, dark ink */
+  --id-1-bg: #dbe8fb; --id-1-fg: #234a78;
+  --id-2-bg: #e6e0fb; --id-2-fg: #4a3a86;
+  --id-3-bg: #d4f0eb; --id-3-fg: #0d5a52;
+  --id-4-bg: #fbe2d8; --id-4-fg: #8a3a24;
+  --id-5-bg: #f7ecd2; --id-5-fg: #7a5a12;
+  --id-6-bg: #fadff0; --id-6-fg: #8a2d63;
+  --id-7-bg: #d8f0e0; --id-7-fg: #1a6b3f;
+  --id-8-bg: #e0e3fb; --id-8-fg: #2f3a86;
+
+  /* backgrounds — section band + selection re-tuned for light */
+  --bg-section-band: #eef1f6;
+  --bg-hover: rgba(16, 24, 40, .04);
+  --bg-selected: rgba(37, 99, 235, .1);
+  --bg-sel-header: rgba(37, 99, 235, .08);
+  --bg-accent-soft: rgba(37, 99, 235, .1);
+  /* the derived --bg-* tokens (topbar/panel/input/…) flip automatically with the
+     rungs above; --bg-detail-cap should read as a faint band, not pure white */
+  --bg-detail-cap: #f7f8fa;
+  --bg-pane-cap: #f7f8fa;
+
+  /* borders — light, visible */
+  --bd-seam: #dfe3e9;
+  --bd-strong: #cbd2db;
+  --bd-1: #dfe3e9;
+  --bd-field: #b4bcc7;
+  --bd-nav: #e5e8ed;
+  --bd-card: #dfe3e9;
+  --bd-2: #eceef2;
+  --bd-row: #eceef2;
+  --bd-accent: #a9cdf5;
+  --bd-panel-sel: #9cc0ee;
+  --bd-idle-box: #b4bcc7;
+  --bd-icon-btn: #cdd6e2;
+  --bd-track: #cbd2db;
+
+  /* text — dark ink tiers */
+  --tx-hi: #0f1419;
+  --tx-1: #1f2530;
+  --tx-2: #2b3240;
+  --tx-3: #55606f;
+  --tx-4: #5b6675;
+  --tx-5: #5f6a79;
+  --tx-dim: #616c7b;
+  --tx-faint: #6a7483;
+  --tx-ghost: #7a8494;
+  --tx-gutter: #8a94a2;
+  --tx-onaccent: #ffffff;      /* ink on accent-filled surfaces (blue → white) */
+  --tx-section: #6a7483;
+
+  /* accent — darker blue for AA on white */
+  --accent: #2563eb;
+  --accent-ink: #1d4ed8;
+  --accent-ink2: #12326e;
+  --accent-tint: rgba(37, 99, 235, .12);
+
+  /* status */
+  --st-running: #1f9d57;
+  --st-needsyou: #b7791f;
+  --st-error: #d64545;
+  --st-error-bright: #a4222a;
+  --st-idle: #b4bcc7;
+  --st-track: #dfe3e9;
+  --st-track-bg: #eceef2;
+  --st-running-soft: rgba(31, 157, 87, .12);
+  --st-running-bd: rgba(31, 157, 87, .3);
+  --st-running-wash: rgba(31, 157, 87, .07);
+  --st-needsyou-soft: rgba(183, 121, 31, .13);
+  --st-needsyou-bd: rgba(183, 121, 31, .34);
+  --st-needsyou-wash: rgba(183, 121, 31, .08);
+  --st-error-soft: rgba(214, 69, 69, .1);
+  --st-error-bd: rgba(214, 69, 69, .3);
+  --st-error-wash: rgba(214, 69, 69, .07);
+
+  /* roles / syntax / diff — legible on light */
+  --role-violet: #6d4fe0;
+  --role-violet-2: #5a35d6;
+  --role-blue-av-bg: #dbe8fb;
+  --role-violet-av-bg: #e6e0fb;
+  --role-peach: #c1502e;
+  --syn-key: #1d4ed8;
+  --syn-str: #0b7d74;
+  --syn-bool: #b7791f;
+  --syn-punct: #7a8494;
+  --diff-add: #1f9d57;
+  --diff-del: #d64545;
+
+  /* retired cool trio — re-point onto the light rungs/tokens */
+  --bg: var(--surface-stage);
+  --bg2: var(--surface-chrome);
+  --bg3: var(--surface-card);
+  --border: var(--bd-1);
+  --fg: var(--tx-1);
+  --fg2: var(--tx-dim);
+  --muted: var(--tx-dim);
+  --text: var(--tx-1);
+  --green: var(--st-running);
+  --amber: var(--st-needsyou);
+  --red: var(--st-error);
+  --gray: var(--tx-gutter);
+  --accent-dim: var(--accent-tint);
+
+  /* elevation — softer, cooler */
+  --shadow-menu: 0 12px 32px rgba(16, 24, 40, .16);
+  --shadow-modal: 0 24px 60px rgba(16, 24, 40, .24);
+  --shadow-card: 0 2px 8px rgba(16, 24, 40, .08);
+  --scrim: rgba(16, 24, 40, .35);
+}
+
+/*
+ * Global keyboard focus ring (accessibility). :focus-visible only, so a mouse
+ * click never draws it. Applies app-wide over token-styled controls.
  */
 :focus-visible {
   outline: 2px solid var(--accent);

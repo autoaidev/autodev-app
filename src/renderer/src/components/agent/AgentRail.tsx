@@ -272,16 +272,14 @@ function GroupHeader({
         // second actions line below it — so Run all / Spawn never overlap the name.
         flexDirection: 'column',
         gap: 5,
-        padding: '7px 9px',
-        // Warm cap: a subtle warm top-lit gradient + a warm top-highlight edge so
-        // the office-folder band reads as a distinct, slightly-lifted chrome header
-        // (and introduces the secondary warm accent — not everything is blue).
-        background: hover
-          ? 'var(--bg-selected)'
-          : 'linear-gradient(180deg, rgba(232,160,90,.06) 0%, var(--bg-group-header) 100%)',
+        padding: '7px 9px 7px 11px',
+        // Section BAND: a filled group-header band with an inset accent tick on the
+        // left (the warm office-identity accent) + a 1px top-highlight, so each
+        // office folder reads as a distinct, slightly-lifted section header.
+        background: hover ? 'var(--bg-hover)' : 'var(--bg-group-header)',
         border: '1px solid var(--bd-2)',
         borderRadius: 'var(--r-chip)',
-        boxShadow: 'inset 0 1px 0 rgba(232,160,90,.10)',
+        boxShadow: 'inset 3px 0 0 var(--accent-warm), inset 0 1px 0 rgba(255, 255, 255, .05)',
         cursor: 'pointer',
         transition: 'background .12s ease'
       }}

@@ -23,15 +23,18 @@ type SpawnTone = 'ok' | 'partial' | 'error'
  * generation is an office-backed AI call, so with no office we build a local
  * default roster instead (documented behavior — see the checkbox comment below).
  */
+// Role identity colors are DATA (a role's hue is the same in both themes) but are
+// referenced as tokens (--role-1..8, defined in ui/theme.css) so no component
+// carries a raw hex literal.
 const DEFAULT_ROLES: Array<{ role: string; emoji: string; color: string }> = [
-  { role: 'Product Lead', emoji: '🧭', color: '#6366f1' },
-  { role: 'Frontend Engineer', emoji: '🎨', color: '#0ea5e9' },
-  { role: 'Backend Engineer', emoji: '⚙️', color: '#22c55e' },
-  { role: 'QA Engineer', emoji: '🧪', color: '#f59e0b' },
-  { role: 'DevOps Engineer', emoji: '🚀', color: '#ef4444' },
-  { role: 'Designer', emoji: '✏️', color: '#ec4899' },
-  { role: 'Docs Writer', emoji: '📝', color: '#14b8a6' },
-  { role: 'Data Engineer', emoji: '🗄️', color: '#8b5cf6' }
+  { role: 'Product Lead', emoji: '🧭', color: 'var(--role-1)' },
+  { role: 'Frontend Engineer', emoji: '🎨', color: 'var(--role-2)' },
+  { role: 'Backend Engineer', emoji: '⚙️', color: 'var(--role-3)' },
+  { role: 'QA Engineer', emoji: '🧪', color: 'var(--role-4)' },
+  { role: 'DevOps Engineer', emoji: '🚀', color: 'var(--role-5)' },
+  { role: 'Designer', emoji: '✏️', color: 'var(--role-6)' },
+  { role: 'Docs Writer', emoji: '📝', color: 'var(--role-7)' },
+  { role: 'Data Engineer', emoji: '🗄️', color: 'var(--role-8)' }
 ]
 function defaultRoster(count: number, provider: string, defaults: Record<string, string> = {}): AgentEdit[] {
   return Array.from({ length: Math.max(1, count) }, (_, i) => {
@@ -598,7 +601,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {edits.map((a, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>
-                  <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: (a.color || '#2a3350') + '22', border: `1px solid ${a.color || '#2a3350'}` }}>{a.emoji || '🧑'}</span>
+                  <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: `color-mix(in srgb, ${a.color || 'var(--swatch-fallback)'} 13%, transparent)`, border: `1px solid ${a.color || 'var(--swatch-fallback)'}` }}>{a.emoji || '🧑'}</span>
                   <input className="makeapp-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
                     style={{ ...inp, margin: 0, flex: '1 1 140px', minWidth: 100 }} disabled={spawning} />
                   <select className="makeapp-input" value={a.provider}

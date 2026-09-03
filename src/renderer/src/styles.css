@@ -1,25 +1,7 @@
-:root {
-  --bg: #0d1117;
-  --bg2: #161b22;
-  --bg3: #1c2230;
-  --border: #2d333b;
-  --fg: #e6edf3;
-  --fg2: #9da7b3;
-  /* --accent is intentionally NOT defined here: ui/theme.css owns the shared
-     --accent token. Redefining it on :root (styles.css loads after theme.css)
-     clobbered the redesign accent app-wide at equal specificity. Legacy rules
-     below resolve var(--accent) from theme.css instead. */
-  --green: #3fb950;
-  --amber: #d29922;
-  --red: #f85149;
-  --gray: #6e7681;
-  /* Aliases the Office / Make-app / Sessions views were written against with
-     hardcoded fallbacks — defining them here makes those views share one palette
-     instead of always hitting the fallback and looking like a different app. */
-  --muted: #9da7b3;
-  --text: #e6edf3;
-  --accent-dim: #1f6feb33;
-}
+/* Design tokens (the cool trio + --fg/--muted/--green/… aliases) used to live
+   here as a SECOND, competing palette. They are now defined ONCE in ui/theme.css
+   (the single token source) — pointing at the surface ladder there — and flip
+   with the light theme. The legacy rules below resolve them from theme.css. */
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
@@ -72,8 +54,8 @@ body {
 .dot.stopped { background: var(--gray); }
 /* Attention states — truthful health beyond working/idle/stopped. */
 .dot.stalled { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: blink 1s steps(2,start) infinite; }
-.dot.needs-auth { background: #d2a8ff; box-shadow: 0 0 6px #d2a8ff; }
-.dot.rate-limited { background: #58a6ff; }
+.dot.needs-auth { background: var(--st-auth); box-shadow: 0 0 6px var(--st-auth); }
+.dot.rate-limited { background: var(--accent); }
 .dot.crashed { background: var(--red); box-shadow: 0 0 6px var(--red); }
 @keyframes blink { 50% { opacity: 0.3; } }
 
@@ -83,16 +65,16 @@ body {
 .status-pill.idle { color: var(--amber); border-color: var(--amber); }
 .status-pill.stopped { color: var(--gray); }
 .status-pill.stalled { color: var(--amber); border-color: var(--amber); }
-.status-pill.needs-auth { color: #d2a8ff; border-color: #d2a8ff; }
-.status-pill.rate-limited { color: #58a6ff; border-color: #58a6ff; }
+.status-pill.needs-auth { color: var(--st-auth); border-color: var(--st-auth); }
+.status-pill.rate-limited { color: var(--accent); border-color: var(--accent); }
 .status-pill.crashed { color: var(--red); border-color: var(--red); }
-.status-pill.external { color: #58a6ff; border-color: #58a6ff; margin-left: 6px; opacity: 0.85; }
+.status-pill.external { color: var(--accent); border-color: var(--accent); margin-left: 6px; opacity: 0.85; }
 
 /* Attention banner below the head for problem states. */
 .attention-banner { display: flex; align-items: center; gap: 10px; margin: 0 16px 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg2); }
 .attention-banner.crashed { border-color: var(--red); background: rgba(248,81,73,0.08); }
-.attention-banner.needs-auth { border-color: #d2a8ff; background: rgba(210,168,255,0.08); }
-.attention-banner.rate-limited { border-color: #58a6ff; background: rgba(88,166,255,0.08); }
+.attention-banner.needs-auth { border-color: var(--st-auth); background: var(--accent-tint); }
+.attention-banner.rate-limited { border-color: var(--accent); background: var(--accent-tint); }
 .attention-banner.stalled { border-color: var(--amber); background: rgba(210,153,34,0.08); }
 .attention-icon { font-size: 16px; flex: 0 0 auto; }
 .attention-text { flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; }
@@ -138,7 +120,7 @@ body {
 .chat-row.system { justify-content: center; }
 .chat-bubble { max-width: 78%; background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 8px 11px; }
 .chat-row.user .chat-bubble { background: var(--accent-dim); border-color: var(--accent); }
-.chat-row.a2a .chat-bubble { border-color: #8957e5; }
+.chat-row.a2a .chat-bubble { border-color: var(--role-violet); }
 .chat-meta { display: flex; gap: 8px; align-items: baseline; justify-content: space-between; margin-bottom: 3px; }
 .chat-author { font-size: 11px; font-weight: 600; color: var(--fg2); }
 .chat-meta time, .chat-marker time { font-size: 10px; color: var(--gray); flex-shrink: 0; }
@@ -155,7 +137,7 @@ body {
 .card .k { color: var(--fg2); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
 .card .v { font-size: 20px; font-weight: 700; margin-top: 4px; }
 
-pre.output, pre.todo { background: #010409; border: 1px solid var(--border); border-radius: 8px; padding: 12px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; max-height: 100%; overflow: auto; margin: 0; }
+pre.output, pre.todo { background: var(--bg-0); border: 1px solid var(--border); border-radius: 8px; padding: 12px; white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 12px; max-height: 100%; overflow: auto; margin: 0; }
 
 /* Legacy bare-element CONTROL rules. These used to apply app-wide and leaked the
    old palette (--bg/--bg3/--border) into the redesign's own token-styled inputs,
@@ -165,9 +147,9 @@ pre.output, pre.todo { background: #010409; border: 1px solid var(--border); bor
    global on purpose — the whole app depends on them. */
 .legacy-app button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 7px 13px; cursor: pointer; font-size: 13px; }
 .legacy-app button:hover { border-color: var(--accent); }
-.legacy-app button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.legacy-app button.primary { background: var(--accent); border-color: var(--accent); color: var(--tx-onaccent); font-weight: 600; }
 .legacy-app button.danger { color: var(--red); }
-.legacy-app button.start { background: var(--green); border-color: var(--green); color: #052e0e; font-weight: 600; }
+.legacy-app button.start { background: var(--green); border-color: var(--green); color: var(--tx-onaccent); font-weight: 600; }
 .legacy-app button:disabled { opacity: .5; cursor: default; }
 .row { display: flex; gap: 10px; align-items: center; }
 

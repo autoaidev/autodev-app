@@ -83,7 +83,9 @@ export function FleetHeader({
               fontWeight: 'var(--fw-display)',
               lineHeight: 'var(--lh-display)',
               letterSpacing: 'var(--ls-display)',
-              color: 'var(--tx-hi)',
+              // Colored hero — the fleet count is the ONE thing that wins the blur
+              // test on this view, in the reserved in-progress accent blue.
+              color: 'var(--accent)',
               fontFeatureSettings: 'var(--fvn-tabular)'
             }}
           >

@@ -78,7 +78,7 @@ function LogPane({ getText, subscribe }: { getText: () => string; subscribe: (cb
       style={{
         margin: 0, height: '100%', overflow: 'auto', padding: '10px 14px',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12,
-        lineHeight: 1.5, color: '#c9d1d9', background: '#0d1117', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+        lineHeight: 1.5, color: 'var(--tx-1)', background: 'var(--surface-stage)', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
       }}
     >{text || 'Waiting for the loop to produce output…'}</pre>
   )
@@ -100,13 +100,13 @@ export default function TerminalTabs({
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {/* Tab strip */}
-      <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid var(--border)', background: '#0d1117' }}>
+      <div style={{ display: 'flex', overflowX: 'auto', borderBottom: '1px solid var(--border)', background: 'var(--surface-stage)' }}>
         {terms.map((t) => {
           const isActive = t.id === activeId
           const ended = t.kind === 'pty' && endedIds.has(t.id)
           const online = onlineAgentIds.has(t.agentId)
           const dot = ended ? '■' : online ? '●' : '◐'
-          const dotColor = ended ? '#fecaca' : online ? '#7ee2a0' : '#f2cc60'
+          const dotColor = ended ? 'var(--st-error-bright)' : online ? 'var(--st-running)' : 'var(--st-needsyou)'
           return (
             <div
               key={t.id}
@@ -115,8 +115,8 @@ export default function TerminalTabs({
               style={{
                 display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', cursor: 'pointer',
                 borderRight: '1px solid var(--border)', whiteSpace: 'nowrap',
-                background: isActive ? '#161b22' : 'transparent',
-                borderBottom: isActive ? '2px solid var(--accent, #2f81f7)' : '2px solid transparent'
+                background: isActive ? 'var(--surface-chrome)' : 'transparent',
+                borderBottom: isActive ? '2px solid var(--accent)' : '2px solid transparent'
               }}
             >
               <span style={{ color: dotColor, fontSize: 10 }} title={ended ? 'ended' : online ? 'online (MCP)' : 'connecting…'}>{dot}</span>
@@ -128,7 +128,7 @@ export default function TerminalTabs({
                   : 'Close this terminal (ends the session — character goes offline)'}
                 aria-label={`Close ${t.name}`}
                 onClick={(e) => { e.stopPropagation(); onClose(t.id) }}
-                style={{ marginLeft: 2, padding: '0 4px', lineHeight: 1, background: 'transparent', border: 'none', color: 'var(--muted,#8b949e)', cursor: 'pointer', fontSize: 13 }}
+                style={{ marginLeft: 2, padding: '0 4px', lineHeight: 1, background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
               >×</button>
             </div>
           )
@@ -139,19 +139,19 @@ export default function TerminalTabs({
       {active && (
         <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {active.kind === 'log'
-            ? <span className="badge" style={{ background: '#0d2436', color: '#79c0ff' }}>▸ loop · read-only</span>
+            ? <span className="badge" style={{ background: 'var(--accent-tint)', color: 'var(--accent-ink)' }}>▸ loop · read-only</span>
             : endedIds.has(active.id)
-              ? <span className="badge" style={{ background: '#3b0d0d', color: '#fecaca' }}>■ session ended — reopen</span>
+              ? <span className="badge" style={{ background: 'var(--st-error-wash)', color: 'var(--st-error-bright)' }}>■ session ended — reopen</span>
               : onlineAgentIds.has(active.agentId)
-                ? <span className="badge" style={{ background: '#12351f', color: '#7ee2a0' }}>● operating (MCP)</span>
-                : <span className="badge" style={{ background: '#3a2f0a', color: '#f2cc60' }}>◐ connecting…</span>}
+                ? <span className="badge" style={{ background: 'var(--st-running-soft)', color: 'var(--st-running)' }}>● operating (MCP)</span>
+                : <span className="badge" style={{ background: 'var(--st-needsyou-soft)', color: 'var(--st-needsyou-ink)' }}>◐ connecting…</span>}
           <div style={{ fontSize: 12, fontWeight: 600 }}>{active.name}</div>
           <span className="badge" title="Provider">{active.kind === 'log' ? (active.provider || 'loop') : active.command}</span>
           <div style={{ flex: 1 }} />
           {active.kind === 'log'
             ? <button style={closeBtnStyle} title="Close this log view — the loop keeps running (use ⏹ Stop office to stop it)" onClick={() => onClose(active.id)}>✕ Close view</button>
             : <button style={{ ...closeBtnStyle, color: 'var(--red)' }} title="End this session — the character goes offline" onClick={() => onClose(active.id)}>■ Close</button>}
-          <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted,#8b949e)', fontFamily: 'monospace' }}>
+          <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>
             {active.kind === 'log'
               ? active.path
               : `${active.cwd ?? ''}${active.mcpUrl ? '  →  ' + active.mcpUrl : ''}`}
@@ -160,7 +160,7 @@ export default function TerminalTabs({
       )}
 
       {/* Panes: pty panes ALL kept mounted (keep-alive rule); log panes are read-only. */}
-      <div style={{ position: 'relative', flex: 1, minHeight: 0, background: '#0d1117' }}>
+      <div style={{ position: 'relative', flex: 1, minHeight: 0, background: 'var(--surface-stage)' }}>
         {terms.map((t) => (
           <div key={t.id} style={{ position: 'absolute', inset: 0, display: t.id === activeId ? 'block' : 'none' }}>
             {t.kind === 'log'

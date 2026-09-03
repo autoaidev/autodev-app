@@ -25,7 +25,8 @@ import { existsSync, readFileSync, writeFileSync, chmodSync } from 'fs'
 import { isSecureBaseUrl } from './officeSanitize'
 import { DEFAULT_OFFICE_BASE } from './pixelOffice'
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean }
+type ThemePref = 'system' | 'dark' | 'light'
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: ThemePref }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -80,9 +81,22 @@ export function setAdvancedMode(on: boolean): boolean {
   return getAdvancedMode()
 }
 
+/** The persisted theme preference (system | dark | light). Defaults 'system'. */
+export function getTheme(): ThemePref {
+  const t = load().theme
+  return t === 'dark' || t === 'light' || t === 'system' ? t : 'system'
+}
+
+/** Persist the theme preference (a plain UI preference). */
+export function setTheme(theme: ThemePref): ThemePref {
+  const v: ThemePref = theme === 'dark' || theme === 'light' ? theme : 'system'
+  persist({ ...load(), theme: v })
+  return getTheme()
+}
+
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: ThemePref } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode(), theme: getTheme() }
 }
 
 /**
@@ -130,8 +144,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: ThemePref }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: ThemePref } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -143,6 +157,9 @@ export function updateSettings(
     if ('advancedMode' in patch) {
       setAdvancedMode(patch.advancedMode === true)
     }
+    if ('theme' in patch && patch.theme) {
+      setTheme(patch.theme)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode(), theme: getTheme() }
 }

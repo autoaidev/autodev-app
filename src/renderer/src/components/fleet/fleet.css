@@ -6,19 +6,24 @@
 .fleet-row {
   transition: background 0.1s ease;
 }
-/* De-flatten: a faint cool zebra (the recessed stage-2 rung) so a long roster
-   reads as scannable bands rather than one flat sheet. Placed BEFORE hover /
-   selected / attention-wash so those keep priority at equal specificity. */
-.fleet-row:nth-child(even) {
+/* De-flatten: a REAL (visible, not a whisper) zebra so a long roster reads as
+   scannable bands — even rows on the chrome rung, odd rows on the recessed
+   stage-2 rung. Placed BEFORE hover / selected / attention-wash so those keep
+   priority at equal specificity. */
+.fleet-row:nth-child(odd) {
   background: var(--surface-stage-2);
 }
-.fleet-row:hover {
-  background: var(--bg-selected);
+.fleet-row:nth-child(even) {
+  background: var(--surface-chrome);
 }
-/* selected + attention washes keep priority over hover */
+.fleet-row:hover {
+  background: var(--bg-hover);
+}
+/* Selected is UNMISTAKABLE: an accent-tinted fill + a full-height 4px accent
+   spine. Wins over the zebra + hover at equal specificity (declared last). */
 .fleet-row.is-selected {
   background: var(--bg-selected);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset var(--spine-w) 0 0 var(--accent);
 }
 .fleet-row.wash-amber {
   background: var(--st-needsyou-wash);

@@ -270,7 +270,9 @@ export function AgentDetail({
                 fontWeight: 'var(--fw-display)',
                 lineHeight: 1,
                 letterSpacing: 'var(--ls-display)',
-                color: 'var(--tx-hi)',
+                // Colored hero — the done-count is the ONE focal number for this
+                // agent, in the semantic done-green so it wins the blur test.
+                color: 'var(--st-done)',
                 fontFeatureSettings: 'var(--fvn-tabular)'
               }}
             >
