@@ -3,6 +3,7 @@ import { Button, Icon } from '@renderer/ui'
 import { useAppActions } from '@renderer/services/appActions'
 import { useOfficeMessages, useOfficeConnection, deriveOfficeLinkStatus, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
+import { renderMarkdown } from './useMarkdown'
 import './ChatTab.css'
 
 /**
@@ -282,7 +283,20 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
                   <span className={'dv-chat__author ' + auClass}>{m.author}</span>
                   <time>{fmtTime(m.at)}</time>
                 </div>
-                <div className="dv-chat__text">{m.text}</div>
+                {own ? (
+                  // User-typed input stays LITERAL — never rendered as markdown
+                  // (matches pixel-office; also avoids treating a user's `#`/`*`
+                  // as formatting and keeps their exact text/whitespace).
+                  <div className="dv-chat__text">{m.text}</div>
+                ) : (
+                  // Agent / A2A narration is LLM-authored markdown → render it as
+                  // sanitized (DOMPurify) rich HTML. Streaming/partial text is just
+                  // a shorter source string, so it renders the same way each poll.
+                  <div
+                    className="dv-chat__text dv-chat__md"
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }}
+                  />
+                )}
               </div>
             </div>
           )
