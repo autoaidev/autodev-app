@@ -365,7 +365,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, background: 'var(--grad-stage)' }}>
         {/* summary band */}
-        <div style={{ background: 'transparent', padding: '18px 22px 0', flex: 'none' }}>
+        <div style={{ background: 'transparent', padding: '18px var(--gap-gutter) 0', flex: 'none' }}>
           <FleetHeader
             agentCount={agents.length}
             officeCount={officeCount}
@@ -385,7 +385,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
         </div>
 
         {/* data table (scrolls) */}
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'transparent', padding: '0 22px 20px' }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', background: 'transparent', padding: '0 var(--gap-gutter) 20px' }}>
           <FleetTable
             agents={filtered}
             selected={selected}

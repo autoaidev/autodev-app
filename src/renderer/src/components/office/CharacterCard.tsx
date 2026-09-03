@@ -88,7 +88,7 @@ export function CharacterCard({
         display: 'flex',
         flexDirection: 'column',
         gap: 7,
-        padding: '10px 11px',
+        padding: 'var(--pad-card)',
         borderRadius: 'var(--r-card)',
         // Lifted card (top-lit gradient + composite depth) that carries the PROVIDER
         // hue on its left edge even at rest / offline, so a stopped character is a

@@ -416,6 +416,9 @@ const GROUP_OPTIONS: { id: GroupBy; label: string }[] = [
   { id: 'model', label: 'Model' },
   { id: 'state', label: 'State' }
 ]
+// Basic offers the two human partitions (office folder + role); Provider / Model /
+// State are expert partitions gated to Advanced.
+const BASIC_GROUP_IDS: ReadonlySet<GroupBy> = new Set<GroupBy>(['office', 'role'])
 
 export function AgentRail({
   agents,
@@ -446,8 +449,9 @@ export function AgentRail({
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
   const [groupBy, setGroupBy] = React.useState<GroupBy>('office')
-  // Basic restricts grouping to office folders; the other partitions are Advanced.
-  const effectiveGroupBy: GroupBy = advanced ? groupBy : 'office'
+  // Basic allows office folder + Role; the expert partitions (provider/model/state)
+  // collapse back to office when Advanced is off.
+  const effectiveGroupBy: GroupBy = advanced ? groupBy : BASIC_GROUP_IDS.has(groupBy) ? groupBy : 'office'
   const [collapsed, setCollapsed] = React.useState<Set<string>>(new Set())
   const [menu, setMenu] = React.useState<{ x: number; y: number; agent: AgentState } | null>(null)
   // Installed app version for the rail footer (main-process app:version IPC).
@@ -522,7 +526,8 @@ export function AgentRail({
   }
 
   const menuItems = (a: AgentState): ContextMenuEntry[] => [
-    { label: 'Open agent folder', icon: 'folder', kbd: '⌘⏎', active: true, onClick: () => onAction('openFolder', a) },
+    // The ⌘⏎ hint is expert scaffolding — shown only in Advanced (Basic stays clean).
+    { label: 'Open agent folder', icon: 'folder', ...(advanced ? { kbd: '⌘⏎' } : {}), active: true, onClick: () => onAction('openFolder', a) },
     // Open-in-editor / Open-terminal-here / Copy-path are power-user file actions —
     // Advanced only. Open folder, Stop, Restart, Setup, Remove stay in Basic.
     ...(advanced
@@ -535,7 +540,10 @@ export function AgentRail({
     { separator: true },
     { label: 'Stop loop', icon: 'stop', disabled: !a.running, onClick: () => onAction('stop', a) },
     { label: 'Restart', icon: 'restart', onClick: () => onAction('restart', a) },
-    { label: 'Watch live session', icon: 'clock', onClick: () => onAction('watch', a) },
+    // Watching the raw live session is an expert probe — Advanced only.
+    ...(advanced
+      ? ([{ label: 'Watch live session', icon: 'clock', onClick: () => onAction('watch', a) }] as ContextMenuEntry[])
+      : []),
     { label: 'Setup…', icon: 'gear', onClick: () => onAction('setup', a) },
     { separator: true },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => onAction('remove', a) }
@@ -634,8 +642,8 @@ export function AgentRail({
               cursor: 'pointer'
             }}
           >
-            {/* Basic offers office folders only; role/provider/model/state are Advanced. */}
-            {(advanced ? GROUP_OPTIONS : GROUP_OPTIONS.filter((o) => o.id === 'office')).map((o) => (
+            {/* Basic offers office folder + Role; provider/model/state are Advanced. */}
+            {(advanced ? GROUP_OPTIONS : GROUP_OPTIONS.filter((o) => BASIC_GROUP_IDS.has(o.id))).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
@@ -832,7 +840,8 @@ export function AgentRail({
 
       {menu && (
         <ContextMenu
-          header={menu.agent.path.split('/').filter(Boolean).pop()}
+          // The mono agent-id header is machine noise for Basic — Advanced only.
+          header={advanced ? menu.agent.path.split('/').filter(Boolean).pop() : undefined}
           items={menuItems(menu.agent)}
           onClose={() => setMenu(null)}
           style={{ position: 'fixed', left: Math.min(menu.x, window.innerWidth - 240), top: Math.min(menu.y, window.innerHeight - 360) }}

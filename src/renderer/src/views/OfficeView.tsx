@@ -737,7 +737,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               style={{
                 display: officeTab === 'team' ? 'grid' : 'none',
                 gridTemplateColumns: 'repeat(4, 1fr)',
-                gap: 10,
+                gap: 16,
                 padding: '12px 18px',
                 borderBottom: '1px solid var(--bd-2)',
                 maxHeight: 260,

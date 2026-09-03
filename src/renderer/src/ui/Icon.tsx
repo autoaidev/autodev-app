@@ -32,6 +32,9 @@ export type IconName =
   | 'check'
   | 'trash'
   | 'help'       // question mark in a circle (Help / getting started)
+  | 'agents'     // two head-and-shoulders (Agents nav tab)
+  | 'fleet'      // 2×2 grid of tiles (Fleet nav tab)
+  | 'sparkle'    // 4-point star (Make app nav tab)
 
 type Kind = 'stroke' | 'fill'
 
@@ -138,6 +141,21 @@ const G: Record<IconName, Glyph> = {
   help: {
     vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
     body: <><circle cx="7" cy="7" r="5.4" /><path d="M5.3 5.2a1.7 1.7 0 1 1 2.4 1.6c-.5.3-.7.6-.7 1.1v.3" /><circle cx="7" cy="10" r=".55" fill="currentColor" stroke="none" /></>
+  },
+  // Two head-and-shoulders — a back figure and a front figure — reads as "agents".
+  agents: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.2,
+    body: <><circle cx="9.4" cy="4.4" r="1.6" /><path d="M6.6 10.4a2.9 2.9 0 0 1 5.7 0" /><circle cx="4.6" cy="4.8" r="1.8" /><path d="M1.4 11a3.2 3.2 0 0 1 6.1-.9" /></>
+  },
+  // 2×2 grid of tiles — the fleet table / roster.
+  fleet: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.2,
+    body: <><rect x="2" y="2" width="4" height="4" rx="1" /><rect x="8" y="2" width="4" height="4" rx="1" /><rect x="2" y="8" width="4" height="4" rx="1" /><rect x="8" y="8" width="4" height="4" rx="1" /></>
+  },
+  // 4-point star — "make / generate" spark.
+  sparkle: {
+    vb: '0 0 14 14', kind: 'fill',
+    body: <path d="M7 1c.45 2.7 1.3 3.55 4 4-2.7.45-3.55 1.3-4 4-.45-2.7-1.3-3.55-4-4 2.7-.45 3.55-1.3 4-4z" />
   }
 }
 

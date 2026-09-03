@@ -285,18 +285,20 @@
   --r-checkbox: 3px;
   --r-bar: 2px;
 
-  /* ----- spacing / gaps ----- */
-  --gap-tight: 6px;
-  --gap-base: 9px;
-  --gap-section: 14px;
+  /* ----- spacing / gaps — round-2 decisive increase so the UI breathes. ----- */
+  --gap-tight: 8px;
+  --gap-base: 14px;
+  --gap-section: 20px;
+  --gap-gutter: 20px;   /* page-edge gutter — rows/cards never touch a pane seam */
+  --pad-card: 16px;     /* interior padding for lifted cards (office / character) */
 
   /* ----- row heights — taller so rows breathe. ----- */
-  --h-agent-row: 40px;
-  --h-table-row: 48px;
-  --h-menu-item: 26px;
+  --h-agent-row: 46px;
+  --h-table-row: 56px;
+  --h-menu-item: 32px;
   --h-server-row: 34px;
-  --h-setting-row: 46px;
-  --h-todo-row: 26px;
+  --h-setting-row: 52px;
+  --h-todo-row: 30px;
 
   /* ----- structural widths ----- */
   --w-agents-rail: 262px;
@@ -310,7 +312,7 @@
 
   /* ----- topbar / chrome heights ----- */
   --h-titlebar: 34px;
-  --h-navbar: 46px;
+  --h-navbar: 52px;
   --h-subtab: 38px;
   --h-statusbar: 30px;
 

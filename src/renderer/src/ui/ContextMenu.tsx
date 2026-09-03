@@ -52,12 +52,12 @@ export function ContextMenu({
         // Above the Toast/CliBanner (~1000) so an open menu is never painted
         // over, but below Modal (2000). Stacking: Modal > ContextMenu > Toast/Banner.
         zIndex: 1500,
-        minWidth: 216,
+        minWidth: 240,
         background: 'var(--bg-elev)',
         border: '1px solid var(--bd-strong)',
         borderRadius: 'var(--r-screen)',
         boxShadow: 'var(--shadow-menu)',
-        padding: 5,
+        padding: 7,
         fontSize: 'var(--fs-meta)',
         ...style
       }}
@@ -104,7 +104,7 @@ export function ContextMenu({
               gap: 9,
               width: '100%',
               textAlign: 'left',
-              padding: '6px 9px',
+              padding: '9px 12px',
               borderRadius: 'var(--r-chip)',
               border: 'none',
               background: it.active ? 'var(--bg-accent-soft)' : 'transparent',

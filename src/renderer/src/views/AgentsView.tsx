@@ -12,6 +12,7 @@ import { McpEditorModal } from '@renderer/modals/McpEditorModal'
 import { BulkModelModal } from '@renderer/modals/BulkModelModal'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 
 /**
  * AgentsView — screen 2a. Three columns: the AgentRail (262), the AgentDetail
@@ -32,6 +33,9 @@ export function AgentsView(): React.JSX.Element {
   // broadcasts this view subscribes to. Named `appActions` so it doesn't collide
   // with the agentStore `actions` (lifecycle start/stop/restart/remove) below.
   const appActions = useAppActions()
+  // Advanced gates the context-menu's expert scaffolding (⌘⏎ hints, the mono
+  // agent-id header, the file power-actions, and the raw Watch-live probe).
+  const { advanced } = useAdvancedMode()
   // The live fleet comes from the shared agentStore (one seed/subscribe/poll for
   // the whole app); this view only owns selection, bulk-check and modal state.
   const agents = useAgents()
@@ -278,14 +282,25 @@ export function AgentsView(): React.JSX.Element {
   }, [])
 
   const detailMenuItems = (a: AgentState): ContextMenuEntry[] => [
-    { label: 'Open agent folder', icon: 'folder', kbd: '⌘⏎', active: true, onClick: () => void onAction('openFolder', a) },
-    { label: 'Open in editor', icon: 'editor', onClick: () => void onAction('openEditor', a) },
-    { label: 'Open terminal here', icon: 'terminal', onClick: () => void onAction('openTerminal', a) },
-    { label: 'Copy path', icon: 'copy', onClick: () => void onAction('copyPath', a) },
+    // The ⌘⏎ hint is expert scaffolding — Advanced only (Basic stays clean).
+    { label: 'Open agent folder', icon: 'folder', ...(advanced ? { kbd: '⌘⏎' } : {}), active: true, onClick: () => void onAction('openFolder', a) },
+    // Open-in-editor / Open-terminal-here / Copy-path are power-user file actions —
+    // Advanced only (mirrors the rail menu). Open folder, Stop, Restart, Setup,
+    // Remove stay in Basic.
+    ...(advanced
+      ? ([
+          { label: 'Open in editor', icon: 'editor', onClick: () => void onAction('openEditor', a) },
+          { label: 'Open terminal here', icon: 'terminal', onClick: () => void onAction('openTerminal', a) },
+          { label: 'Copy path', icon: 'copy', onClick: () => void onAction('copyPath', a) }
+        ] as ContextMenuEntry[])
+      : []),
     { separator: true },
     { label: 'Stop loop', icon: 'stop', disabled: !a.running, onClick: () => void onAction('stop', a) },
     { label: 'Restart', icon: 'restart', onClick: () => void onAction('restart', a) },
-    { label: 'Watch live session', icon: 'clock', onClick: () => void onAction('watch', a) },
+    // Watching the raw live session is an expert probe — Advanced only.
+    ...(advanced
+      ? ([{ label: 'Watch live session', icon: 'clock', onClick: () => void onAction('watch', a) }] as ContextMenuEntry[])
+      : []),
     { label: 'Setup…', icon: 'gear', onClick: () => void onAction('setup', a) },
     { separator: true },
     { label: 'Remove…', icon: 'trash', danger: true, onClick: () => void onAction('remove', a) }
@@ -446,7 +461,8 @@ export function AgentsView(): React.JSX.Element {
 
       {menu && (
         <ContextMenu
-          header={menu.agent.path.split('/').filter(Boolean).pop()}
+          // The mono agent-id header is machine noise for Basic — Advanced only.
+          header={advanced ? menu.agent.path.split('/').filter(Boolean).pop() : undefined}
           items={detailMenuItems(menu.agent)}
           onClose={() => setMenu(null)}
           style={{ position: 'fixed', left: Math.min(menu.x, window.innerWidth - 240), top: Math.min(menu.y, window.innerHeight - 360) }}

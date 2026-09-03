@@ -90,7 +90,7 @@ function KeyValueRow({ k, v, suffix }: { k: string; v: React.ReactNode; suffix?:
   // value the emphasized tier (primary text) — so a scan separates key from value
   // at a glance rather than reading two same-size greys.
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '5px 0' }}>
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0' }}>
       <span
         style={{
           flex: 'none',
@@ -146,7 +146,7 @@ function TodoSection({ agent, todo }: { agent: AgentState; todo: AgentTasks }): 
   const attention = isAttention(agent) ? attentionSummary(agent) : null
 
   return (
-    <div style={{ padding: '13px 15px 11px', borderBottom: '1px solid var(--bd-card)' }}>
+    <div style={{ padding: '18px 20px 14px', borderBottom: '1px solid var(--bd-card)' }}>
       <SectionLabel
         right={
           <>
@@ -278,7 +278,7 @@ function SessionSection({ agent, onWatch }: { agent: AgentState; onWatch: () => 
   }, [agent.path])
 
   return (
-    <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--bd-card)' }}>
+    <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--bd-card)' }}>
       <SectionLabel right={<LinkBtn onClick={() => navigate('sessions')}>All sessions</LinkBtn>}>Session</SectionLabel>
       {session === undefined && <div style={{ color: 'var(--tx-5)', fontSize: 'var(--fs-meta)' }}>Loading…</div>}
       {session === null && (
@@ -422,13 +422,13 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
   )
 
   return (
-    <div style={{ padding: '13px 15px' }}>
+    <div style={{ padding: '18px 20px' }}>
       <SectionLabel right={<LinkBtn onClick={onEditSetup}>Edit…</LinkBtn>}>Setup</SectionLabel>
       <KeyValueRow k="Provider" v={providerShort(agent.provider)} />
       {/* MODEL — the value line ALWAYS states the effective model in plain words; the
           transient status (saved / restart to apply) sits to its right and never
           replaces it. A 1-click inline change lives in the dropdown below. */}
-      <div style={{ padding: '5px 0' }}>
+      <div style={{ padding: '8px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
           <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-section)' }}>Model</span>
           {/* value line — the effective model, always legible (never a status word) */}
@@ -463,7 +463,9 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
             read-only effective value; Edit… (Setup modal) is the change path. */}
         {advanced && <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />}
       </div>
-      <KeyValueRow k="Office" v={office} />
+      {/* Office link state is a teammate-collaboration detail — Advanced only. Provider
+          + Model stay in Basic (the two setup facts a solo user cares about). */}
+      {advanced && <KeyValueRow k="Office" v={office} />}
       {/* MCP + Files — expert rows, Advanced only (edit them via Setup… otherwise). */}
       {advanced && (
         <>

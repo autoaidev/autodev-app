@@ -2,6 +2,7 @@ import React from 'react'
 import { SearchInput } from './SearchInput'
 import { StatusDot } from './StatusDot'
 import { IconButton } from './IconButton'
+import { Icon, type IconName } from './Icon'
 import { CliBanner } from './CliBanner'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
@@ -22,13 +23,15 @@ import { useAppActions } from '@renderer/services/appActions'
 export interface NavItemDef {
   id: string
   label: string
+  /** optional leading glyph rendered beside the label so tabs are scannable by icon */
+  icon?: IconName
 }
 
 const DEFAULT_NAV: NavItemDef[] = [
-  { id: 'office', label: 'Office' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'fleet', label: 'Fleet' },
-  { id: 'sessions', label: 'Sessions' }
+  { id: 'office', label: 'Office', icon: 'office' },
+  { id: 'agents', label: 'Agents', icon: 'agents' },
+  { id: 'fleet', label: 'Fleet', icon: 'fleet' },
+  { id: 'sessions', label: 'Sessions', icon: 'clock' }
 ]
 
 /**
@@ -81,6 +84,7 @@ function PixelMark({ size = 18 }: { size?: number }): React.JSX.Element {
 /** A single top-nav item (also exported for standalone use). */
 export function NavItem({
   label,
+  icon,
   active = false,
   onClick,
   className,
@@ -88,6 +92,8 @@ export function NavItem({
   ...rest
 }: {
   label: React.ReactNode
+  /** optional leading glyph; inherits currentColor so it flips to onaccent when active */
+  icon?: IconName
   active?: boolean
   onClick?: () => void
 } & Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'>): React.JSX.Element {
@@ -98,7 +104,12 @@ export function NavItem({
       onClick={onClick}
       className={className}
       style={{
-        padding: '6px 12px',
+        // icon + label ride together; the icon inherits currentColor so it flips to
+        // onaccent ink on the active tab automatically.
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: '8px 12px',
         borderRadius: 'var(--r-button)',
         // Active tab is the BOLDEST thing in the bar: a SOLID accent fill (not a
         // faint tint) with onaccent ink + a soft accent glow, so the current view
@@ -115,6 +126,7 @@ export function NavItem({
       }}
       {...rest}
     >
+      {icon && <Icon name={icon} size={14} />}
       {label}
     </button>
   )
@@ -423,6 +435,7 @@ export function AppShell({
           <NavItem
             key={n.id}
             label={n.label}
+            icon={n.icon}
             active={n.id === activeNav}
             onClick={() => onNavChange?.(n.id)}
           />
@@ -455,6 +468,7 @@ export function AppShell({
           {rightNav && (
             <NavItem
               label={rightNav.label}
+              icon={rightNav.icon}
               active={rightNav.id === activeNav}
               onClick={() => onNavChange?.(rightNav.id)}
             />

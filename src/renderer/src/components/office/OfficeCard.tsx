@@ -70,7 +70,7 @@ export function OfficeCard({
         display: 'flex',
         flexDirection: 'column',
         gap: 9,
-        padding: '11px 12px',
+        padding: 'var(--pad-card)',
         borderRadius: 'var(--r-card)',
         // Lifted card (top-lit gradient + composite depth) so the office reads as a
         // raised object on the rail. At rest it carries a per-office identity hue on

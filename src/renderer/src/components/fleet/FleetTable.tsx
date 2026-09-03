@@ -48,7 +48,7 @@ function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): 
   return cols.join(' ')
 }
 const COL_GAP = 14
-const ROW_PAD = '10px 12px'
+const ROW_PAD = '14px 18px'
 
 /** A row's trailing action: a "···" more-menu, or a coloured verb link. */
 export interface RowAction {
@@ -311,7 +311,7 @@ function HeaderRow({ showCheck, showModel, showElapsed }: { showCheck: boolean; 
         gridTemplateColumns: gridFor(showCheck, showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
-        padding: '9px 12px',
+        padding: '12px 18px',
         borderBottom: '1px solid var(--bd-row)'
       }}
     >
