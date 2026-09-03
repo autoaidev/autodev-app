@@ -782,6 +782,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                     disabled={!focusedChar.online}
                     onSend={(t) => steer(focusedChar.id, t)}
                     onOpenAgent={() => openAgentTab(focusedChar)}
+                    advanced={advanced}
                   />
                 ) : (
                   <div style={{ margin: 'auto', color: 'var(--tx-4)', fontSize: 'var(--fs-meta)' }}>No character selected.</div>

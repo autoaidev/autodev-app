@@ -103,7 +103,9 @@ export interface AgentRowProps {
 }
 
 export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, modelLabel, showCheck = true, onMenu }: AgentRowProps): React.JSX.Element {
-  const meta = rowMeta(agent, modelLabel)
+  // showCheck mirrors the rail's Advanced flag; pass it through so Basic strips the
+  // redundant "provider · slug-hash" meta line (identity already rides the ring).
+  const meta = rowMeta(agent, modelLabel, showCheck)
   const dim = isDim(agent)
   const dot: DotStatus = agent.activity
   const showCount = !(agent.activity === 'idle' && agent.tasks.remaining === 0)

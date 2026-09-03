@@ -301,9 +301,9 @@ function AgentConfigModal(props: {
           </div>
         )}
 
-        {/* SESSION DISPLAY NAME */}
+        {/* NAME (session display name) */}
         <div style={{ marginBottom: 14 }}>
-          <span style={label}>Session display name</span>
+          <span style={label}>Name</span>
           <input value={sessionName} onChange={(e) => setSessionName(e.target.value)} placeholder={name || '(folder name)'} style={inputStyle} />
         </div>
 
@@ -318,11 +318,14 @@ function AgentConfigModal(props: {
           <div style={{ flex: 1 }}>
             <span style={label}>Model</span>
             <ModelSelect vendor={vendor} value={model} onChange={setModel} />
-            {/* Mirror the inline row's "saves on select": in the modal, model (like
-                every field) is batched behind the explicit Save/Create button. */}
-            <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5 }}>
-              {isNew ? 'Applies when you Create' : 'Applies when you Save'}
-            </div>
+            {/* In edit mode the modal subtitle already says "changes apply to the next
+                task", so this hedge would be a duplicate — keep it only in 'new' mode,
+                where the subtitle describes folder creation, not model timing. */}
+            {isNew && (
+              <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5 }}>
+                Applies when you Create
+              </div>
+            )}
           </div>
         </div>
 

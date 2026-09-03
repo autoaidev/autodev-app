@@ -208,7 +208,7 @@ export type MetaTone = 'default' | 'amber' | 'red' | 'idle'
  * info anti-pattern flagged in R2 — is gone. When a working row has a live task
  * we surface that instead of the bare id, since it's the most differentiating bit.
  */
-export function rowMeta(a: AgentState, modelLabel?: string): { text: string; tone: MetaTone; mono: boolean } {
+export function rowMeta(a: AgentState, modelLabel?: string, advanced = true): { text: string; tone: MetaTone; mono: boolean } {
   if (a.activity === 'needs-auth') return { text: 'waiting on you', tone: 'amber', mono: false }
   if (a.activity === 'rate-limited') return { text: a.error || 'rate-limited', tone: 'amber', mono: false }
   if (a.activity === 'stalled') return { text: a.error || 'stalled · no output', tone: 'amber', mono: false }
@@ -230,6 +230,10 @@ export function rowMeta(a: AgentState, modelLabel?: string): { text: string; ton
   // echo the name (an office folder whose basename IS the role, …/director).
   const prov = providerShort(a.provider)
   if (modelLabel) return { text: `${prov} · ${modelLabel}`, tone: 'default', mono: false }
+  // Basic: the bare "provider · <slug-hash>" line is triple-encoded identity noise
+  // (provider already rides the avatar ring; the hash is a machine id) — drop it.
+  // Advanced restores the id line for support/differentiation across a large fleet.
+  if (!advanced) return { text: '', tone: 'default', mono: true }
   const id = agentIdHash(a.path)
   if (id && id.toLowerCase() !== a.name.trim().toLowerCase())
     return { text: `${prov} · ${id}`, tone: 'default', mono: true }

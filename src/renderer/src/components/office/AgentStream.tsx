@@ -17,6 +17,13 @@ export interface AgentStreamProps {
   disabled: boolean
   onSend: (text: string) => void | Promise<void>
   onOpenAgent: () => void
+  /**
+   * Advanced shows the full scrolling timeline + live steer composer. Basic (false)
+   * collapses this bottom feed to a compact 2–3 line "latest status" summary (the
+   * full stream + steer live on the Agents tab, one click away via "Open agent" —
+   * and flipping Advanced restores it here).
+   */
+  advanced?: boolean
 }
 
 function bodyColor(role: ChatMessage['role']): string {
@@ -31,7 +38,8 @@ export function AgentStream({
   messages,
   disabled,
   onSend,
-  onOpenAgent
+  onOpenAgent,
+  advanced = false
 }: AgentStreamProps): React.JSX.Element {
   const [text, setText] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -63,6 +71,53 @@ export function AgentStream({
     if (!t || disabled) return
     void onSend(t)
     setText('')
+  }
+
+  // BASIC — no bottom firehose. Collapse to a compact latest-status summary (the
+  // newest 2–3 lines) with an "Open agent" jump to the full stream + steer composer
+  // on the Agents tab. Flipping Advanced restores the full feed below.
+  if (!advanced) {
+    const latest = messages.slice(-3)
+    const status = agent.online ? (agent.status || 'working…') : 'not connected'
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '10px 14px', borderBottom: '1px solid var(--bd-2)' }}>
+          <AgentAvatar
+            name={agent.name}
+            idKey={agent.id}
+            provider={agent.provider}
+            size={22}
+            avatarUrl={agent.avatarUrl}
+            avatarColor={agent.color}
+            online={agent.online}
+            title={agent.name}
+          />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 'var(--fs-body)', fontWeight: 700, color: 'var(--tx-hi)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{agent.name}</div>
+            <div style={{ fontSize: 'var(--fs-tiny)', color: agent.online ? 'var(--st-running)' : 'var(--tx-4)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{status}</div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={onOpenAgent} title="Open this character in the Agents tab (full activity + steer)">
+            <Icon name="external" size={11} /> Open agent
+          </Button>
+        </div>
+        <div style={{ padding: '10px 14px', minHeight: 0 }}>
+          {latest.length === 0 ? (
+            <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-faint)' }}>
+              {agent.online ? 'Waiting for activity…' : 'This character is offline. Connect & operate it, or Spawn the office.'}
+            </div>
+          ) : (
+            latest.map((m) => (
+              <div key={m.id} style={{ display: 'flex', gap: 10, padding: '3px 0', alignItems: 'baseline' }}>
+                <span style={{ flex: 'none', width: 34, fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-section)', color: 'var(--tx-gutter)' }}>{hhmm(m.at)}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: bodyColor(m.role), lineHeight: 1.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={m.text}>
+                  {m.text}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (

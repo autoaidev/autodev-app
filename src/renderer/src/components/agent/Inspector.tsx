@@ -439,24 +439,29 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
             {effective}
           </span>
           {/* right-aligned micro-status: a real Restart button while running+unapplied,
-              else the transient note, else the persistent auto-save hint. */}
-          {running && modelNote === 'restart to apply' ? (
-            <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)', whiteSpace: 'nowrap' }}>restart to apply</span>
-              <Button size="sm" variant="secondary" onClick={restart} disabled={modelBusy}>Restart</Button>
-            </span>
-          ) : modelNote ? (
-            <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)', whiteSpace: 'nowrap' }}>
-              {modelNote}
-            </span>
-          ) : (
-            // Persistent affordance: make the auto-save explicit BEFORE interaction so
-            // committing-on-select isn't a surprise (the Setup modal batches; this
-            // inline control saves instantly).
-            <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: 'var(--tx-faint)', whiteSpace: 'nowrap' }}>saves on select</span>
-          )}
+              else the transient note, else the persistent auto-save hint. Basic shows
+              Model as a plain read-only value (no inline editor / hints) — editing is
+              one click away via Edit… (Setup modal); Advanced keeps the live status. */}
+          {advanced &&
+            (running && modelNote === 'restart to apply' ? (
+              <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)', whiteSpace: 'nowrap' }}>restart to apply</span>
+                <Button size="sm" variant="secondary" onClick={restart} disabled={modelBusy}>Restart</Button>
+              </span>
+            ) : modelNote ? (
+              <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)', whiteSpace: 'nowrap' }}>
+                {modelNote}
+              </span>
+            ) : (
+              // Persistent affordance: make the auto-save explicit BEFORE interaction so
+              // committing-on-select isn't a surprise (the Setup modal batches; this
+              // inline control saves instantly).
+              <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: 'var(--tx-faint)', whiteSpace: 'nowrap' }}>saves on select</span>
+            ))}
         </div>
-        <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />
+        {/* Inline model dropdown — Advanced only. In Basic the row above is the
+            read-only effective value; Edit… (Setup modal) is the change path. */}
+        {advanced && <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />}
       </div>
       <KeyValueRow k="Office" v={office} />
       {/* MCP + Files — expert rows, Advanced only (edit them via Setup… otherwise). */}

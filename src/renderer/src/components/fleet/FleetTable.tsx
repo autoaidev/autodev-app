@@ -36,9 +36,11 @@ function rowSpine(a: AgentState): string {
  * dropped in Basic (they're expert columns), so the template is derived from
  * `showModel` + `showElapsed`.
  */
-function gridFor(showModel: boolean, showElapsed: boolean): string {
-  // checkbox · AGENT · OFFICE · STATE · [MODEL] · CURRENT TASK · TASKS · [ELAPSED] · ACTION
-  const cols = ['14px', '180px', '112px', '100px']
+function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): string {
+  // [checkbox] · AGENT · OFFICE · STATE · [MODEL] · CURRENT TASK · TASKS · [ELAPSED] · ACTION
+  // The bulk-select checkbox is an expert workflow — dropped in Basic (Advanced only).
+  const cols = showCheck ? ['14px'] : []
+  cols.push('180px', '112px', '100px')
   if (showModel) cols.push('132px')
   cols.push('minmax(0,1fr)', '84px')
   if (showElapsed) cols.push('72px')
@@ -290,8 +292,9 @@ function ModelCell({
 
 /* ---------------------------------- header -------------------------------- */
 
-function headCols(showModel: boolean, showElapsed: boolean): string[] {
-  const base = ['', 'AGENT', 'OFFICE', 'STATE']
+function headCols(showCheck: boolean, showModel: boolean, showElapsed: boolean): string[] {
+  const base = showCheck ? [''] : []
+  base.push('AGENT', 'OFFICE', 'STATE')
   if (showModel) base.push('MODEL')
   base.push('CURRENT TASK', 'TASKS')
   if (showElapsed) base.push('ELAPSED')
@@ -299,20 +302,20 @@ function headCols(showModel: boolean, showElapsed: boolean): string[] {
   return base
 }
 
-function HeaderRow({ showModel, showElapsed }: { showModel: boolean; showElapsed: boolean }): React.JSX.Element {
+function HeaderRow({ showCheck, showModel, showElapsed }: { showCheck: boolean; showModel: boolean; showElapsed: boolean }): React.JSX.Element {
   return (
     <div
       role="row"
       style={{
         display: 'grid',
-        gridTemplateColumns: gridFor(showModel, showElapsed),
+        gridTemplateColumns: gridFor(showCheck, showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: '9px 12px',
         borderBottom: '1px solid var(--bd-row)'
       }}
     >
-      {headCols(showModel, showElapsed).map((h, i) => (
+      {headCols(showCheck, showModel, showElapsed).map((h, i) => (
         <span
           key={i}
           role="columnheader"
@@ -339,6 +342,9 @@ function HeaderRow({ showModel, showElapsed }: { showModel: boolean; showElapsed
 export interface FleetRowProps {
   agent: AgentState
   selected: boolean
+  /** Advanced only — the leading bulk-select checkbox column + the provider chip /
+   *  slug-hash sub-line (redundant with the avatar ring in Basic). */
+  showCheck: boolean
   showModel: boolean
   showElapsed: boolean
   elapsed: string
@@ -353,6 +359,7 @@ export interface FleetRowProps {
 function FleetRow({
   agent,
   selected,
+  showCheck,
   showModel,
   showElapsed,
   elapsed,
@@ -385,7 +392,7 @@ function FleetRow({
       onClick={onOpen}
       style={{
         display: 'grid',
-        gridTemplateColumns: gridFor(showModel, showElapsed),
+        gridTemplateColumns: gridFor(showCheck, showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: ROW_PAD,
@@ -398,7 +405,7 @@ function FleetRow({
         cursor: 'pointer'
       }}
     >
-      <Checkbox checked={selected} onChange={onToggleSelect} label={`Select ${agent.name}`} />
+      {showCheck && <Checkbox checked={selected} onChange={onToggleSelect} label={`Select ${agent.name}`} />}
 
       {/* AGENT: colored identity avatar (same hue + provider ring the agent carries
           in the rail & its detail header) + human headline + a provider chip. The
@@ -431,28 +438,33 @@ function FleetRow({
           >
             {agentHeadline(agent)}
           </div>
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              minWidth: 0
-            }}
-          >
-            <ProviderChip provider={agent.provider} compact />
-            <span
+          {/* Provider chip + slug-hash sub-line — Basic-hidden: the avatar's provider
+              ring already carries the tool, and the hash is machine noise. Advanced
+              restores both (support/bug-report identifiers). */}
+          {showCheck && (
+            <div
               style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--fs-micro)',
-                color: 'var(--tx-ghost)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minWidth: 0
               }}
             >
-              {agentSlugId(agent)}
-            </span>
-          </div>
+              <ProviderChip provider={agent.provider} compact />
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--fs-micro)',
+                  color: 'var(--tx-ghost)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {agentSlugId(agent)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -579,14 +591,16 @@ export function FleetTable({
   onOpen
 }: FleetTableProps): React.JSX.Element {
   // MODEL + ELAPSED are expert columns — Advanced only. ELAPSED additionally drops
-  // when nothing is running (else a full column of "—").
+  // when nothing is running (else a full column of "—"). The bulk-select checkbox
+  // column + the provider-chip/slug-hash sub-line are Advanced-only too.
+  const showCheck = advanced
   const showModel = advanced
   const showElapsed = advanced && anyRunning(agents)
   // One shared catalog fetch for the whole table (resolves each row's model label).
   const { catalog } = useModelCatalog()
   return (
     <div role="table" aria-label="Fleet agents" style={{ minWidth: 0 }}>
-      <HeaderRow showModel={showModel} showElapsed={showElapsed} />
+      <HeaderRow showCheck={showCheck} showModel={showModel} showElapsed={showElapsed} />
       {agents.length === 0 ? (
         <div
           style={{
@@ -607,6 +621,7 @@ export function FleetTable({
               key={a.path}
               agent={a}
               selected={selected.has(a.path)}
+              showCheck={showCheck}
               showModel={showModel}
               showElapsed={showElapsed}
               elapsed={el.text}

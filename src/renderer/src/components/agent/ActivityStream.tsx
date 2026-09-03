@@ -4,6 +4,7 @@ import { LogRow, LogSeverity } from './LogRow'
 import { useAgentLog } from '@renderer/services/logBuffer'
 import { describeExit } from '@renderer/services/model'
 import { useCliStatus } from '@renderer/services/cliStatus'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 
 /**
  * ActivityStream — the parsed Activity tab body (2a).
@@ -233,6 +234,9 @@ export function ActivityStream({
   // Without the AutoDev CLI runner, Start is guaranteed to fail — so disable the
   // empty-state CTA and say why, instead of inviting a press that can't work (R5).
   const { missing: cliMissing } = useCliStatus()
+  // Basic renders the parsed stream calm (no ⚙ gears, looser rhythm); Advanced
+  // keeps the dense expert stream. The Raw-log toggle stays Advanced (in AgentDetail).
+  const { advanced } = useAdvancedMode()
 
   // Read the shared, path-scoped buffer; fall back to the agent's initial snapshot
   // (lastOutput) when nothing has streamed yet so the pane isn't blank on first open.
@@ -338,6 +342,7 @@ export function ActivityStream({
               body={it.body}
               foldCount={it.foldCount}
               foldedLines={it.foldedLines}
+              calm={!advanced}
             />
           )
         )

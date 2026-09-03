@@ -402,12 +402,17 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           />
         </div>
 
-        <FleetStatusBar
-          selectedCount={selected.size}
-          verbs={bulkVerbs}
-          showing={filtered.length}
-          total={agents.length}
-        />
+        {/* Bulk status bar (selection count + bulk verbs + "showing N of M") — the
+            whole bulk workflow is Advanced (checkboxes are Advanced-only), so this bar
+            is hidden in Basic. Start/Stop-all live in the header, unaffected. */}
+        {advanced && (
+          <FleetStatusBar
+            selectedCount={selected.size}
+            verbs={bulkVerbs}
+            showing={filtered.length}
+            total={agents.length}
+          />
+        )}
       </div>
 
       {/* row "···" context menu — position the menu itself (position:fixed in

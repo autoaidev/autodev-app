@@ -1,6 +1,7 @@
 import React from 'react'
 import { Pill, Button } from '@renderer/ui'
 import { identityTokens } from '@renderer/services/identity'
+import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { OfficeGroup, tickFor, TickState } from './officeTypes'
 
 /**
@@ -47,6 +48,11 @@ export function OfficeCard({
   const online = group.onlineCount
   // 8/12 green · 2/12 amber (partial) · 0/5 grey (none) — per spec.
   const badgeVariant = online === 0 ? 'neutral' : online >= total ? 'green' : 'amber'
+  // Basic keeps the card to name + LIVE + ONE button: the per-character rainbow tick
+  // strip is dropped (the LIVE count already conveys it) and "Open map" leaves the
+  // footer (it lives in the selected office's detail header as "Open in browser").
+  // Advanced restores both.
+  const { advanced } = useAdvancedMode()
 
   return (
     <div
@@ -97,24 +103,26 @@ export function OfficeCard({
         </Pill>
       </div>
 
-      {/* per-character segment ticks */}
-      <div style={{ display: 'flex', gap: 3 }} aria-hidden>
-        {group.agents.map((a) => (
-          <span
-            key={a.id}
-            title={`${a.name} — ${tickFor(a)}`}
-            style={{
-              flex: 1,
-              height: 4,
-              borderRadius: 'var(--r-bar)',
-              background: tickColor(tickFor(a), a.id)
-            }}
-          />
-        ))}
-        {total === 0 && (
-          <span style={{ flex: 1, height: 4, borderRadius: 'var(--r-bar)', background: 'var(--st-track)' }} />
-        )}
-      </div>
+      {/* per-character segment ticks — Advanced only (the LIVE count conveys it) */}
+      {advanced && (
+        <div style={{ display: 'flex', gap: 3 }} aria-hidden>
+          {group.agents.map((a) => (
+            <span
+              key={a.id}
+              title={`${a.name} — ${tickFor(a)}`}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 'var(--r-bar)',
+                background: tickColor(tickFor(a), a.id)
+              }}
+            />
+          ))}
+          {total === 0 && (
+            <span style={{ flex: 1, height: 4, borderRadius: 'var(--r-bar)', background: 'var(--st-track)' }} />
+          )}
+        </div>
+      )}
 
       {/* footer half-buttons */}
       <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
@@ -146,9 +154,13 @@ export function OfficeCard({
             {busy === 'spawning' ? 'Spawning…' : 'Spawn office'}
           </Button>
         )}
-        <Button variant="secondary" size="sm" block onClick={onOpenBrowser} title="Open this office in your browser">
-          Open map
-        </Button>
+        {/* "Open map" — Advanced only; in Basic the office's detail header carries the
+            equivalent "Open in browser", so the card stays to ONE primary action. */}
+        {advanced && (
+          <Button variant="secondary" size="sm" block onClick={onOpenBrowser} title="Open this office in your browser">
+            Open map
+          </Button>
+        )}
       </div>
     </div>
   )

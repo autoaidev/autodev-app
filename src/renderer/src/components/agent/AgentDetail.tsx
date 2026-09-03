@@ -253,33 +253,37 @@ export function AgentDetail({
           </span>
           <StatusPill agent={agent} />
           {/* hero metric — the ONE big number for this view: NNNN/NNNN done, mono +
-              tabular so the digits don't jitter as counters tick. */}
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'baseline',
-              gap: 6,
-              marginLeft: 4
-            }}
-            title="Tasks done / total"
-          >
+              tabular so the digits don't jitter as counters tick. Basic drops it (the
+              same count already lives in the Inspector's TODO.md section, so printing it
+              twice is redundant); Advanced restores the header hero. */}
+          {advanced && (
             <span
               style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--fs-metric)',
-                fontWeight: 'var(--fw-display)',
-                lineHeight: 1,
-                letterSpacing: 'var(--ls-display)',
-                // Colored hero — the done-count is the ONE focal number for this
-                // agent, in the semantic done-green so it wins the blur test.
-                color: 'var(--st-done)',
-                fontFeatureSettings: 'var(--fvn-tabular)'
+                display: 'inline-flex',
+                alignItems: 'baseline',
+                gap: 6,
+                marginLeft: 4
               }}
+              title="Tasks done / total"
             >
-              {count.done}<span style={{ color: 'var(--tx-dim)' }}>/{count.total}</span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 'var(--fs-metric)',
+                  fontWeight: 'var(--fw-display)',
+                  lineHeight: 1,
+                  letterSpacing: 'var(--ls-display)',
+                  // Colored hero — the done-count is the ONE focal number for this
+                  // agent, in the semantic done-green so it wins the blur test.
+                  color: 'var(--st-done)',
+                  fontFeatureSettings: 'var(--fvn-tabular)'
+                }}
+              >
+                {count.done}<span style={{ color: 'var(--tx-dim)' }}>/{count.total}</span>
+              </span>
+              <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>done</span>
             </span>
-            <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>done</span>
-          </span>
+          )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             {/* ONE primary CTA per view — Start is the accent-gradient hero; every
                 other header action is demoted to ghost so the eye lands on Start. */}
@@ -342,6 +346,11 @@ export function AgentDetail({
                   </button>
                 </span>
               )
+            ) : !advanced ? (
+              // Basic: the calm connected / linked-offline states are already shown in
+              // the Inspector's Office row — don't print them twice here. (The
+              // actionable reconnecting notice above always stays.) Advanced restores.
+              null
             ) : officeStatus === 'connected' ? (
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <StatusDot status="running" size={5} />

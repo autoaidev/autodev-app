@@ -50,14 +50,25 @@ export interface LogRowProps {
   foldCount?: number
   /** the collapsed raw lines revealed when the fold tag is expanded */
   foldedLines?: string[]
+  /**
+   * Calm (Basic) rendering: drop the noisy per-line ⚙ gear glyph (info/mcp) —
+   * keeping only the meaningful ! error and ✉ mail markers — and give the row real
+   * breathing room (looser padding + line-height). Advanced (calm=false) keeps the
+   * dense expert stream with every glyph.
+   */
+  calm?: boolean
 }
 
-export function LogRow({ ts, severity, body, foldCount, foldedLines }: LogRowProps): React.JSX.Element {
+export function LogRow({ ts, severity, body, foldCount, foldedLines, calm = false }: LogRowProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
   const folded = foldCount != null && foldCount > 0
+  // In Basic, the ⚙ gear (info/mcp) is pure noise — hide it; ! and ✉ still carry
+  // meaning so they stay. The glyph column keeps its width either way so bodies align.
+  const showGlyph = !calm || severity === 'error' || severity === 'mail'
+  const lh = calm ? '20px' : '17px'
 
   return (
-    <div style={{ display: 'flex', gap: 12, padding: '6px 0', alignItems: 'flex-start' }}>
+    <div style={{ display: 'flex', gap: 12, padding: calm ? '9px 0' : '6px 0', alignItems: 'flex-start' }}>
       <span
         style={{
           flex: 'none',
@@ -66,7 +77,7 @@ export function LogRow({ ts, severity, body, foldCount, foldedLines }: LogRowPro
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--fs-section)',
           color: 'var(--tx-gutter)',
-          lineHeight: '17px',
+          lineHeight: lh,
           userSelect: 'none'
         }}
       >
@@ -81,13 +92,13 @@ export function LogRow({ ts, severity, body, foldCount, foldedLines }: LogRowPro
           color: GLYPH_COLOR[severity],
           fontSize: severity === 'error' ? 'var(--fs-body)' : 'var(--fs-desc)',
           fontWeight: severity === 'error' ? 700 : 400,
-          lineHeight: '17px'
+          lineHeight: lh
         }}
       >
-        {GLYPH[severity]}
+        {showGlyph ? GLYPH[severity] : ''}
       </span>
 
-      <div style={{ flex: 1, minWidth: 0, lineHeight: '17px' }}>
+      <div style={{ flex: 1, minWidth: 0, lineHeight: lh }}>
         <span
           style={{
             fontFamily: 'var(--font-sans)',

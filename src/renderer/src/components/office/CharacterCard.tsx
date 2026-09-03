@@ -151,7 +151,9 @@ export function CharacterCard({
           >
             {agent.name}
           </div>
-          {agent.provider && (
+          {/* Provider TEXT — Basic-hidden: the avatar's provider-accent ring already
+              carries the tool. Advanced restores the explicit label. */}
+          {advanced && agent.provider && (
             <div
               style={{
                 fontFamily: 'var(--font-mono)',
@@ -195,22 +197,27 @@ export function CharacterCard({
         )}
       </div>
 
-      <div
-        style={{
-          fontSize: 'var(--fs-desc)',
-          // Status LABEL color from the shared state map (R-E): connected+working →
-          // running green, waiting-on-you → amber, offline → dim. So an online,
-          // working character no longer reads the same grey as an idle one.
-          color: !connected
-            ? 'var(--tx-4)'
-            : stateColor(tick === 'needs-you' ? 'needs-auth' : 'working'),
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
-        }}
-      >
-        {subtitle}
-      </div>
+      {/* Offline subtitle is just "not connected" — redundant with the idle dot + the
+          Connect link, so Basic drops it (keeps the card to name + ring + Connect).
+          A connected character keeps its live status line; Advanced keeps both. */}
+      {(connected || advanced) && (
+        <div
+          style={{
+            fontSize: 'var(--fs-desc)',
+            // Status LABEL color from the shared state map (R-E): connected+working →
+            // running green, waiting-on-you → amber, offline → dim. So an online,
+            // working character no longer reads the same grey as an idle one.
+            color: !connected
+              ? 'var(--tx-4)'
+              : stateColor(tick === 'needs-you' ? 'needs-auth' : 'working'),
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {subtitle}
+        </div>
+      )}
 
       {/* Operate affordance. Offline it doubles as connect (Basic reads simply
           "Connect"); the online "Open console" opens a live terminal — an operate
