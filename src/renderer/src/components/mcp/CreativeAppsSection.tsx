@@ -339,7 +339,9 @@ export function CreativeAppsSection({
   onMcpChanged: () => void
 }): React.JSX.Element | null {
   const [apps, setApps] = React.useState<DetectedApp[]>([])
-  const [detecting, setDetecting] = React.useState(false)
+  // Start in the "checking" state: this section ALWAYS re-detects on open, so we
+  // must never flash a stale/empty "Not installed" before the first result lands.
+  const [detecting, setDetecting] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
   const detect = React.useCallback(async (): Promise<void> => {
@@ -362,10 +364,19 @@ export function CreativeAppsSection({
     }
   }, [agentPath])
 
+  // Re-detect FRESH every time the modal opens AND whenever the target agent's
+  // workspace path changes (a reused modal switching agents). Keyed on `open` +
+  // `agentPath` — not on the CLI result — so a Blender/GIMP installed since the
+  // last open is picked up with no manual "Re-detect" click. On each (re)open we
+  // drop any prior result and show "Checking…" until the fresh detection arrives,
+  // so a stale "Not installed" can never linger between opens.
   React.useEffect(() => {
     if (!open) return
+    setApps([])
+    setError(null)
+    setDetecting(true)
     void detect()
-  }, [open, detect])
+  }, [open, agentPath, detect])
 
   return (
     <div style={{ marginTop: 18 }}>
