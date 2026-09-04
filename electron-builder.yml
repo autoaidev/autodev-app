@@ -40,8 +40,19 @@ appImage:
 deb:
   artifactName: ${productName}-${version}-amd64.${ext}
 mac:
-  target: dmg
+  # zip only: --mac dmg needs macOS/hdiutil and FAILS when cross-building on Linux.
+  # This is an UNSIGNED experimental build (no codesign identity on this box), so
+  # Gatekeeper will quarantine it — users right-click→Open or clear the xattr.
+  target:
+    - zip
   category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # Distinct per-arch zip names so the arm64/x64 artifacts don't collide.
+  artifactName: ${productName}-${version}-${arch}-mac.${ext}
+# afterPack chmods the darwin node-pty spawn-helper (+x). node-pty ships it in the
+# prebuild WITHOUT the exec bit; without +x it can't open a PTY and the app's
+# terminal breaks on macOS. Runs only for the darwin target (guarded in the hook).
+afterPack: scripts/afterPack.js
 win:
   target:
     - nsis
