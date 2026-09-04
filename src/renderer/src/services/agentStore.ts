@@ -42,7 +42,7 @@
  * logStore can mirror this pattern; the AgentState loop each view ran is replaced.
  */
 import { useSyncExternalStore } from 'react'
-import { ATTENTION_STATES, agentEqual, type AgentState } from './model'
+import { needsUserAttention, agentEqual, type AgentState } from './model'
 
 /* ------------------------------------------------------------------ config -- */
 
@@ -106,7 +106,9 @@ function computeCounts(list: AgentState[]): Counts {
   let needsYou = 0
   for (const a of list) {
     if (a.running) running++
-    if (ATTENTION_STATES.has(a.activity)) needsYou++
+    // "need you" = genuinely awaiting the user (re-auth / rate-limit / pending
+    // choice), NOT crashed/stalled/stopped failures — see needsUserAttention.
+    if (needsUserAttention(a)) needsYou++
   }
   if (running === counts.running && needsYou === counts.needsYou && list.length === counts.total) {
     return counts // stable ref → useFleetCounts won't re-render

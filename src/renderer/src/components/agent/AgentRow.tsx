@@ -1,6 +1,6 @@
 import React from 'react'
 import { StatusDot, DotStatus, Icon, AgentAvatar } from '@renderer/ui'
-import { rowMeta, isDim, agentHeadline, ATTENTION_STATES, stateColor } from '@renderer/services/model'
+import { rowMeta, isDim, agentHeadline, needsUserAttention, isError, stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
 import type { AgentState, MetaTone } from '@renderer/services/model'
 
@@ -19,6 +19,7 @@ export type { Activity, AgentState, MetaTone } from '@renderer/services/model'
 export {
   ACTIVITY_LABEL,
   ATTENTION_STATES,
+  needsUserAttention,
   pillVariantFor,
   stateLabel,
   providerShort,
@@ -110,27 +111,38 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
   const dot: DotStatus = agent.activity
   const showCount = !(agent.activity === 'idle' && agent.tasks.remaining === 0)
   const running = agent.running || agent.activity === 'working'
-  const attention = ATTENTION_STATES.has(agent.activity)
-  const glow = (selected && agent.running) || attention
+  // Split the amber "needs you" affordance (genuinely awaiting the user) from the
+  // red FAILURE affordance (crashed / stalled). An interrupted / retries-exhausted
+  // row must NOT read as amber "needs you" — it reads as an error (red spine/wash +
+  // its red state dot & meta), while re-auth / rate-limit rows keep the amber shout.
+  const needsYou = needsUserAttention(agent)
+  const error = isError(agent)
+  // Only genuine needs-you (or the active selected row) gets the loud glow ring; a
+  // failed agent stays a calm red so it can't masquerade as one awaiting the user.
+  const glow = (selected && agent.running) || needsYou
 
   // Colored row spine (STATE first, then a receding PROVIDER hue so an idle row is
-  // never fully grey): running → green, needs-you → amber, else the provider's
-  // faint ring hue. Identity + provider also live in the avatar tile, so state and
-  // identity never fight for the same pixel.
+  // never fully grey): running → green, needs-you → amber, failure → red, else the
+  // provider's brand hue. Identity + provider also live in the avatar tile, so
+  // state and identity never fight for the same pixel.
   const spine = running
     ? 'var(--st-running-spine)'
-    : attention
+    : needsYou
       ? 'var(--st-needsyou)'
-      : // At rest, the spine is the SOLID provider brand hue (was the faint .5 ring),
-        // so an idle row still declares its tool in full color down its left edge.
-        providerAccent(agent.provider).fg
+      : error
+        ? 'var(--st-error)'
+        : // At rest, the spine is the SOLID provider brand hue (was the faint .5 ring),
+          // so an idle row still declares its tool in full color down its left edge.
+          providerAccent(agent.provider).fg
   // Selection = brighter background + a hairline inset ring; the spine stays state/
   // provider-colored so selecting a row never erases its identity.
   const bg = selected
     ? 'var(--bg-selected)'
-    : attention
+    : needsYou
       ? 'var(--st-needsyou-wash)'
-      : 'transparent'
+      : error
+        ? 'var(--st-error-wash)'
+        : 'transparent'
   const boxShadow =
     `inset var(--spine-w) 0 0 ${spine}` + (selected ? ', inset 0 0 0 1px var(--bd-panel-sel)' : '')
 

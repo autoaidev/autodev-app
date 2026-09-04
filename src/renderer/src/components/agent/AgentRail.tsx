@@ -14,7 +14,7 @@ import {
 import {
   AgentState,
   Activity,
-  ATTENTION_STATES,
+  needsUserAttention,
   providerShort,
   ACTIVITY_LABEL,
   Checkbox,
@@ -473,13 +473,16 @@ export function AgentRail({
   }, [])
 
   const runningCount = agents.filter((a) => a.running).length
-  const needsCount = agents.filter((a) => ATTENTION_STATES.has(a.activity)).length
+  // "Needs you" = agents genuinely awaiting the user (re-auth / rate-limit /
+  // pending choice), NOT crashed/stalled failures — see needsUserAttention. The
+  // chip count and its filter share this one predicate so they can't disagree.
+  const needsCount = agents.filter(needsUserAttention).length
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase()
     return agents.filter((a) => {
       if (filter === 'running' && !a.running) return false
-      if (filter === 'attention' && !ATTENTION_STATES.has(a.activity)) return false
+      if (filter === 'attention' && !needsUserAttention(a)) return false
       if (q && !(a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q) || (a.provider || '').includes(q)))
         return false
       return true

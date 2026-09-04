@@ -88,7 +88,14 @@ export const STATE_LABEL: Record<Activity, string> = {
   crashed: 'TIMED OUT'
 }
 
-/** States that demand the operator: float to the top, drive the "needs you" tally. */
+/**
+ * The broad TRIAGE set — states worth the operator's eye, whether the agent is
+ * blocked on the user (needs-auth / rate-limited) OR has failed (crashed /
+ * stalled). Drives fleet SORT (float to top), the "not-dim" row treatment, and
+ * the per-agent attention SUMMARY. It is deliberately NOT the "needs you" tally:
+ * a crashed / retries-exhausted agent is a failure to retry, not one awaiting the
+ * user — for that count use `needsUserAttention` / `NEEDS_YOU_STATES` below.
+ */
 export const ATTENTION_STATES = new Set<Activity>([
   'stalled',
   'needs-auth',
@@ -96,10 +103,37 @@ export const ATTENTION_STATES = new Set<Activity>([
   'crashed'
 ])
 
+/**
+ * The GENUINE "needs you" set — the agent is blocked on the operator's input or
+ * attention and cannot proceed without it:
+ *   - needs-auth   → the user must re-authenticate (reauth_required)
+ *   - rate-limited → the user's attention/action on a provider rate-limit pause
+ * (A pending choice/question from the ask_user / choice-wizard would belong here
+ * too; the app's Activity model does not yet carry that state — add it here when
+ * it does, so this stays the one place "needs you" is defined.)
+ *
+ * This EXCLUDES terminal failure/stopped states — `crashed` (interrupted /
+ * retries-exhausted / timed-out), `stalled`, `stopped` — which have their own
+ * "!" / Retry affordance and must NOT inflate the "N need you" tally. It is the
+ * SINGLE source for the toolbar "need you" pill, the rail "Needs you" chip (count
+ * + filter + focus jump), and the per-agent needs-you row flag.
+ */
+export const NEEDS_YOU_STATES = new Set<Activity>(['needs-auth', 'rate-limited'])
+
 /* ------------------------------------------------------------- predicates ---- */
 
-/** True when the agent is asking for the operator (any ATTENTION state). */
+/** True when the agent is worth the operator's eye (any TRIAGE state — includes
+ *  failures). For the "needs you" COUNT use `needsUserAttention`, not this. */
 export const isAttention = (a: AgentState): boolean => ATTENTION_STATES.has(a.activity)
+
+/**
+ * True ONLY when the agent genuinely NEEDS THE USER — it is blocked awaiting the
+ * operator's input/attention (re-auth, rate-limit pause, or a pending choice).
+ * A crashed / interrupted / retries-exhausted / stalled / stopped agent is NOT
+ * "needing you" (it failed and offers Retry). This is the shared predicate behind
+ * every "need you" tally/chip/badge so they can never diverge.
+ */
+export const needsUserAttention = (a: AgentState): boolean => NEEDS_YOU_STATES.has(a.activity)
 
 /** Hard-error states (red wash) vs. soft attention states (amber wash). */
 export const isError = (a: AgentState): boolean =>

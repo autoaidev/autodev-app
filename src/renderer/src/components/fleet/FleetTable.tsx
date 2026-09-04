@@ -17,16 +17,19 @@ import {
   tasksLabel,
   washTone
 } from './fleet-helpers'
-import { stateColor } from '@renderer/services/model'
+import { stateColor, needsUserAttention, isError } from '@renderer/services/model'
 
 /**
- * A row's left spine color: STATE first (running → green, attention → amber),
- * else a receding PROVIDER hue so an idle row still carries its tool color and no
- * row is ever fully grey. Mirrors the Agents-rail AgentRow spine logic exactly.
+ * A row's left spine color: STATE first (running → green, needs-you → amber,
+ * failure → red), else a receding PROVIDER hue so an idle row still carries its
+ * tool color and no row is ever fully grey. Mirrors the Agents-rail AgentRow spine
+ * logic exactly — a crashed/interrupted row reads red (an error), NOT amber
+ * "needs you" (which is reserved for agents genuinely awaiting the user).
  */
 function rowSpine(a: AgentState): string {
   if (a.running || a.activity === 'working') return 'var(--st-running-spine)'
-  if (isAttention(a)) return 'var(--st-needsyou)'
+  if (needsUserAttention(a)) return 'var(--st-needsyou)'
+  if (isError(a)) return 'var(--st-error)'
   return providerAccent(a.provider).ring
 }
 

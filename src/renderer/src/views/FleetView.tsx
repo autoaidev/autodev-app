@@ -9,7 +9,7 @@ import {
 } from '@renderer/components/fleet/StatTiles'
 import { FleetTable, RowAction } from '@renderer/components/fleet/FleetTable'
 import { FleetStatusBar, BulkVerb } from '@renderer/components/fleet/FleetStatusBar'
-import { AgentState, ATTENTION_STATES, isAttention, formatElapsed } from '@renderer/services/model'
+import { AgentState, ATTENTION_STATES, isAttention, needsUserAttention, formatElapsed } from '@renderer/services/model'
 import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/agentStore'
 import { modelKeyFor } from '@renderer/lib/providers'
 import { BulkModelModal } from '@renderer/modals/BulkModelModal'
@@ -114,7 +114,11 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
     )
   }, [sorted, search])
 
-  const attention = useMemo(() => sorted.filter(isAttention), [sorted])
+  // The "Needs you" tile + toolbar pill count ONLY agents genuinely awaiting the
+  // user (re-auth / rate-limit / pending choice) — see needsUserAttention. Crashed
+  // / stalled failures still float to the top (sort rank above) and keep their
+  // Retry action in the table (isAttention below), just not this "need you" tally.
+  const needsYou = useMemo(() => sorted.filter(needsUserAttention), [sorted])
   const runningCount = useMemo(() => agents.filter((a) => a.running).length, [agents])
   const officeCount = useMemo(
     () => new Set(agents.map((a) => a.officeSlug).filter(Boolean)).size,
@@ -360,7 +364,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
       searchValue={search}
       onSearchChange={setSearch}
       running={runningCount}
-      needsYou={attention.length}
+      needsYou={needsYou.length}
       style={{ height: '100%' }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, background: 'var(--grad-stage)' }}>
@@ -378,7 +382,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           <div style={{ display: 'flex', gap: 12, marginTop: 16, marginBottom: 18 }}>
             {/* NeedsYou is the triage tile — always shown. Throughput + Providers are
                 Advanced-only analytics. */}
-            <NeedsYouTile agents={attention} actionFor={attentionAction} />
+            <NeedsYouTile agents={needsYou} actionFor={attentionAction} />
             {advanced && <ThroughputTile bars={bars} closed={closedToday} />}
             {advanced && <ProvidersTile agents={agents} />}
           </div>

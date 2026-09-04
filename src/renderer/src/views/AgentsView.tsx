@@ -4,7 +4,7 @@ import { AgentRail, AgentAction, BulkAction } from '@renderer/components/agent/A
 import { AgentDetail, DetailTab } from '@renderer/components/agent/AgentDetail'
 import { Inspector } from '@renderer/components/agent/Inspector'
 import { useAgentTasks } from '@renderer/components/agent/useAgentTasks'
-import { AgentState, ATTENTION_STATES } from '@renderer/services/model'
+import { AgentState, needsUserAttention } from '@renderer/services/model'
 import { useAgents, getAgents, actions, refreshAgents } from '@renderer/services/agentStore'
 import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/services/logBuffer'
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
@@ -125,7 +125,7 @@ export function AgentsView(): React.JSX.Element {
   if (current) lastAgentRef.current = current
   const displayAgent = current ?? lastAgentRef.current
   const running = agents.filter((a) => a.running).length
-  const needsYou = agents.filter((a) => ATTENTION_STATES.has(a.activity)).length
+  const needsYou = agents.filter(needsUserAttention).length
 
   // ONE reconciled task truth for the shown agent, fed to BOTH the AgentDetail
   // header ("N/M done") and the Inspector TODO.md panel ("N / M") so the two
@@ -137,7 +137,7 @@ export function AgentsView(): React.JSX.Element {
   // the Agents tab forward (onFocusAttention = go('agents')); we own the selection.
   React.useEffect(() => {
     return appActions.subscribeFocusAttention(() => {
-      const hit = getAgents().find((a) => ATTENTION_STATES.has(a.activity))
+      const hit = getAgents().find(needsUserAttention)
       if (hit) {
         setSelected(hit.path)
         setDetailTab('activity')
