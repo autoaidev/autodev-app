@@ -3,6 +3,7 @@ import { Modal, Button, Icon, InfoTip } from '@renderer/ui'
 import { ServerRow } from '../components/mcp/ServerRow'
 import { JsonCodeBlock } from '../components/mcp/JsonCodeBlock'
 import { summarize, metaFor, type McpServerStatus } from '../components/mcp/mcpStatus'
+import { CreativeAppsSection } from '../components/mcp/CreativeAppsSection'
 
 /**
  * Starter templates for the most common MCP servers, so "Add server" inserts a
@@ -445,6 +446,16 @@ export function McpEditorModal(props: {
           ))}
         </div>
       )}
+
+      {/* ── DETECTED CREATIVE APPS (Blender / GIMP → enable as MCP) ── */}
+      <CreativeAppsSection
+        agentPath={agentPath}
+        open={open}
+        onMcpChanged={() => {
+          void recheck()
+          void loadJson()
+        }}
+      />
 
       {/* ── RAW .MCP.JSON (JSON second) ───────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '18px 0 8px' }}>

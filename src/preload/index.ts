@@ -11,6 +11,22 @@ export interface KeyUsage {
   unlimited?: boolean
 }
 
+/** One detectable creative app from `autodev mcp detect --json` (mirrors main/agentManager.ts McpDetectApp). */
+export interface McpDetectApp {
+  id: string
+  name: string
+  installed: boolean
+  path: string | null
+  source: string | null
+  experimental: boolean
+  server: Record<string, unknown>
+  serverName: string
+  prerequisites: Array<{ id: string; installed: boolean; installHint: string }>
+  postSetup: string[]
+  notes: string[]
+  alreadyEnabled: boolean
+}
+
 /** One provider family's model catalog (mirrors main/index.ts + `autodev models`). */
 export interface ModelCatalogEntry {
   family: string
@@ -33,6 +49,13 @@ const api = {
   readAgentMcp: (path: string) => ipcRenderer.invoke('agent:readMcp', path),
   writeAgentMcp: (path: string, content: string) => ipcRenderer.invoke('agent:writeMcp', path, content),
   agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),
+  // Detected creative apps → enable-as-MCP. Both go through the bundled CLI
+  // (`autodev mcp detect`), so enabling reaches every provider — never writeMcp.
+  mcpDetect: (path: string): Promise<{ apps: McpDetectApp[] } | { error: string }> =>
+    ipcRenderer.invoke('mcp:detect', path),
+  mcpEnableApp: (opts: { path: string; app: string; gimpClient?: string }): Promise<
+    { ok: true; stdout: string } | { ok: false; error: string }
+  > => ipcRenderer.invoke('mcp:enableApp', opts),
   confirmDialog: (message: string, detail?: string) => ipcRenderer.invoke('dialog:confirm', message, detail),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   // The provider model catalog (id/label/contextLimit per family) from the bundled

@@ -27,6 +27,23 @@ export interface McpServerStatus {
   error?: string
 }
 
+/** One detectable creative app from `autodev mcp detect --json` (the CLI owns
+ *  this shape; the app just renders it — see mcpDetect). */
+export interface McpDetectApp {
+  id: string
+  name: string
+  installed: boolean
+  path: string | null
+  source: string | null
+  experimental: boolean
+  server: Record<string, unknown>
+  serverName: string
+  prerequisites: Array<{ id: string; installed: boolean; installHint: string }>
+  postSetup: string[]
+  notes: string[]
+  alreadyEnabled: boolean
+}
+
 /** True if a bare runner (no path separators) resolves on PATH, or an explicit
  *  path exists. Synchronous PATH scan — no subprocess, no side effects.
  *
@@ -984,6 +1001,48 @@ export class AgentManager extends EventEmitter {
         resolve({ stdout: stdout || '', stderr: stderr || (err ? String(err.message) : ''), code: err ? (err as any).code ?? 1 : 0 })
       })
     })
+  }
+
+  /**
+   * Detect installed creative apps (Blender, GIMP) that can be wired as MCP
+   * servers, via the bundled CLI's `autodev mcp detect --json`. The CLI is the
+   * single source of truth for what's detectable, its server config, its
+   * prerequisites and post-setup steps — the app never hand-rolls this. Returns
+   * the parsed `{ apps: [...] }` object, or an `{ error }` shape the UI can show.
+   */
+  async mcpDetect(path: string): Promise<{ apps: McpDetectApp[] } | { error: string }> {
+    const r = await this.runCli(['mcp', 'detect', path, '--json'], path)
+    if (r.code !== 0) {
+      return { error: (r.stderr || r.stdout || 'mcp detect failed').trim() }
+    }
+    try {
+      const parsed = JSON.parse(r.stdout)
+      const apps = Array.isArray(parsed?.apps) ? (parsed.apps as McpDetectApp[]) : []
+      return { apps }
+    } catch (e: any) {
+      return { error: `Could not parse mcp detect output: ${e?.message ?? 'invalid JSON'}` }
+    }
+  }
+
+  /**
+   * Enable a detected creative app as an MCP server THROUGH the CLI — never via
+   * writeMcp. `autodev mcp detect --enable <app>` writes the server into
+   * .mcp.json AND propagates it to every provider (syncProjectMcpServers), which
+   * a raw writeFileSync into .mcp.json would skip. For gimp an optional
+   * `gimpClient` path is passed through as `--gimp-client`. On success returns the
+   * CLI stdout (the post-setup guidance); on failure an `{ ok:false, error }`.
+   */
+  async mcpEnableApp(opts: { path: string; app: string; gimpClient?: string }): Promise<
+    { ok: true; stdout: string } | { ok: false; error: string }
+  > {
+    const { path, app, gimpClient } = opts
+    const args = ['mcp', 'detect', path, '--enable', app]
+    if (app === 'gimp' && gimpClient) args.push('--gimp-client', gimpClient)
+    const r = await this.runCli(args, path)
+    if (r.code !== 0) {
+      return { ok: false, error: (r.stderr || r.stdout || `Failed to enable ${app}`).trim() }
+    }
+    return { ok: true, stdout: (r.stdout || '').trim() }
   }
 
   // --- Per-agent trace export (TraceX) -------------------------------------

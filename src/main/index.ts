@@ -216,6 +216,14 @@ ipcMain.handle('agent:message', (_e, path: string, text: string) => manager.send
 ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
 ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
 ipcMain.handle('agent:mcpStatus', (_e, path: string) => manager.mcpStatus(path))
+// Detected creative apps (Blender/GIMP) → enable-as-MCP. Both route through the
+// bundled CLI (mcpDetect / mcpEnableApp → runCli), so enabling propagates the
+// server to every provider (syncProjectMcpServers) instead of just poking
+// .mcp.json the way writeMcp would.
+ipcMain.handle('mcp:detect', (_e, path: string) => manager.mcpDetect(path))
+ipcMain.handle('mcp:enableApp', (_e, opts: { path: string; app: string; gimpClient?: string }) =>
+  manager.mcpEnableApp(opts)
+)
 ipcMain.handle('cli:run', (_e, args: string[], cwd?: string) => manager.runCli(args, cwd))
 // The provider model catalog (id/label/contextLimit per family) sourced from the
 // bundled CLI's `autodev models --json`. The catalog is STATIC for a given CLI
