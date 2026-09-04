@@ -35,9 +35,16 @@ const VERSION = appPkg.version;
 // Canonical names the launcher (npm/bin/autodev-app.js) and the connect card
 // (pixel-office AgentConnectCommands.vue) both construct from the version. These
 // MUST stay in lockstep with those two — the test suite asserts it.
+//
+// NAME COHERENCE: electron-builder now BUILDS artifacts with exactly these names
+// (see artifactName in electron-builder.yml), so the emitted latest*.yml points
+// at the served filenames and auto-update never 404s. Staging is a plain COPY —
+// no rename — which keeps the yml's `path:`/`url:` valid against the served files.
 const CANON = {
   appimage: `AutoDev-${VERSION}-x86_64.AppImage`,
   deb: `AutoDev-${VERSION}-amd64.deb`,
+  winSetup: `AutoDev-${VERSION}-setup.exe`,
+  winPortable: `AutoDev-${VERSION}-portable.exe`,
 };
 
 const downloadDir = process.env.AUTODEV_DOWNLOAD_DIR
@@ -67,7 +74,7 @@ if (skipBuild) {
   execFileSync('npm', ['run', 'dist'], { cwd: ROOT, stdio: 'inherit' });
 }
 
-// ── 2. Stage artifacts under the download dir with canonical names ────────────
+// ── 2. Stage artifacts under the download dir (built name == served name) ─────
 fs.mkdirSync(downloadDir, { recursive: true });
 const appimageSrc = findDist('.AppImage');
 const debSrc = findDist('.deb');
@@ -80,6 +87,30 @@ say(`• staged ${path.basename(debSrc)} → ${CANON.deb}`);
 
 const appimageSha = sha256(appimageDst);
 const debSha = sha256(debDst);
+
+// Windows artifacts only exist if a `dist:win` build has run into the same dist/.
+// Copy what's there; log what's missing (a Linux-only publish is still valid).
+const dist = path.join(ROOT, 'dist');
+function copyIfExists(name, label) {
+  const src = path.join(dist, name);
+  if (!fs.existsSync(src)) { say(`• (skip) no ${label} in dist/ (${name})`); return null; }
+  const dst = path.join(downloadDir, name);
+  fs.copyFileSync(src, dst);
+  say(`• staged ${name}`);
+  return dst;
+}
+const winSetupDst = copyIfExists(CANON.winSetup, 'Windows setup.exe');
+const winPortableDst = copyIfExists(CANON.winPortable, 'Windows portable.exe');
+
+// Copy the update feeds + every blockmap so electron-updater can resolve deltas.
+// These sit NEXT TO the artifacts they reference; their `path:`/`url:` are the
+// canonical names above (built == served), so no rewriting is needed.
+for (const f of fs.readdirSync(dist)) {
+  if (f === 'latest.yml' || f === 'latest-linux.yml' || f.endsWith('.blockmap')) {
+    fs.copyFileSync(path.join(dist, f), path.join(downloadDir, f));
+    say(`• staged ${f}`);
+  }
+}
 
 // ── 3. Re-pin the launcher's sha256 (it fetches + verifies the AppImage) ──────
 const launcherPath = path.join(ROOT, 'npm', 'bin', 'autodev-app.js');
@@ -105,8 +136,10 @@ if (npmPkg.version !== VERSION) {
   say(`• synced npm/package.json version ${was} → ${VERSION}`);
 }
 
-// ── 5. SHA256SUMS (both artifacts) ────────────────────────────────────────────
-const sums = `${appimageSha}  ${CANON.appimage}\n${debSha}  ${CANON.deb}\n`;
+// ── 5. SHA256SUMS (every staged artifact) ─────────────────────────────────────
+let sums = `${appimageSha}  ${CANON.appimage}\n${debSha}  ${CANON.deb}\n`;
+if (winSetupDst) sums += `${sha256(winSetupDst)}  ${CANON.winSetup}\n`;
+if (winPortableDst) sums += `${sha256(winPortableDst)}  ${CANON.winPortable}\n`;
 fs.writeFileSync(path.join(downloadDir, 'SHA256SUMS'), sums);
 say('• wrote SHA256SUMS');
 

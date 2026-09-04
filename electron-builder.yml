@@ -30,8 +30,33 @@ linux:
   # a proper size set installs to hicolor/<size>/apps so the menu shows the icon.
   icon: build/icons
   maintainer: autoaidev
+# AUTO-UPDATE NAME COHERENCE: the artifact must BUILD as the exact name it is
+# SERVED as. electron-updater reads latest*.yml, whose `path:`/`url:` are the
+# BUILT names — so if the served file were renamed (as publish.mjs used to do),
+# the feed would point at a missing file and updates 404. These artifactNames
+# make built == served; publish.mjs now COPIES (never renames) and ships the yml.
+appImage:
+  artifactName: ${productName}-${version}-x86_64.${ext}
+deb:
+  artifactName: ${productName}-${version}-amd64.${ext}
 mac:
   target: dmg
   category: public.app-category.developer-tools
 win:
-  target: nsis
+  target:
+    - nsis
+    - portable
+  icon: build/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Per-user install (no admin/UAC elevation), matches the AppImage's no-root ethos.
+  perMachine: false
+  artifactName: ${productName}-${version}-setup.${ext}
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+# Generic feed so electron-updater knows where to look for latest*.yml + artifacts.
+# Same host the launcher's BASE serves; app.pixeloffice.org/download is prod.
+publish:
+  provider: generic
+  url: https://app.pixeloffice.org/download

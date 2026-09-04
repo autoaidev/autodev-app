@@ -6,6 +6,7 @@ import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
 import { resolveCliJs, resolveModelCatalogJson } from './cli'
 import * as appSettings from './appSettings'
+import { initAutoUpdate } from './autoUpdate'
 import { readFileSync } from 'fs'
 
 /** One provider family's model catalog, as emitted by `autodev models --json`. */
@@ -360,6 +361,9 @@ ipcMain.handle('office:updateCharacter', (_e, agentId: string, patch: { provider
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  // Auto-update (packaged builds only; guarded + try/catch so a missing feed is a
+  // no-op). Downloads in the background, then ASKS before restarting to install.
+  initAutoUpdate(() => mainWindow)
   // Re-verify the stored office token, then start polling office presence so the
   // Agents list reflects which characters are live in the office from launch.
   office.autoConnect().catch(() => false).finally(() => startOfficePolling())
