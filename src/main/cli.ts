@@ -50,6 +50,20 @@ export function resolveModelCatalogJson(): string | null {
   return existsSync(p) ? p : null
 }
 
+/**
+ * The GENERATED MCP catalog shipped next to the bundled CLI
+ * (resources/autodev-cli/mcp-catalog.json, written by scripts/bundle-cli.mjs from
+ * `autodev mcp catalog --json` at build time). Twin of resolveModelCatalogJson —
+ * the OFFLINE fallback for the MCP catalog picker, versioned with the CLI so it
+ * cannot drift. Returns null when no CLI (hence no catalog) is present.
+ */
+export function resolveMcpCatalogJson(): string | null {
+  const cliJs = resolveCliJs()
+  if (!cliJs) return null
+  const p = join(dirname(dirname(cliJs)), 'mcp-catalog.json')
+  return existsSync(p) ? p : null
+}
+
 import { execFileSync } from 'child_process'
 
 let _systemNode: string | null | undefined

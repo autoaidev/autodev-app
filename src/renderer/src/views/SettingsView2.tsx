@@ -9,7 +9,9 @@ import {
 } from '@renderer/lib/providers'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { ServerRow } from '@renderer/components/mcp/ServerRow'
+import { McpCatalogPicker } from '@renderer/components/mcp/McpCatalogPicker'
 import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
+import { useDefaultMcp, saveDefaultMcp, type DefaultMcpEntry } from '@renderer/lib/mcp'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { useTheme, type ThemePref } from '@renderer/services/theme'
 
@@ -85,31 +87,6 @@ const PROVIDER_HINTS: Record<string, string> = {
 const providerHint = (id: string): string =>
   PROVIDER_HINTS[id] ??
   `${providerLabel(id)} — sign in with \`${providerAuthFor(id).cmd}\` on this machine.`
-
-// The default MCP servers the app's editor seeds (mirrors MCP_PRESETS in
-// McpEditorModal — read-only reference; kept here as display data since that
-// const is module-private). Shown as reference cards so a user knows the common
-// servers before they open an agent's editor.
-const DEFAULT_MCP: { name: string; kind: 'stdio' | 'remote'; detail: string; hint: string }[] = [
-  {
-    name: 'memory',
-    kind: 'stdio',
-    detail: 'npx -y @modelcontextprotocol/server-memory',
-    hint: 'Persistent knowledge-graph memory across sessions.'
-  },
-  {
-    name: 'filesystem',
-    kind: 'stdio',
-    detail: 'npx -y @modelcontextprotocol/server-filesystem .',
-    hint: 'Read/write files under the workspace root.'
-  },
-  {
-    name: 'pixel-office',
-    kind: 'remote',
-    detail: 'https://<office>/api/office-mcp',
-    hint: 'Office A2A / operate bridge — usually synced from the office (its URL + agent key).'
-  }
-]
 
 // About / footer links. The app has no `homepage` in package.json, so these are
 // the canonical product URLs, opened in the system browser via openExternal.
@@ -204,6 +181,12 @@ export function SettingsView2(): JSX.Element {
 
   // --- REAL tracked workspaces (listAgents) → Storage + the MCP agent picker --
   const [agents, setAgents] = useState<AgentLite[]>([])
+
+  // --- Editable DEFAULT MCP servers (seed for NEW agents) ---------------------
+  // Mirrors "Default models": persisted app-side (app-settings.json defaultMcp),
+  // applied by SEEDING at agent create. Existing agents are untouched — use
+  // "Apply to folder/selection" (BulkMcpModal) for those.
+  const { defaults: defaultMcp, reload: reloadDefaultMcp } = useDefaultMcp()
 
   // --- Live per-agent MCP connectivity (agentMcpStatus) -----------------------
   const [mcpSel, setMcpSel] = useState<string>('')
@@ -324,6 +307,33 @@ export function SettingsView2(): JSX.Element {
       }
     })()
   }, [])
+
+  // Persist the whole default-MCP list, then re-read truth (replace semantics).
+  const persistDefaultMcp = useCallback(async (next: DefaultMcpEntry[]) => {
+    await saveDefaultMcp(next)
+    reloadDefaultMcp()
+  }, [reloadDefaultMcp])
+
+  const addDefaultMcp = useCallback(
+    (pick: { name: string; server: DefaultMcpEntry['server']; kind: DefaultMcpEntry['kind']; id?: string }) => {
+      if (defaultMcp.some((d) => d.name === pick.name)) return // dedupe by name
+      void persistDefaultMcp([...defaultMcp, { id: pick.id, name: pick.name, server: pick.server, kind: pick.kind }])
+    },
+    [defaultMcp, persistDefaultMcp]
+  )
+  const removeDefaultMcp = useCallback(
+    (name: string) => void persistDefaultMcp(defaultMcp.filter((d) => d.name !== name)),
+    [defaultMcp, persistDefaultMcp]
+  )
+  const toggleDefaultMcp = useCallback(
+    (name: string) =>
+      void persistDefaultMcp(
+        defaultMcp.map((d) =>
+          d.name === name ? { ...d, server: { ...d.server, enabled: d.server?.enabled === false } } : d
+        )
+      ),
+    [defaultMcp, persistDefaultMcp]
+  )
 
   const loadMcp = useCallback(async (path: string) => {
     setMcpSel(path)
@@ -852,23 +862,63 @@ export function SettingsView2(): JSX.Element {
                 </InfoTip>
               </span>
             }
-            subtitle="The default servers the editor seeds, and a live connectivity check for any agent. MCP is configured per agent (.mcp.json), not app-wide."
+            subtitle="Editable default MCP servers that seed new agents, and a live connectivity check for any agent. MCP is configured per agent (.mcp.json); defaults here are a create-time seed applied through the CLI."
           >
             <div style={S.subHead}>
-              <span style={S.subHeadTitle}>Default servers</span>
+              <span style={S.subHeadTitle}>Default MCP servers</span>
+              <InfoTip label="Default MCP servers" width={290}>
+                These seed every NEW agent you create (single-agent Setup, Make-app teams, add-a-folder).
+                Existing agents are unaffected — use the rail/Fleet <strong>Set MCP…</strong> action to
+                apply them to agents you already have. Every write goes through the AutoDev CLI.
+              </InfoTip>
+              <div style={{ marginLeft: 'auto' }}>
+                <McpCatalogPicker
+                  buttonLabel="Add server"
+                  exclude={new Set(defaultMcp.map((d) => d.name))}
+                  onPick={addDefaultMcp}
+                />
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {DEFAULT_MCP.map((m) => (
-                <div key={m.name} style={S.mcpCard}>
-                  <div style={S.mcpCardHead}>
-                    <span style={S.mcpName}>{m.name}</span>
-                    <span style={S.transportBadge}>{m.kind === 'remote' ? 'remote' : 'stdio'}</span>
-                  </div>
-                  <code style={S.mcpDetail}>{m.detail}</code>
-                  <div style={S.mcpHint}>{m.hint}</div>
-                </div>
-              ))}
-            </div>
+            {defaultMcp.length === 0 ? (
+              <div style={S.emptyNote}>
+                No default MCP servers yet. Add one with <strong>Add server</strong> above — it will be
+                seeded into every new agent. Leave this empty to create agents with no MCP servers
+                pre-wired.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {defaultMcp.map((m) => {
+                  const enabled = m.server?.enabled !== false
+                  const remote = typeof m.server?.url === 'string' && m.server.url
+                  const detail = remote
+                    ? m.server.url
+                    : [m.server?.command, ...(m.server?.args ?? [])].filter(Boolean).join(' ')
+                  return (
+                    <div key={m.name} style={S.mcpCard}>
+                      <div style={S.mcpCardHead}>
+                        <span style={S.mcpName}>{m.name}</span>
+                        <span style={S.transportBadge}>{remote ? 'remote' : 'stdio'}</span>
+                        {m.kind && m.kind !== 'custom' && (
+                          <Pill variant="neutral" style={{ fontSize: 9 }}>{m.kind}</Pill>
+                        )}
+                        <span style={{ fontSize: 9.5, fontFamily: 'var(--font-mono)', color: enabled ? 'var(--st-running)' : 'var(--tx-dim)' }}>
+                          {enabled ? 'enabled' : 'disabled'}
+                        </span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                          <Button variant="ghost" size="sm" onClick={() => toggleDefaultMcp(m.name)}>
+                            {enabled ? 'Disable' : 'Enable'}
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => removeDefaultMcp(m.name)}>
+                            Remove
+                          </Button>
+                        </div>
+                      </div>
+                      {detail && <code style={S.mcpDetail}>{detail}</code>}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             <div style={S.subHead}>
               <span style={S.subHeadTitle}>Check an agent</span>

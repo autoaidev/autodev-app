@@ -18,6 +18,8 @@ export interface JsonCodeBlockProps {
   /** footer-left message (e.g. "line 3 · runner not resolvable") */
   problem?: string
   spellCheck?: boolean
+  /** read-only view — no caret edits, onChange never fires (advanced raw display). */
+  readOnly?: boolean
 }
 
 /** tokenise ONE json line into coloured spans using the --syn-* tokens. */
@@ -71,7 +73,8 @@ export function JsonCodeBlock({
   onChange,
   highlightLine,
   problem,
-  spellCheck = false
+  spellCheck = false,
+  readOnly = false
 }: JsonCodeBlockProps): React.JSX.Element {
   const lines = value.split('\n')
   const taRef = React.useRef<HTMLTextAreaElement>(null)
@@ -181,7 +184,8 @@ export function JsonCodeBlock({
             data-json-editor
             value={value}
             spellCheck={spellCheck}
-            onChange={(e) => onChange(e.target.value)}
+            readOnly={readOnly}
+            onChange={(e) => { if (!readOnly) onChange(e.target.value) }}
             onScroll={syncScroll}
             wrap="off"
             style={{

@@ -10,6 +10,7 @@ import { appendAgentLog, deleteAgentLog, pruneAgentLogs } from '@renderer/servic
 import { AgentConfigModal } from '@renderer/modals/AgentConfigModal'
 import { McpEditorModal } from '@renderer/modals/McpEditorModal'
 import { BulkModelModal } from '@renderer/modals/BulkModelModal'
+import { BulkMcpModal } from '@renderer/modals/BulkMcpModal'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
@@ -65,6 +66,9 @@ export function AgentsView(): React.JSX.Element {
   // Bulk "Set model": the checked agents captured when the popover opened. Non-null
   // = the model modal is open (BulkModelModal handles the mixed-provider apply).
   const [modelPrompt, setModelPrompt] = React.useState<{ paths: string[] } | null>(null)
+  // Bulk "Set MCP": the checked agents captured when the toolbar action fired.
+  // Non-null = the BulkMcpModal is open (fans an MCP op across the checked paths).
+  const [mcpPrompt, setMcpPrompt] = React.useState<{ paths: string[] } | null>(null)
 
   // Prune log buffers for agents no longer in the fleet so the Map can't grow
   // unbounded (diff against the live set — a size gate would strand stale buffers
@@ -223,6 +227,12 @@ export function AgentsView(): React.JSX.Element {
         // Open the bulk model picker over the current selection; the writes + the
         // selection-clear happen inside BulkModelModal (onApplied).
         if (paths.length > 0) setModelPrompt({ paths })
+        return
+      }
+      if (action === 'mcp') {
+        // Open the bulk MCP modal over the current selection; the writes + the
+        // selection-clear happen inside BulkMcpModal (onApplied).
+        if (paths.length > 0) setMcpPrompt({ paths })
         return
       }
       for (const p of paths) {
@@ -509,6 +519,19 @@ export function AgentsView(): React.JSX.Element {
         onClose={() => setModelPrompt(null)}
         onApplied={() => {
           setModelPrompt(null)
+          setChecked(new Set())
+        }}
+      />
+
+      {/* Bulk "Set MCP": one MCP op (add/remove/enable/disable/apply-defaults),
+          fanned across the checked agents via the CLI. Clears the selection after. */}
+      <BulkMcpModal
+        open={mcpPrompt != null}
+        agents={agents}
+        paths={mcpPrompt?.paths ?? []}
+        onClose={() => setMcpPrompt(null)}
+        onApplied={() => {
+          setMcpPrompt(null)
           setChecked(new Set())
         }}
       />

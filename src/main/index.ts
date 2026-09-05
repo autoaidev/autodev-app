@@ -4,7 +4,8 @@ import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
-import { resolveCliJs, resolveModelCatalogJson } from './cli'
+import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson } from './cli'
+import type { McpCatalogServer, McpJsonEntry } from './agentManager'
 import * as appSettings from './appSettings'
 import { initAutoUpdate } from './autoUpdate'
 import { readFileSync } from 'fs'
@@ -255,6 +256,35 @@ ipcMain.handle('models:list', async (): Promise<ModelCatalog> => {
   if (gen) { _modelCatalog = gen; return gen }
   return []
 })
+// The pickable MCP catalog (`autodev mcp catalog --json`) — the single source of
+// truth for the app's default/bulk/per-agent MCP pickers. STATIC per CLI version,
+// so cache after the first successful read; if the live CLI run fails, fall back
+// to the GENERATED mcp-catalog.json shipped beside the bundled CLI (written from
+// that same command at build time) so the picker works even offline. Mirrors
+// `models:list` exactly.
+function readGeneratedMcpCatalog(): { servers: McpCatalogServer[] } | null {
+  try {
+    const p = resolveMcpCatalogJson()
+    if (!p) return null
+    const parsed = JSON.parse(readFileSync(p, 'utf8')) as { servers?: McpCatalogServer[] }
+    return Array.isArray(parsed?.servers) && parsed.servers.length > 0 ? { servers: parsed.servers } : null
+  } catch { return null }
+}
+let _mcpCatalog: { servers: McpCatalogServer[] } | null = null
+ipcMain.handle('mcp:catalog', async (): Promise<{ servers: McpCatalogServer[] } | { error: string }> => {
+  if (_mcpCatalog) return _mcpCatalog
+  const live = await manager.mcpCatalog()
+  if ('servers' in live && live.servers.length > 0) { _mcpCatalog = live; return live }
+  const gen = readGeneratedMcpCatalog()
+  if (gen) { _mcpCatalog = gen; return gen }
+  return live // propagate the {error} (or empty {servers:[]}) when nothing else is available
+})
+ipcMain.handle('mcp:list', (_e, path: string) => manager.mcpList(path))
+// Every layered MCP write (default seed / per-folder bulk / per-agent picker)
+// routes through here → `autodev mcp <op>` → provider-sync + `_meta`, never writeMcp.
+ipcMain.handle('mcp:apply', (_e, opts: { path: string; op: 'add' | 'remove' | 'enable' | 'disable'; name: string; server?: McpJsonEntry }) =>
+  manager.mcpApply(opts)
+)
 ipcMain.handle('agent:exportTrace', (_e, path: string, output: string) => manager.exportTrace(path, output))
 ipcMain.handle('cli:check', () => { const p = resolveCliJs(); return { found: !!p, path: p } })
 ipcMain.handle('dialog:pickFolder', async () => {
@@ -300,7 +330,7 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light' }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light' }) => appSettings.updateSettings(patch ?? {}))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))

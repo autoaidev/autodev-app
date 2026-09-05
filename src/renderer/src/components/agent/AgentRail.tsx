@@ -42,7 +42,7 @@ export type AgentAction =
   | 'setup'
   | 'remove'
 
-export type BulkAction = 'start' | 'stop' | 'restart' | 'add' | 'model'
+export type BulkAction = 'start' | 'stop' | 'restart' | 'add' | 'model' | 'mcp'
 
 type Filter = 'all' | 'running' | 'attention'
 type GroupBy = 'office' | 'role' | 'provider' | 'state' | 'model'
@@ -680,6 +680,7 @@ export function AgentRail({
           </IconButton>
           <IconButton label="Restart" icon="restart" onClick={() => onBulk('restart')} />
           <IconButton label="Set model" icon="settings" onClick={() => onBulk('model')} />
+          <IconButton label="Set MCP" icon="sparkle" onClick={() => onBulk('mcp')} />
           <IconButton label="Add task" icon="plus" onClick={() => onBulk('add')} />
           <IconButton label="Clear selection" icon="close" onClick={() => onCheckedChange(new Set())} />
         </Toolbar>

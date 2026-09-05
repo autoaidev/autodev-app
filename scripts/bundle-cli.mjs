@@ -99,4 +99,24 @@ if (!Array.isArray(catalog) || catalog.length === 0 || !catalog.every((f) => f &
 writeFileSync(join(dest, 'model-catalog.json'), JSON.stringify(catalog))
 console.log(`[bundle-cli] wrote model-catalog.json — ${catalog.length} families (${catalog.map((f) => f.family).join(', ')})`)
 
+// Likewise, generate a REAL MCP catalog from the CLI we just staged, shipped as
+// resources/autodev-cli/mcp-catalog.json — the OFFLINE fallback for the app's MCP
+// pickers (main's `mcp:catalog` reads it when the live `autodev mcp catalog --json`
+// IPC ever fails). Generated from the bundled CLI so it can't drift. Twin of the
+// model-catalog above.
+const mcpRaw = execSync(`node ${JSON.stringify(join(dest, 'bin', 'autodev.js'))} mcp catalog --json`, { encoding: 'utf8' })
+let mcpCatalog
+try {
+  mcpCatalog = JSON.parse(mcpRaw)
+} catch {
+  console.error('[bundle-cli] FAILED — `autodev mcp catalog --json` did not emit valid JSON')
+  process.exit(1)
+}
+if (!mcpCatalog || !Array.isArray(mcpCatalog.servers) || mcpCatalog.servers.length === 0 || !mcpCatalog.servers.every((s) => s && typeof s.id === 'string' && typeof s.kind === 'string')) {
+  console.error('[bundle-cli] FAILED — generated MCP catalog is not a non-empty { servers: [{ id, kind, … }] }')
+  process.exit(1)
+}
+writeFileSync(join(dest, 'mcp-catalog.json'), JSON.stringify({ servers: mcpCatalog.servers }))
+console.log(`[bundle-cli] wrote mcp-catalog.json — ${mcpCatalog.servers.length} servers (${mcpCatalog.servers.map((s) => s.id).join(', ')})`)
+
 console.log(`[bundle-cli] done — staged autodev-cli@${staged}`)

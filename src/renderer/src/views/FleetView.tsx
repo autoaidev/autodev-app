@@ -13,6 +13,7 @@ import { AgentState, ATTENTION_STATES, isAttention, needsUserAttention, formatEl
 import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/agentStore'
 import { modelKeyFor } from '@renderer/lib/providers'
 import { BulkModelModal } from '@renderer/modals/BulkModelModal'
+import { BulkMcpModal } from '@renderer/modals/BulkMcpModal'
 import '@renderer/components/fleet/fleet.css'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
@@ -206,6 +207,9 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   // Bulk "Set model…" over the current selection (reuses the shared BulkModelModal,
   // which handles the mixed-provider apply). Non-null = the modal is open.
   const [modelModal, setModelModal] = useState<{ paths: string[] } | null>(null)
+  // Bulk "Set MCP…" over the current selection (BulkMcpModal fans an MCP op out
+  // over the selected paths via the CLI seam). Non-null = the modal is open.
+  const [mcpModal, setMcpModal] = useState<{ paths: string[] } | null>(null)
 
   // Per-row model change (#10) — persist via the SAME `config set <vendorKey>` path
   // as Setup; the model takes hold on the agent's next loop.
@@ -337,6 +341,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
         ? [
             { label: 'Switch provider…', onClick: () => setProvModal({ paths: selPaths }) },
             { label: 'Set model…', onClick: () => setModelModal({ paths: selPaths }) },
+            { label: 'Set MCP…', onClick: () => setMcpModal({ paths: selPaths }) },
             {
               label: 'Add task to all…',
               onClick: () => {
@@ -575,6 +580,18 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
         onClose={() => setModelModal(null)}
         onApplied={() => {
           setModelModal(null)
+          setSelected(new Set())
+        }}
+      />
+
+      {/* bulk set-MCP modal (fan-out over selected paths via the CLI) */}
+      <BulkMcpModal
+        open={!!mcpModal}
+        agents={agents}
+        paths={mcpModal?.paths ?? []}
+        onClose={() => setMcpModal(null)}
+        onApplied={() => {
+          setMcpModal(null)
           setSelected(new Set())
         }}
       />

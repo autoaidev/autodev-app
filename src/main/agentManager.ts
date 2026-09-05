@@ -44,6 +44,39 @@ export interface McpDetectApp {
   alreadyEnabled: boolean
 }
 
+/** A raw `.mcp.json` server entry (stdio and/or remote fields), as the CLI reads
+ *  and writes it. Shared by the catalog server spec, the list entries and the
+ *  Settings default-MCP seed. Never carries secrets beyond what the user wired. */
+export interface McpJsonEntry {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  type?: string
+  enabled?: boolean
+  alwaysLoad?: boolean
+  _meta?: { managedBy?: string; name?: string; kind?: string }
+}
+
+/** One pickable server from `autodev mcp catalog --json` (the CLI owns this
+ *  shape; the app just renders + applies it). */
+export interface McpCatalogServer {
+  id: string
+  name: string
+  kind: 'builtin' | 'common' | 'creative'
+  transport: 'stdio' | 'http' | 'sse'
+  server: McpJsonEntry
+  description?: string
+  experimental?: boolean
+  requiresApp?: string
+}
+
+/** One entry from `autodev mcp list --json` (a raw entry plus its `name`). */
+export interface McpListEntry extends McpJsonEntry {
+  name: string
+}
+
 /** True if a bare runner (no path separators) resolves on PATH, or an explicit
  *  path exists. Synchronous PATH scan — no subprocess, no side effects.
  *
@@ -1042,6 +1075,83 @@ export class AgentManager extends EventEmitter {
     if (r.code !== 0) {
       return { ok: false, error: (r.stderr || r.stdout || `Failed to enable ${app}`).trim() }
     }
+    return { ok: true, stdout: (r.stdout || '').trim() }
+  }
+
+  // --- MCP catalog / list / apply (the layered MCP-management seam) ----------
+  // Every mutation below routes through `autodev mcp <op>` (add/remove/enable/
+  // disable), which propagates the change to every provider AND tags `_meta` —
+  // the CLI is the single source of truth. This is deliberately NOT writeMcp
+  // (that raw writeFileSync skips provider-sync + `_meta` + guards).
+
+  /**
+   * The pickable MCP catalog (`autodev mcp catalog --json`) — the single source
+   * of truth for the app's default/bulk/per-agent pickers. Returns the parsed
+   * `{ servers: [...] }`; on failure the caller can fall back to the generated
+   * mcp-catalog.json shipped beside the bundled CLI (see main `mcp:catalog`).
+   */
+  async mcpCatalog(): Promise<{ servers: McpCatalogServer[] } | { error: string }> {
+    const r = await this.runCli(['mcp', 'catalog', '--json'])
+    if (r.code !== 0) return { error: (r.stderr || r.stdout || 'mcp catalog failed').trim() }
+    try {
+      const parsed = JSON.parse(r.stdout)
+      const servers = Array.isArray(parsed?.servers) ? (parsed.servers as McpCatalogServer[]) : []
+      return { servers }
+    } catch (e: any) {
+      return { error: `Could not parse mcp catalog output: ${e?.message ?? 'invalid JSON'}` }
+    }
+  }
+
+  /** The workspace's effective MCP entries (`autodev mcp list --json`). */
+  async mcpList(path: string): Promise<{ servers: McpListEntry[] } | { error: string }> {
+    const r = await this.runCli(['mcp', 'list', path, '--json'], path)
+    if (r.code !== 0) return { error: (r.stderr || r.stdout || 'mcp list failed').trim() }
+    try {
+      const parsed = JSON.parse(r.stdout)
+      return { servers: Array.isArray(parsed) ? (parsed as McpListEntry[]) : [] }
+    } catch (e: any) {
+      return { error: `Could not parse mcp list output: ${e?.message ?? 'invalid JSON'}` }
+    }
+  }
+
+  /**
+   * Apply one MCP mutation to a workspace THROUGH the CLI. `add` builds the argv
+   * from a server spec (stdio via --command/--arg/--env, remote via --url/--header
+   * /--sse); enable/disable/remove are name-only. Dash-prefixed --arg/--env/--header
+   * values MUST use the `--flag=value` single-token form (execFile passes argv with
+   * no shell, so `--arg -y` would be mis-parsed by commander as an option).
+   */
+  async mcpApply(opts: {
+    path: string
+    op: 'add' | 'remove' | 'enable' | 'disable'
+    name: string
+    server?: McpJsonEntry
+  }): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> {
+    const { path, op, name, server } = opts
+    if (!path) return { ok: false, error: 'No workspace path' }
+    if (!name) return { ok: false, error: 'No server name' }
+    let args: string[]
+    if (op === 'add') {
+      const s = server ?? {}
+      args = ['mcp', 'add', name, path]
+      const url = typeof s.url === 'string' ? s.url.trim() : ''
+      if (url) {
+        args.push('--url', url)
+        for (const [k, v] of Object.entries(s.headers ?? {})) args.push(`--header=${k}=${v}`)
+        if (s.type === 'sse') args.push('--sse')
+      } else {
+        if (!s.command) return { ok: false, error: `Server "${name}" has no command or url` }
+        args.push('--command', s.command)
+        for (const a of s.args ?? []) args.push(`--arg=${a}`)
+        for (const [k, v] of Object.entries(s.env ?? {})) args.push(`--env=${k}=${v}`)
+      }
+    } else if (op === 'remove') {
+      args = ['mcp', 'remove', name, path]
+    } else {
+      args = ['mcp', op, name, path]
+    }
+    const r = await this.runCli(args, path)
+    if (r.code !== 0) return { ok: false, error: (r.stderr || r.stdout || `mcp ${op} failed`).trim() }
     return { ok: true, stdout: (r.stdout || '').trim() }
   }
 

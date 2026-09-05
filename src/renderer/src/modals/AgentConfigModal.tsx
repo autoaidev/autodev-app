@@ -5,6 +5,7 @@ import { ModelSelect } from '@renderer/components/ModelSelect'
 import { NativeSelect } from '@renderer/components/NativeSelect'
 import { actions } from '@renderer/services/agentStore'
 import { fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
+import { fetchDefaultMcp, applyDefaultToPath, type DefaultMcpEntry } from '@renderer/lib/mcp'
 
 /**
  * SCREEN 2e — Agent Setup, demoted from a whole tab to a modal.
@@ -115,6 +116,9 @@ function AgentConfigModal(props: {
   // it for the chosen provider so a fresh agent inherits the house model; still
   // overridable per agent, and empty for a provider means "provider default".
   const [defaults, setDefaults] = useState<Record<string, string>>({})
+  // 'new' mode only — the Settings default-MCP seed list (applied to the fresh
+  // agent at Create, via the CLI seam). Existing agents are untouched.
+  const [defaultMcp, setDefaultMcp] = useState<DefaultMcpEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [showMcp, setShowMcp] = useState(false)
@@ -163,6 +167,7 @@ function AgentConfigModal(props: {
       setDefaults(d)
       setModel(defaultModelFor(d, 'claude'))
     })
+    void fetchDefaultMcp().then(setDefaultMcp)
   }, [open, isNew])
 
   // Live MCP summary — count configured servers + which are unreachable/missing.
@@ -242,13 +247,19 @@ function AgentConfigModal(props: {
     if (r.code !== 0) { setStatus(r.stderr?.trim() || `Couldn't initialize ${path}.`); setBusy(false); return }
     if (model.trim()) await window.api.runCli(['config', 'set', modelKeyFor(provider), model.trim(), path])
     if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
+    // Seed the Settings default-MCP servers into the new agent through the CLI
+    // (mirrors the default-model seed above). Best-effort per server — a failed
+    // seed never blocks agent creation.
+    for (const d of defaultMcp) {
+      try { await applyDefaultToPath(path, d) } catch { /* surfaced on next MCP open */ }
+    }
     const added = (await window.api.addAgent(path)) as { error?: string }
     if (added?.error) { setStatus(added.error); setBusy(false); return }
     if (run) { try { await window.api.startAgent(path, provider) } catch { /* surfaced on the next fleet reload */ } }
     setBusy(false)
     onCreated?.(path)
     onClose()
-  }, [folder, provider, sessionName, model, fileBrowser, onCreated, onClose])
+  }, [folder, provider, sessionName, model, fileBrowser, defaultMcp, onCreated, onClose])
 
   const availableVariants = variantsFor(vendor)
   const agentName = sessionName || name

@@ -34,6 +34,45 @@ export interface ModelCatalogEntry {
   models: Array<{ id: string; label: string; contextLimit: number }>
 }
 
+/** A raw `.mcp.json` server entry (stdio and/or remote fields), as the CLI writes
+ *  it. Mirrors main/agentManager.ts McpJsonEntry. */
+export interface McpJsonEntry {
+  command?: string
+  args?: string[]
+  env?: Record<string, string>
+  url?: string
+  headers?: Record<string, string>
+  type?: string
+  enabled?: boolean
+  alwaysLoad?: boolean
+  _meta?: { managedBy?: string; name?: string; kind?: string }
+}
+
+/** One pickable server from `autodev mcp catalog --json` (mirrors main). */
+export interface McpCatalogServer {
+  id: string
+  name: string
+  kind: 'builtin' | 'common' | 'creative'
+  transport: 'stdio' | 'http' | 'sse'
+  server: McpJsonEntry
+  description?: string
+  experimental?: boolean
+  requiresApp?: string
+}
+
+/** One entry from `autodev mcp list --json` (a raw entry plus its `name`). */
+export interface McpListEntry extends McpJsonEntry {
+  name: string
+}
+
+/** A default MCP server that seeds new agents (mirrors main appSettings.DefaultMcpEntry). */
+export interface DefaultMcpEntry {
+  id?: string
+  name: string
+  server: McpJsonEntry
+  kind?: 'builtin' | 'common' | 'creative' | 'custom'
+}
+
 const api = {
   // The installed app version string, e.g. '0.3.1'.
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
@@ -56,6 +95,21 @@ const api = {
   mcpEnableApp: (opts: { path: string; app: string; gimpClient?: string }): Promise<
     { ok: true; stdout: string } | { ok: false; error: string }
   > => ipcRenderer.invoke('mcp:enableApp', opts),
+  // ── Layered MCP management (all writes route through `autodev mcp <op>`) ──────
+  // The pickable catalog (single source of truth), the workspace's current entries,
+  // and a typed mutation so the renderer NEVER hand-writes .mcp.json (that's what
+  // writeAgentMcp does, and it skips provider-sync + `_meta`).
+  mcpCatalog: (): Promise<{ servers: McpCatalogServer[] } | { error: string }> =>
+    ipcRenderer.invoke('mcp:catalog'),
+  mcpList: (path: string): Promise<{ servers: McpListEntry[] } | { error: string }> =>
+    ipcRenderer.invoke('mcp:list', path),
+  mcpApply: (opts: {
+    path: string
+    op: 'add' | 'remove' | 'enable' | 'disable'
+    name: string
+    server?: McpJsonEntry
+  }): Promise<{ ok: true; stdout: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('mcp:apply', opts),
   confirmDialog: (message: string, detail?: string) => ipcRenderer.invoke('dialog:confirm', message, detail),
   runCli: (args: string[], cwd?: string) => ipcRenderer.invoke('cli:run', args, cwd),
   // The provider model catalog (id/label/contextLimit per family) from the bundled
@@ -129,8 +183,8 @@ const api = {
   ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> =>
     ipcRenderer.invoke('office:updateCharacter', agentId, patch),
   // App preferences (non-secret; persisted in userData/app-settings.json)
-  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: 'system' | 'dark' | 'light' }> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light' }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: 'system' | 'dark' | 'light' } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
+  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light' }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light' }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light' } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 

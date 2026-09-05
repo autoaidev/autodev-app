@@ -26,7 +26,31 @@ import { isSecureBaseUrl } from './officeSanitize'
 import { DEFAULT_OFFICE_BASE } from './pixelOffice'
 
 type ThemePref = 'system' | 'dark' | 'light'
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: ThemePref }
+
+/**
+ * A default MCP server that SEEDS new agents (mirrors `defaultModels`, but a list
+ * rather than a per-vendor map since MCP servers aren't one-per-vendor). `server`
+ * is a raw `.mcp.json` entry (stdio via command/args/env OR remote via url/headers)
+ * the create flow feeds to `autodev mcp add`. `kind` is the catalog origin for the
+ * UI badge; `id` is the catalog id when it came from the catalog (absent for a
+ * custom entry). It is a UI SEED only — nothing here mutates an existing agent.
+ */
+export interface DefaultMcpEntry {
+  id?: string
+  name: string
+  server: {
+    command?: string
+    args?: string[]
+    env?: Record<string, string>
+    url?: string
+    headers?: Record<string, string>
+    type?: string
+    enabled?: boolean
+  }
+  kind?: 'builtin' | 'common' | 'creative' | 'custom'
+}
+
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -70,6 +94,27 @@ export function getDefaultModels(): Record<string, string> {
   return m && typeof m === 'object' ? { ...m } : {}
 }
 
+/** The default-MCP seed list (a fresh copy; `[]` when none configured). */
+export function getDefaultMcp(): DefaultMcpEntry[] {
+  const m = load().defaultMcp
+  return Array.isArray(m) ? m.map((e) => ({ ...e, server: { ...e.server } })) : []
+}
+
+/**
+ * Replace the whole default-MCP seed list. Unlike `defaultModels` (a per-vendor
+ * patch-merge), MCP defaults are a list the Settings UI owns end-to-end, so the
+ * renderer sends the complete next array. Entries missing a name are dropped.
+ */
+export function setDefaultMcp(list: DefaultMcpEntry[]): DefaultMcpEntry[] {
+  const clean = Array.isArray(list)
+    ? list
+        .filter((e) => e && typeof e === 'object' && String(e.name || '').trim())
+        .map((e) => ({ id: e.id, name: String(e.name).trim(), server: { ...(e.server ?? {}) }, kind: e.kind }))
+    : []
+  persist({ ...load(), defaultMcp: clean })
+  return getDefaultMcp()
+}
+
 /** Whether the UI runs in Advanced mode (expert controls shown). Defaults false. */
 export function getAdvancedMode(): boolean {
   return load().advancedMode === true
@@ -95,8 +140,8 @@ export function setTheme(theme: ThemePref): ThemePref {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: ThemePref } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode(), theme: getTheme() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme() }
 }
 
 /**
@@ -144,8 +189,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; advancedMode?: boolean; theme?: ThemePref }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; advancedMode: boolean; theme: ThemePref } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -154,6 +199,9 @@ export function updateSettings(
     if ('defaultModels' in patch && patch.defaultModels && typeof patch.defaultModels === 'object') {
       setDefaultModels(patch.defaultModels)
     }
+    if ('defaultMcp' in patch && Array.isArray(patch.defaultMcp)) {
+      setDefaultMcp(patch.defaultMcp)
+    }
     if ('advancedMode' in patch) {
       setAdvancedMode(patch.advancedMode === true)
     }
@@ -161,5 +209,5 @@ export function updateSettings(
       setTheme(patch.theme)
     }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), advancedMode: getAdvancedMode(), theme: getTheme() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme() }
 }
