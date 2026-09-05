@@ -1,5 +1,5 @@
 import React from 'react'
-import { Button, StatusDot, Pill } from '@renderer/ui'
+import { Button, StatusDot, Pill, Icon } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
 import { isAttention, attentionSummary } from '@renderer/services/model'
 import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
@@ -475,11 +475,21 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
               mcp === null ? (
                 <span style={{ color: 'var(--tx-5)' }}>—</span>
               ) : (
-                <>
-                  <button type="button" onClick={onEditMcp} style={{ all: 'unset', cursor: 'pointer', color: 'var(--tx-1)' }}>
-                    {mcp.total} {mcp.total === 1 ? 'server' : 'servers'}
-                  </button>
-                </>
+                // Obvious clickable affordance (UX-2): the ONLY way into the MCP
+                // editor from here — accent-coloured, hover-underlined, with a
+                // chevron + "Edit" hint so it doesn't read as static text.
+                <button
+                  type="button"
+                  onClick={onEditMcp}
+                  title="Edit MCP servers"
+                  style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+                >
+                  {mcp.total} {mcp.total === 1 ? 'server' : 'servers'}
+                  <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>Edit</span>
+                  <Icon name="chevron" size={11} />
+                </button>
               )
             }
             suffix={mcp && mcp.issues > 0 ? <span style={{ color: 'var(--st-error)' }}> · {mcp.issues} issue</span> : undefined}

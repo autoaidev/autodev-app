@@ -27,6 +27,8 @@ export interface McpPick {
   server: McpJsonEntry
   kind: 'builtin' | 'common' | 'creative' | 'custom'
   id?: string
+  /** Friendly catalog name for DISPLAY (identity stays `name`/`id`). */
+  label?: string
 }
 
 const linkBtn: React.CSSProperties = {
@@ -101,7 +103,7 @@ export function McpCatalogPicker({
 
   const pickCatalog = (s: McpCatalogServer): void => {
     if (exclude?.has(s.id) || exclude?.has(s.name)) return
-    onPick({ name: s.id, server: catalogServerSpec(s), kind: s.kind, id: s.id })
+    onPick({ name: s.id, server: catalogServerSpec(s), kind: s.kind, id: s.id, label: s.name })
     close()
   }
 

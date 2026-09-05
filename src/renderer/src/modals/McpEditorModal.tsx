@@ -187,8 +187,20 @@ export function McpEditorModal(props: {
         </>
       }
     >
+      {/* ── DETECTED CREATIVE APPS (Blender / GIMP → enable as MCP) ──
+          Surfaced at the TOP so detected apps are visible immediately (UX-1) —
+          it used to sit below the full catalog + connectivity, buried by scroll. */}
+      <CreativeAppsSection
+        agentPath={agentPath}
+        open={open}
+        onMcpChanged={() => {
+          void loadList()
+          void recheck()
+        }}
+      />
+
       {/* ── CATALOG PICKER (primary) ──────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 10 }}>
         <span style={sectionLabel}>Servers</span>
         <InfoTip label="MCP servers" width={290}>
           Each server is a tool your agent can call — a shared office, a memory store, the
@@ -240,16 +252,6 @@ export function McpEditorModal(props: {
           ))}
         </div>
       )}
-
-      {/* ── DETECTED CREATIVE APPS (Blender / GIMP → enable as MCP) ── */}
-      <CreativeAppsSection
-        agentPath={agentPath}
-        open={open}
-        onMcpChanged={() => {
-          void loadList()
-          void recheck()
-        }}
-      />
 
       {/* ── RAW .MCP.JSON — advanced, read-only reference ─────────── */}
       <AdvancedSection label="Raw .mcp.json" hint="Read-only view of the file the CLI maintains. Edits happen through the picker above.">

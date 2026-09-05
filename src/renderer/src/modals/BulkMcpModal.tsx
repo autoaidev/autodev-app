@@ -5,7 +5,7 @@ import { McpCatalogPicker, type McpPick } from '@renderer/components/mcp/McpCata
 import { AgentState } from '@renderer/services/model'
 import { actions } from '@renderer/services/agentStore'
 import { useAppActions } from '@renderer/services/appActions'
-import { useMcpCatalog, fetchDefaultMcp, applyDefaultToPath, type DefaultMcpEntry } from '@renderer/lib/mcp'
+import { fetchDefaultMcp, applyDefaultToPath, type DefaultMcpEntry } from '@renderer/lib/mcp'
 
 /**
  * BulkMcpModal (#MCP-3) — apply ONE MCP operation across a multi-agent selection
@@ -70,7 +70,6 @@ export function BulkMcpModal({
   paths?: string[]
 }): React.JSX.Element {
   const appActions = useAppActions()
-  const { catalog } = useMcpCatalog()
 
   const selected = useMemo(() => {
     const set = new Set(paths ?? [])
@@ -86,6 +85,13 @@ export function BulkMcpModal({
   const [busy, setBusy] = useState(false)
   const [phase, setPhase] = useState<'pick' | 'applied'>('pick')
   const [activeAfter, setActiveAfter] = useState<AgentState[]>([])
+  // S2 — for remove/enable/disable the name options come from the servers actually
+  // PRESENT across the selection (union of each agent's `.mcp.json`), not the whole
+  // catalog — so a user can't "disable memory" when it isn't installed (a 0-agent
+  // no-op) and doesn't have to hand-type a custom/office server's exact name.
+  const [presentNames, setPresentNames] = useState<string[]>([])
+  const [presentLoading, setPresentLoading] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
 
   const seeded = useRef(false)
   useEffect(() => {
@@ -93,9 +99,33 @@ export function BulkMcpModal({
     if (seeded.current) return
     seeded.current = true
     setOp('add'); setPending(null); setNameChoice(''); setCustomName('')
-    setBusy(false); setPhase('pick'); setActiveAfter([])
+    setBusy(false); setPhase('pick'); setActiveAfter([]); setApplyError(null)
+    setPresentNames([])
     void fetchDefaultMcp().then(setDefaults)
   }, [open])
+
+  const isNamedOp = op === 'remove' || op === 'enable' || op === 'disable'
+
+  // Load the union of servers present across the selection for the named ops. mcpList
+  // already exists (per-agent `.mcp.json`); dedupe by name, sort for a stable list.
+  useEffect(() => {
+    if (!open || !isNamedOp) return
+    let live = true
+    setPresentLoading(true)
+    void (async () => {
+      const names = new Set<string>()
+      for (const a of selected) {
+        try {
+          const r = (await window.api.mcpList(a.path)) as { servers?: { name?: string }[] }
+          for (const s of r?.servers ?? []) if (s?.name) names.add(s.name)
+        } catch { /* skip an unreadable agent */ }
+      }
+      if (!live) return
+      setPresentNames([...names].sort((a, b) => a.localeCompare(b)))
+      setPresentLoading(false)
+    })()
+    return () => { live = false }
+  }, [open, isNamedOp, selected])
 
   const nameForNamedOp = nameChoice === CUSTOM ? customName.trim() : nameChoice.trim()
 
@@ -107,29 +137,50 @@ export function BulkMcpModal({
         ? defaults.length > 0
         : nameForNamedOp !== '')
 
-  const applyOnePath = async (path: string): Promise<boolean> => {
+  // Returns `null` on success, else the first error string (S3 — so a failure that
+  // hits every agent surfaces a REASON, not just a "0 agents" count).
+  const applyOnePath = async (path: string): Promise<string | null> => {
     try {
       if (op === 'add' && pending) {
         const r = await window.api.mcpApply({ path, op: 'add', name: pending.name, server: pending.server })
-        return r.ok
+        return r.ok ? null : (r.error || 'apply failed')
       }
       if (op === 'defaults') {
-        let ok = true
-        for (const d of defaults) { if (!(await applyDefaultToPath(path, d))) ok = false }
-        return ok
+        let err: string | null = null
+        for (const d of defaults) { if (!(await applyDefaultToPath(path, d)) && !err) err = `failed to add “${d.name}”` }
+        return err
       }
       const r = await window.api.mcpApply({ path, op: op as 'remove' | 'enable' | 'disable', name: nameForNamedOp })
-      return r.ok
-    } catch {
-      return false
+      return r.ok ? null : (r.error || 'apply failed')
+    } catch (e) {
+      return e instanceof Error ? e.message : 'apply failed'
     }
   }
 
+  // S1 — remove/disable fan a load-bearing change (memory, the office A2A server)
+  // across many, possibly RUNNING, agents. Gate them behind the app's NATIVE confirm
+  // (window.confirm silently returns false in the sandboxed renderer).
+  const isDestructive = op === 'remove' || op === 'disable'
+
   const apply = async (): Promise<void> => {
     if (!canApply) return
+    if (isDestructive) {
+      const verbing = op === 'remove' ? 'Remove' : 'Disable'
+      const ok = await window.api.confirmDialog(
+        `${verbing} “${nameForNamedOp}” from ${count} agent${count === 1 ? '' : 's'}?`,
+        `This edits each agent’s .mcp.json through the AutoDev CLI. ${op === 'remove' ? 'Removing' : 'Disabling'} a load-bearing server (memory, the office server) can break running agents.`
+      )
+      if (!ok) return
+    }
     setBusy(true)
+    setApplyError(null)
     let n = 0
-    for (const a of selected) if (await applyOnePath(a.path)) n++
+    let firstError: string | null = null
+    for (const a of selected) {
+      const err = await applyOnePath(a.path)
+      if (err === null) n++
+      else if (!firstError) firstError = err
+    }
     setBusy(false)
     const active = selected.filter((a) => a.running)
     const verb =
@@ -137,9 +188,13 @@ export function BulkMcpModal({
       op === 'remove' ? 'Removed server from' :
       op === 'enable' ? 'Enabled server on' :
       op === 'disable' ? 'Disabled server on' : 'Applied defaults to'
-    appActions.toast(`${verb} ${n} agent${n === 1 ? '' : 's'}.`, n === 0)
+    const failed = count - n
+    const errSuffix = failed > 0 && firstError ? ` — ${firstError}` : ''
+    appActions.toast(`${verb} ${n}/${count} agent${count === 1 ? '' : 's'}${errSuffix}.`, n === 0)
+    if (failed > 0 && firstError) setApplyError(firstError)
     if (n > 0 && active.length > 0) { setActiveAfter(active); setPhase('applied') }
-    else { onApplied?.(); onClose() }
+    else if (n > 0) { onApplied?.(); onClose() }
+    // On a total failure keep the modal open so the inline error (below) is readable.
   }
 
   const runRestart = async (): Promise<void> => {
@@ -170,8 +225,14 @@ export function BulkMcpModal({
           {phase === 'pick' ? (
             <>
               <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
-              <Button variant="primary" size="sm" onClick={() => void apply()} disabled={busy || !canApply}>
-                {busy ? 'Applying…' : `Apply to ${count}`}
+              <Button variant="primary" danger={isDestructive} size="sm" onClick={() => void apply()} disabled={busy || !canApply}>
+                {busy
+                  ? 'Applying…'
+                  : op === 'remove'
+                    ? `Remove from ${count}`
+                    : op === 'disable'
+                      ? `Disable on ${count}`
+                      : `Apply to ${count}`}
               </Button>
             </>
           ) : (
@@ -231,9 +292,15 @@ export function BulkMcpModal({
                   onChange={(e) => setNameChoice(e.target.value)}
                   aria-label="Server name"
                 >
-                  <option value="">Select a server…</option>
-                  {catalog.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.id})</option>
+                  <option value="">
+                    {presentLoading
+                      ? 'Loading servers…'
+                      : presentNames.length
+                        ? 'Select a server…'
+                        : 'No servers present on the selection'}
+                  </option>
+                  {presentNames.map((nm) => (
+                    <option key={nm} value={nm}>{nm}</option>
                   ))}
                   <option value={CUSTOM}>Custom name…</option>
                 </NativeSelect>
@@ -254,6 +321,23 @@ export function BulkMcpModal({
             {targetSummary}. Every change is applied through the AutoDev CLI and propagates to each
             agent&rsquo;s providers.
           </div>
+
+          {applyError && (
+            <div
+              style={{
+                marginTop: 10,
+                padding: '8px 10px',
+                background: 'var(--st-error-wash)',
+                border: '1px solid var(--st-error-bd)',
+                borderRadius: 'var(--r-card)',
+                fontSize: 'var(--fs-meta)',
+                color: 'var(--st-error-bright)',
+                lineHeight: 1.45
+              }}
+            >
+              {applyError}
+            </div>
+          )}
         </>
       )}
     </Modal>

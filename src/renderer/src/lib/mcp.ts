@@ -47,6 +47,10 @@ export interface McpListEntry extends McpJsonEntry {
 export interface DefaultMcpEntry {
   id?: string
   name: string
+  /** Friendly display name (catalog `s.name`, e.g. "Memory"). `name`/`id` stay the
+   *  identity used for .mcp.json + mcpApply; this is DISPLAY only. Absent on legacy
+   *  entries / custom servers — fall back to `name`. */
+  label?: string
   server: McpJsonEntry
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
@@ -116,9 +120,11 @@ export function catalogServerSpec(s: McpCatalogServer): McpJsonEntry {
   return rest
 }
 
-/** A DefaultMcpEntry built from a catalog server (for the Settings seed list). */
+/** A DefaultMcpEntry built from a catalog server (for the Settings seed list).
+ *  `name`/`id` are the identity (the `.mcp.json` key); `label` is the friendly
+ *  catalog name for display. */
 export function catalogToDefault(s: McpCatalogServer): DefaultMcpEntry {
-  return { id: s.id, name: s.id, server: catalogServerSpec(s), kind: s.kind }
+  return { id: s.id, name: s.id, label: s.name, server: catalogServerSpec(s), kind: s.kind }
 }
 
 // ---------------------------------------------------------------------------

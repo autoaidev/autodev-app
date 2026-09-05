@@ -315,9 +315,9 @@ export function SettingsView2(): JSX.Element {
   }, [reloadDefaultMcp])
 
   const addDefaultMcp = useCallback(
-    (pick: { name: string; server: DefaultMcpEntry['server']; kind: DefaultMcpEntry['kind']; id?: string }) => {
+    (pick: { name: string; server: DefaultMcpEntry['server']; kind: DefaultMcpEntry['kind']; id?: string; label?: string }) => {
       if (defaultMcp.some((d) => d.name === pick.name)) return // dedupe by name
-      void persistDefaultMcp([...defaultMcp, { id: pick.id, name: pick.name, server: pick.server, kind: pick.kind }])
+      void persistDefaultMcp([...defaultMcp, { id: pick.id, name: pick.name, label: pick.label, server: pick.server, kind: pick.kind }])
     },
     [defaultMcp, persistDefaultMcp]
   )
@@ -896,7 +896,7 @@ export function SettingsView2(): JSX.Element {
                   return (
                     <div key={m.name} style={S.mcpCard}>
                       <div style={S.mcpCardHead}>
-                        <span style={S.mcpName}>{m.name}</span>
+                        <span style={S.mcpName} title={m.name}>{m.label || m.name}</span>
                         <span style={S.transportBadge}>{remote ? 'remote' : 'stdio'}</span>
                         {m.kind && m.kind !== 'custom' && (
                           <Pill variant="neutral" style={{ fontSize: 9 }}>{m.kind}</Pill>
