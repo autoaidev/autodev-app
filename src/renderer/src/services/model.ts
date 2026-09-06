@@ -184,6 +184,34 @@ export function stateLabel(a: Activity): string {
 }
 
 /**
+ * The beautifui.dev STATUS TINT-PAIR variant for an activity — the SINGLE source
+ * mapping the agent lifecycle onto the {ink,tint} status language rendered by the
+ * StatusPill / StatusDot kit. It reuses the exact same buckets as pillVariantFor /
+ * stateColor so the pill can never disagree with the row spine or the meta line:
+ *   working                    → good  (online / running)
+ *   needs-auth / rate-limited   → warn  (genuinely needs you)
+ *   crashed / stalled           → crit  (error / interrupted)
+ *   idle / stopped              → neutral (resting)
+ * `info` (awaiting-you) is reserved for the future pending-choice state; `violet`
+ * is provider-only (copilot). Note we deliberately keep a cleanly STOPPED agent
+ * `neutral`, not crit — matching the app's existing dotStatus/stateColor model,
+ * which the kit is instructed to reuse rather than re-alarm a normal stop.
+ */
+export type StatusVariant = 'good' | 'warn' | 'crit' | 'info' | 'violet' | 'neutral'
+export function statusVariant(a: Activity): StatusVariant {
+  if (a === 'working') return 'good'
+  if (a === 'needs-auth' || a === 'rate-limited') return 'warn'
+  if (a === 'crashed' || a === 'stalled') return 'crit'
+  return 'neutral'
+}
+
+/** One-call {variant,label} for a StatusPill from an agent — variant from the
+ *  shared statusVariant map, label from the exit-code-aware state label. */
+export function agentStatus(a: AgentState): { variant: StatusVariant; label: string } {
+  return { variant: statusVariant(a.activity), label: stateLabelForAgent(a) }
+}
+
+/**
  * Plain-language reason for a loop exit code (R8). Raw exit codes are meaningless
  * to a customer and often contradict the status word (130 is an interrupt, not a
  * timeout), so we never surface the number as the primary explanation.

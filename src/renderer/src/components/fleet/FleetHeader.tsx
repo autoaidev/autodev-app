@@ -1,7 +1,62 @@
 import React from 'react'
-import { Button } from '@renderer/ui'
+import { Button, Icon } from '@renderer/ui'
+import type { IconName } from '@renderer/ui'
 import { useAgents } from '@renderer/services/agentStore'
 import { officeCountOf } from './fleet-helpers'
+
+/**
+ * A compact header stat: a small hairline-tinted icon tile + a tabular number and
+ * its label. Replaces the flat mono subtitle string with scannable stat cards
+ * (beautifui.dev), so office / open / closed each read as a small metric.
+ */
+function HeaderStat({
+  icon,
+  value,
+  label,
+  tone = 'default'
+}: {
+  icon: IconName
+  value: number
+  label: string
+  tone?: 'default' | 'good'
+}): React.JSX.Element {
+  const ink = tone === 'good' ? 'var(--st-good-ink)' : 'var(--tx-dim)'
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+      <span
+        aria-hidden
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 18,
+          height: 18,
+          borderRadius: 'var(--r-tiny)',
+          background: 'var(--bg-chip-idle)',
+          border: '1px solid var(--bd-1)',
+          color: ink,
+          flex: 'none'
+        }}
+      >
+        <Icon name={icon} size={11} />
+      </span>
+      <span
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--fs-desc)',
+          fontWeight: 600,
+          color: 'var(--tx-1)',
+          fontFeatureSettings: 'var(--fvn-tabular)'
+        }}
+      >
+        {value.toLocaleString()}
+      </span>
+      <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>
+        {label}
+      </span>
+    </span>
+  )
+}
 
 /**
  * FleetHeader — the summary-band title row: page title + a mono one-line
@@ -40,15 +95,6 @@ export function FleetHeader({
   const fleet = useAgents()
   const derivedOffices = officeCountOf(fleet)
   const offices = derivedOffices > 0 ? derivedOffices : (officeCount ?? 0)
-
-  const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`
-  // The hero number (agent count) is pulled out as the view's ONE focal metric, so
-  // the subtitle carries only the remaining context.
-  const subtitle = [
-    plural(offices, 'office'),
-    `${openTasks} open`,
-    `${closedToday} closed today`
-  ].join(' · ')
 
   return (
     <div
@@ -97,17 +143,16 @@ export function FleetHeader({
         </div>
         <div
           style={{
-            marginTop: 4,
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--fs-desc)',
-            fontWeight: 500,
-            color: 'var(--tx-dim)',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
+            marginTop: 6,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            flexWrap: 'wrap'
           }}
         >
-          {subtitle}
+          <HeaderStat icon="office" value={offices} label={offices === 1 ? 'office' : 'offices'} />
+          <HeaderStat icon="clock" value={openTasks} label="open" />
+          <HeaderStat icon="check" value={closedToday} label="closed today" tone="good" />
         </div>
       </div>
 

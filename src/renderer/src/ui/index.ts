@@ -19,6 +19,12 @@ export type { AgentAvatarProps, ProviderChipProps } from './AgentAvatar'
 export { Pill } from './Pill'
 export type { PillProps, PillVariant } from './Pill'
 
+export { StatusPill } from './StatusPill'
+export type { StatusPillProps, StatusVariant } from './StatusPill'
+
+export { Chip } from './Chip'
+export type { ChipProps, ChipVariant } from './Chip'
+
 export { Button } from './Button'
 export type { ButtonProps, ButtonVariant, ButtonSize } from './Button'
 

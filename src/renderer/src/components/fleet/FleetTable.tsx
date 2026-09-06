@@ -1,15 +1,13 @@
 import React, { useMemo, useRef, useState } from 'react'
-import { Icon, StatusDot, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { Icon, StatusPill, AgentAvatar, ProviderChip } from '@renderer/ui'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { useModelCatalog, effectiveModelDisplay, modelsForFamily, type ModelCatalogEntry } from '@renderer/lib/providers'
 import { providerAccent } from '@renderer/services/identity'
 import {
   AgentState,
-  STATE_LABEL,
   agentHeadline,
   agentSlugId,
   anyRunning,
-  dotStatus,
   fleetOffice,
   isAttention,
   stripTaskHash,
@@ -17,7 +15,7 @@ import {
   tasksLabel,
   washTone
 } from './fleet-helpers'
-import { stateColor, needsUserAttention, isError } from '@renderer/services/model'
+import { agentStatus, needsUserAttention, isError } from '@renderer/services/model'
 
 /**
  * A row's left spine color: STATE first (running → green, needs-you → amber,
@@ -43,7 +41,8 @@ function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): 
   // [checkbox] · AGENT · OFFICE · STATE · [MODEL] · CURRENT TASK · TASKS · [ELAPSED] · ACTION
   // The bulk-select checkbox is an expert workflow — dropped in Basic (Advanced only).
   const cols = showCheck ? ['14px'] : []
-  cols.push('180px', '112px', '100px')
+  // STATE widened to 116px so the tint-pair pill (e.g. "NEEDS AUTH") never clips.
+  cols.push('180px', '112px', '116px')
   if (showModel) cols.push('132px')
   cols.push('minmax(0,1fr)', '84px')
   if (showElapsed) cols.push('72px')
@@ -100,28 +99,13 @@ function Checkbox({
   )
 }
 
-/** Inline STATE badge — dot + mono uppercase label, no pill background. The label
- *  is colored by the SHARED state map (R-E): working → green, needs-you → amber,
- *  crashed/stalled → red, idle/stopped → dim — so a WORKING row no longer shows a
- *  grey (--tx-2) state word indistinguishable from an idle one. */
+/** STATE cell — the beautifui.dev tint-pair StatusPill (dot + label on a soft tint),
+ *  driven by the SHARED status map (agentStatus): working → good, needs-you → warn,
+ *  crashed/stalled → crit, idle/stopped → neutral. So a WORKING row now reads as a
+ *  live green pill instead of a bare word indistinguishable from an idle one. */
 function StateBadge({ a }: { a: AgentState }): React.JSX.Element {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
-      <StatusDot status={dotStatus(a)} />
-      <span
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--fs-tiny)',
-          fontWeight: 500,
-          letterSpacing: 'var(--ls-state)',
-          color: stateColor(a.activity),
-          whiteSpace: 'nowrap'
-        }}
-      >
-        {STATE_LABEL[a.activity]}
-      </span>
-    </span>
-  )
+  const { variant, label } = agentStatus(a)
+  return <StatusPill variant={variant} label={label} size="sm" />
 }
 
 /**
@@ -180,6 +164,7 @@ function TasksCell({ a }: { a: AgentState }): React.JSX.Element {
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--fs-tiny)',
           fontWeight: 500,
+          fontFeatureSettings: 'var(--fvn-tabular)',
           color: total === 0 ? 'var(--tx-ghost)' : complete ? 'var(--accent-ink)' : 'var(--tx-3)'
         }}
       >
@@ -315,7 +300,13 @@ function HeaderRow({ showCheck, showModel, showElapsed }: { showCheck: boolean; 
         columnGap: COL_GAP,
         alignItems: 'center',
         padding: '12px 18px',
-        borderBottom: '1px solid var(--bd-row)'
+        borderBottom: '1px solid var(--bd-row)',
+        // Sticky column header — stays put as the fleet scrolls. Opaque stage fill
+        // so rows never bleed through under it.
+        position: 'sticky',
+        top: 0,
+        zIndex: 1,
+        background: 'var(--surface-stage)'
       }}
     >
       {headCols(showCheck, showModel, showElapsed).map((h, i) => (

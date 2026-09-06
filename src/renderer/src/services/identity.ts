@@ -125,3 +125,27 @@ export function providerAccent(provider?: string): ProviderAccent {
 export function providerDisplayLabel(provider?: string): string {
   return PROVIDER_LABEL[providerFamilyOf(provider)]
 }
+
+/**
+ * The beautifui.dev provider → STATUS-HUE mapping for the Chip `provider` variant:
+ *   claude → info (blue) · grok → warn (amber) · opencode → good (teal) ·
+ *   copilot → violet · unknown/dummy → neutral.
+ * This is the canonical Round-1 spec hue for provider chips. It is intentionally
+ * DISTINCT from the per-provider brand accent (providerAccent, e.g. claude-coral)
+ * that drives avatar rings/spines — unifying the two is a Round-2 item.
+ */
+export type ProviderHue = 'good' | 'warn' | 'info' | 'violet' | 'neutral'
+export function providerHue(provider?: string): ProviderHue {
+  switch (providerFamilyOf(provider)) {
+    case 'claude':
+      return 'info'
+    case 'grok':
+      return 'warn'
+    case 'opencode':
+      return 'good'
+    case 'copilot':
+      return 'violet'
+    default:
+      return 'neutral'
+  }
+}

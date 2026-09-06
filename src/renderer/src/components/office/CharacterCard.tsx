@@ -1,5 +1,6 @@
 import React from 'react'
-import { StatusDot, AgentAvatar, IconButton } from '@renderer/ui'
+import { StatusPill, Chip, AgentAvatar, IconButton } from '@renderer/ui'
+import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
@@ -64,7 +65,13 @@ export function CharacterCard({
   const { advanced } = useAdvancedMode()
   const accent = providerAccent(agent.provider)
   const tick = tickFor(agent)
-  const dotStatus = !connected ? 'idle' : tick === 'needs-you' ? 'needs-you' : 'running'
+  // Live status as a tint-pair StatusPill: offline → neutral OFFLINE, waiting on you
+  // → warn NEEDS YOU, live → good LIVE. One consistent status language app-wide.
+  const status: { variant: StatusVariant; label: string } = !connected
+    ? { variant: 'neutral', label: 'OFFLINE' }
+    : tick === 'needs-you'
+      ? { variant: 'warn', label: 'NEEDS YOU' }
+      : { variant: 'good', label: 'LIVE' }
   // subtitle: amber attention line, else the raw status, else provider hint.
   const subtitle = !connected
     ? 'not connected'
@@ -89,7 +96,7 @@ export function CharacterCard({
         flexDirection: 'column',
         gap: 7,
         padding: 'var(--pad-card)',
-        borderRadius: 'var(--r-card)',
+        borderRadius: 'var(--r-card-lg)',
         // Lifted card (top-lit gradient + composite depth) that carries the PROVIDER
         // hue on its left edge even at rest / offline, so a stopped character is a
         // recognizable colored object rather than a dim grey tile.
@@ -151,20 +158,13 @@ export function CharacterCard({
           >
             {agent.name}
           </div>
-          {/* Provider TEXT — Basic-hidden: the avatar's provider-accent ring already
-              carries the tool. Advanced restores the explicit label. */}
-          {advanced && agent.provider && (
-            <div
-              style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--fs-tiny)',
-                color: 'var(--tx-4)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {providerLabel(agent.provider)}
+          {/* Provider as a colored Chip (provider hue tint) instead of tiny grey
+              text — "which tool" reads in colour at a glance. */}
+          {agent.provider && (
+            <div style={{ marginTop: 3 }}>
+              <Chip variant="provider" provider={agent.provider}>
+                {providerLabel(agent.provider)}
+              </Chip>
             </div>
           )}
           {modelLabel && (
@@ -182,7 +182,7 @@ export function CharacterCard({
             </div>
           )}
         </div>
-        <StatusDot status={dotStatus} glow={connected && tick === 'live'} />
+        <StatusPill variant={status.variant} label={status.label} size="sm" />
         {onSettings && (
           <IconButton
             label={`Settings for ${agent.name}`}

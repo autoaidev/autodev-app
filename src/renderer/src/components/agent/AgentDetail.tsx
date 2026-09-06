@@ -1,9 +1,9 @@
 import React from 'react'
-import { SegmentedTabs, Button, Pill, StatusDot, Icon, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { SegmentedTabs, Button, StatusPill, StatusDot, Icon, AgentAvatar, ProviderChip } from '@renderer/ui'
 import {
   AgentState,
   agentIdHash,
-  pillVariantFor,
+  agentStatus,
   stateLabelForAgent,
   isAttention,
   attentionTitle,
@@ -99,17 +99,14 @@ function PathChip({ agent, onOpen }: { agent: AgentState; onOpen: () => void }):
   )
 }
 
-function StatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
-  // An attention state gets its demanding label ("INTERRUPTED" / "NEEDS AUTH") in
-  // the state colour, never the calm "STOPPED" a retrying/interrupted run used to
-  // show — so the header can't read complete while the agent needs you (R4).
+function HeaderStatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
+  // The beautifui.dev tint-pair StatusPill (shared kit). An attention state gets its
+  // demanding label ("INTERRUPTED" / "NEEDS AUTH"), never the calm "STOPPED" a
+  // retrying/interrupted run used to show — so the header can't read complete while
+  // the agent needs you (R4). Variant comes from the shared agentStatus map.
   const attn = attentionTitle(agent)
-  return (
-    <Pill variant={pillVariantFor(agent.activity)} mono selected>
-      <StatusDot status={agent.activity} size={6} />
-      {attn ?? stateLabelForAgent(agent)}
-    </Pill>
-  )
+  const { variant, label } = agentStatus(agent)
+  return <StatusPill variant={variant} label={attn ?? label} />
 }
 
 export interface AgentDetailProps {
@@ -251,7 +248,7 @@ export function AgentDetail({
           <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'var(--fs-agent-name)', fontWeight: 700, color: 'var(--tx-hi)', letterSpacing: 'var(--ls-tight)' }} title={agent.name}>
             {agent.name}
           </span>
-          <StatusPill agent={agent} />
+          <HeaderStatusPill agent={agent} />
           {/* hero metric — the ONE big number for this view: NNNN/NNNN done, mono +
               tabular so the digits don't jitter as counters tick. Basic drops it (the
               same count already lives in the Inspector's TODO.md section, so printing it

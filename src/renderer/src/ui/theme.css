@@ -38,6 +38,13 @@
 }
 
 :root {
+  /* Native form controls (select popups, checkboxes), scrollbars and the caret
+   * follow the OS `color-scheme` unless told otherwise. Declaring it here — and
+   * flipping it in the light block below — makes every native widget honour the
+   * app theme (the form-heavy Settings panel rendered light widgets on a dark
+   * canvas without this). It is a theme token like any other. */
+  color-scheme: dark;
+
   /* =========================================================================
    * DARK THEME (default) — BOLD de-flatten.
    * A true-black canvas with a WIDE surface ramp (≥10 L* between planes) so the
@@ -197,6 +204,19 @@
   --st-error-bd: rgba(224, 106, 92, .26);
   --st-error-wash: rgba(224, 106, 92, .05);
 
+  /* ----- STATUS TINT PAIRS {ink, tint} — the beautifui.dev status language.
+   * Each semantic gets an INK (label + dot, AA on the tint) and a soft TINT fill
+   * for pills/chips. good=online/working · warn=needs-you/rate-limited ·
+   * crit=error/interrupted · info=accent/awaiting-you · violet=copilot. The
+   * hairline border is derived per-component from the ink (color-mix), so a pill
+   * is tint-fill + ink-text + ink-hairline. These EXTEND the semantic state tokens
+   * above; StatusDot/StatusPill/Chip render off these. ----- */
+  --st-good-ink: #4ecb9c;   --st-good-tint: rgba(78, 203, 156, .15);
+  --st-warn-ink: #e6a44e;   --st-warn-tint: rgba(230, 164, 78, .15);
+  --st-crit-ink: #f2756c;   --st-crit-tint: rgba(242, 117, 108, .15);
+  --st-info-ink: #5b8dff;   --st-info-tint: rgba(91, 141, 255, .15);
+  --st-violet-ink: #b39bff; --st-violet-tint: rgba(139, 110, 246, .16);
+
   /* ----- palette: roles + syntax + diff ----- */
   --role-violet: #9a86e8;
   --role-violet-2: #c3b6f0;
@@ -275,6 +295,7 @@
 
   /* ----- radii ----- */
   --r-pill: 999px;
+  --r-card-lg: 16px;   /* beautifui.dev cards (agent/office tiles) — soft 16px */
   --r-modal: 11px;
   --r-screen: 9px;
   --r-card: 8px;
@@ -343,6 +364,8 @@
  * =============================================================================
  */
 :root[data-theme='light'] {
+  color-scheme: light;
+
   /* surface ladder */
   --surface-stage: #f4f5f7;    /* canvas */
   --surface-stage-2: #eceef2;  /* recessed wells / zebra odd rows */
@@ -457,6 +480,13 @@
   --st-error-soft: rgba(214, 69, 69, .1);
   --st-error-bd: rgba(214, 69, 69, .3);
   --st-error-wash: rgba(214, 69, 69, .07);
+
+  /* STATUS TINT PAIRS — deep AA inks over pastel tints for light (beautifui.dev). */
+  --st-good-ink: #1f7a5f;   --st-good-tint: #d9f3e7;
+  --st-warn-ink: #b0590f;   --st-warn-tint: #ffe7d1;
+  --st-crit-ink: #c0362f;   --st-crit-tint: #ffe0dd;
+  --st-info-ink: #2f6fec;   --st-info-tint: #e7efff;
+  --st-violet-ink: #6b46d6; --st-violet-tint: #ece4ff;
 
   /* roles / syntax / diff — legible on light */
   --role-violet: #6d4fe0;

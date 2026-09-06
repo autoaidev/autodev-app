@@ -31,46 +31,61 @@ export function FleetStatusBar({
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 16,
-        height: 'var(--h-statusbar)',
+        minHeight: 'var(--h-statusbar)',
         flex: 'none',
-        padding: '0 22px',
-        background: 'var(--bg-topbar)',
-        borderTop: '1px solid var(--bd-nav)'
+        padding: '5px 22px',
+        // Selection turns the bar into a tinted ACTION bar (accent tint + accent
+        // hairline top) that reads as "N selected — act on them"; with nothing
+        // selected it recedes to the plain chrome status bar.
+        background: hasSel ? 'var(--accent-tint)' : 'var(--bg-topbar)',
+        borderTop: `1px solid ${hasSel ? 'var(--bd-accent)' : 'var(--bd-nav)'}`,
+        transition: 'background .12s ease'
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flexWrap: 'wrap' }}>
         <span
           style={{
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--fs-desc)',
-            fontWeight: 500,
+            fontWeight: 600,
+            letterSpacing: 'var(--ls-state)',
+            fontFeatureSettings: 'var(--fvn-tabular)',
             color: hasSel ? 'var(--accent-ink)' : 'var(--tx-dim)'
           }}
         >
           {selectedCount} selected
         </span>
         {hasSel &&
-          verbs.map((v) => (
-            <button
-              key={v.label}
-              type="button"
-              onClick={v.onClick}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 0,
-                cursor: 'pointer',
-                fontFamily: 'var(--font-sans)',
-                fontSize: 'var(--fs-desc)',
-                fontWeight: 600,
-                color: 'var(--tx-2)'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--tx-hi)')}
-              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--tx-2)')}
-            >
-              {v.label}
-            </button>
-          ))}
+          verbs.map((v) => {
+            const danger = /stop/i.test(v.label)
+            return (
+              <button
+                key={v.label}
+                type="button"
+                onClick={v.onClick}
+                style={{
+                  background: 'transparent',
+                  border: `1px solid ${danger ? 'var(--st-error-bd)' : 'var(--bd-accent)'}`,
+                  borderRadius: 'var(--r-pill)',
+                  padding: '3px 11px',
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 'var(--fs-desc)',
+                  fontWeight: 600,
+                  color: danger ? 'var(--st-error)' : 'var(--accent-ink)',
+                  transition: 'background .12s ease'
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.background = danger
+                    ? 'var(--st-error-soft)'
+                    : 'var(--bg-accent-soft)')
+                }
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                {v.label}
+              </button>
+            )
+          })}
       </div>
 
       <span
@@ -79,7 +94,8 @@ export function FleetStatusBar({
           fontSize: 'var(--fs-desc)',
           color: 'var(--tx-dim)',
           whiteSpace: 'nowrap',
-          flex: 'none'
+          flex: 'none',
+          fontFeatureSettings: 'var(--fvn-tabular)'
         }}
       >
         showing {showing} of {total}

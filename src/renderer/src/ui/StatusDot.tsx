@@ -19,32 +19,34 @@ export type DotStatus =
   | 'crashed'
   | 'stopped'
 
+// Aligned to the beautifui.dev STATUS TINT INKS (theme.css --st-*-ink) so a dot and
+// its StatusPill/Chip read the exact same hue for a given state, in both themes.
 const COLOR: Record<DotStatus, string> = {
-  running: 'var(--st-running)',
-  working: 'var(--st-running)',
-  'needs-you': 'var(--st-needsyou)',
-  stalled: 'var(--st-needsyou)',
-  'needs-auth': 'var(--st-needsyou)',
-  'rate-limited': 'var(--st-needsyou)',
-  error: 'var(--st-error)',
-  crashed: 'var(--st-error)',
+  running: 'var(--st-good-ink)',
+  working: 'var(--st-good-ink)',
+  'needs-you': 'var(--st-warn-ink)',
+  stalled: 'var(--st-warn-ink)',
+  'needs-auth': 'var(--st-warn-ink)',
+  'rate-limited': 'var(--st-warn-ink)',
+  error: 'var(--st-crit-ink)',
+  crashed: 'var(--st-crit-ink)',
   idle: 'var(--st-idle)',
   stopped: 'var(--st-idle)',
-  accent: 'var(--accent)'
+  accent: 'var(--st-info-ink)'
 }
 
 // needs-you is the ONE state allowed to shout: it gets the loud glowing amber ring
 // (--st-needsyou-glow) so an agent asking for you is impossible to miss, while
 // running keeps a calm green halo. The soft attention aliases share the loud glow.
 const GLOW: Partial<Record<DotStatus, string>> = {
-  running: '0 0 0 3px rgba(70,177,123,.16)',
-  working: '0 0 0 3px rgba(70,177,123,.16)',
+  running: '0 0 0 3px rgba(78,203,156,.16)',
+  working: '0 0 0 3px rgba(78,203,156,.16)',
   'needs-you': 'var(--st-needsyou-glow)',
   'needs-auth': 'var(--st-needsyou-glow)',
   'rate-limited': 'var(--st-needsyou-glow)',
   stalled: 'var(--st-needsyou-glow)',
-  error: '0 0 0 3px rgba(224,106,92,.16)',
-  crashed: '0 0 0 3px rgba(224,106,92,.16)'
+  error: '0 0 0 3px rgba(242,117,108,.16)',
+  crashed: '0 0 0 3px rgba(242,117,108,.16)'
 }
 
 export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {
