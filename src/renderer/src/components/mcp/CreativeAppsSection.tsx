@@ -124,7 +124,11 @@ function AppCard({
   // structured postSetup for this app). Kept local so the box only appears once
   // the user acts, not permanently.
   const [showEnabledSteps, setShowEnabledSteps] = React.useState(false)
+  // Optional advanced override: a custom gimp_mcp_client.py path. Hidden by
+  // default — the enable checkbox installs the real client automatically, so
+  // this is only for power users pointing at a hand-built client.
   const [gimpClient, setGimpClient] = React.useState('')
+  const [showAdvanced, setShowAdvanced] = React.useState(false)
 
   const missingPrereqs = app.prerequisites.filter((p) => !p.installed)
 
@@ -174,8 +178,6 @@ function AppCard({
       setBusy(false)
     }
   }, [agentPath, app.serverName, app.name, onMcpChanged, onRefresh])
-
-  const canEnableBlender = app.installed && !app.alreadyEnabled
 
   return (
     <div
@@ -257,23 +259,89 @@ function AppCard({
 
       {/* action row */}
       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-        {app.alreadyEnabled ? (
+        {!app.installed ? (
+          <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
+            Install {app.name} to enable this
+          </span>
+        ) : app.experimental ? (
+          // GIMP: one-click enable checkbox — parity with Blender's enable/remove.
+          // CHECKED → mcpEnableApp('gimp') installs the plugin + client and writes
+          // the MCP server (propagated to every provider). UNCHECKED → mcp remove,
+          // which toggles off the MCP server but LEAVES the plugin files in place.
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              cursor: busy ? 'default' : 'pointer',
+              fontSize: 'var(--fs-body)',
+              fontWeight: 600,
+              color: 'var(--tx-1)',
+              opacity: busy ? 0.6 : 1
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={app.alreadyEnabled}
+              disabled={busy}
+              onChange={(e) => (e.target.checked ? void enable() : void remove())}
+              style={{
+                width: 16,
+                height: 16,
+                accentColor: 'var(--accent)',
+                cursor: busy ? 'default' : 'pointer'
+              }}
+            />
+            {busy ? (app.alreadyEnabled ? 'Disabling…' : 'Enabling…') : `Enable ${app.name} MCP`}
+          </label>
+        ) : app.alreadyEnabled ? (
           <Button variant="secondary" size="sm" onClick={() => void remove()} disabled={busy}>
             <Icon name="trash" size={12} />
             {busy ? 'Removing…' : 'Remove'}
           </Button>
-        ) : app.experimental ? (
-          // GIMP: experimental / manual stub — never a vetted one-click.
-          <>
+        ) : (
+          <Button variant="primary" size="sm" onClick={() => void enable()} disabled={busy}>
+            <Icon name="sparkle" size={12} />
+            {busy ? 'Enabling…' : `Enable ${app.name} MCP`}
+          </Button>
+        )}
+      </div>
+
+      {/* Advanced (GIMP only): optional custom gimp_mcp_client.py override. Tucked
+          away so the default interaction stays the simple enable checkbox above. */}
+      {app.installed && app.experimental && (
+        <div style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--tx-4)',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 'var(--fs-desc)',
+              fontWeight: 600,
+              cursor: 'pointer',
+              padding: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5
+            }}
+          >
+            <Icon name={showAdvanced ? 'chevron' : 'caret'} size={11} />
+            Advanced
+          </button>
+          {showAdvanced && (
             <input
               type="text"
               value={gimpClient}
               onChange={(e) => setGimpClient(e.target.value)}
-              placeholder="path to gimp_mcp_client.py (optional)"
+              placeholder="custom path to gimp_mcp_client.py (optional)"
               spellCheck={false}
               style={{
-                flex: '1 1 240px',
-                minWidth: 0,
+                marginTop: 6,
+                width: '100%',
+                boxSizing: 'border-box',
                 fontFamily: 'var(--font-mono)',
                 fontSize: '11px',
                 color: 'var(--tx-1)',
@@ -283,21 +351,9 @@ function AppCard({
                 padding: '5px 8px'
               }}
             />
-            <Button variant="secondary" size="sm" onClick={() => void enable()} disabled={busy}>
-              {busy ? 'Adding…' : 'Add experimental GIMP stub'}
-            </Button>
-          </>
-        ) : canEnableBlender ? (
-          <Button variant="primary" size="sm" onClick={() => void enable()} disabled={busy}>
-            <Icon name="sparkle" size={12} />
-            {busy ? 'Enabling…' : `Enable ${app.name} MCP`}
-          </Button>
-        ) : (
-          <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
-            Install {app.name} to enable this
-          </span>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {error && (
         <div
