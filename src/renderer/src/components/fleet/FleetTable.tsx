@@ -50,7 +50,9 @@ function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): 
   return cols.join(' ')
 }
 const COL_GAP = 14
-const ROW_PAD = '14px 18px'
+// Denser rows (~57px → ~44px) so ~12+ agents fit a 1456×759 viewport without a
+// page-level scroll — the fleet is a scan surface, matching Sessions' density (ADD 1).
+const ROW_PAD = '8px 18px'
 
 /** A row's trailing action: a "···" more-menu, or a coloured verb link. */
 export interface RowAction {
@@ -299,7 +301,7 @@ function HeaderRow({ showCheck, showModel, showElapsed }: { showCheck: boolean; 
         gridTemplateColumns: gridFor(showCheck, showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
-        padding: '12px 18px',
+        padding: '7px 18px',
         borderBottom: '1px solid var(--bd-row)',
         // Sticky column header — stays put as the fleet scrolls. Opaque stage fill
         // so rows never bleed through under it.

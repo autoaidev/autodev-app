@@ -216,6 +216,10 @@
   --st-crit-ink: #f2756c;   --st-crit-tint: rgba(242, 117, 108, .15);
   --st-info-ink: #5b8dff;   --st-info-tint: rgba(91, 141, 255, .15);
   --st-violet-ink: #b39bff; --st-violet-tint: rgba(139, 110, 246, .16);
+  /* neutral resting tone {ink, tint} — the quiet chip surface for idle/unknown, so
+   * a neutral Chip/StatusPill has a named token pair (parity with pixel-office)
+   * instead of reaching into --tx-section / --bg-chip-idle ad hoc. */
+  --st-neutral-ink: #9aa3b2; --st-neutral-tint: #171c26;
 
   /* ----- palette: roles + syntax + diff ----- */
   --role-violet: #9a86e8;
@@ -393,11 +397,14 @@
   --depth-cta: inset 0 1px 0 rgba(255, 255, 255, .3), 0 2px 6px rgba(37, 99, 235, .28);
   --accent-warm: #c2751f;
 
-  /* per-provider — hue kept identifiable, ink darkened for AA on white tints */
-  --prov-claude: #c1502e;   --prov-claude-ink: #a8431f;   --prov-claude-tint: rgba(217, 119, 87, .14);   --prov-claude-ring: rgba(193, 80, 46, .5);
-  --prov-grok: #6d4fe0;     --prov-grok-ink: #5a35d6;     --prov-grok-tint: rgba(124, 92, 255, .14);     --prov-grok-ring: rgba(109, 79, 224, .5);
-  --prov-opencode: #0f9a8f; --prov-opencode-ink: #0b7d74; --prov-opencode-tint: rgba(15, 154, 143, .14); --prov-opencode-ring: rgba(15, 154, 143, .5);
-  --prov-copilot: #c43d84;  --prov-copilot-ink: #a52d6e;  --prov-copilot-tint: rgba(196, 61, 132, .14);  --prov-copilot-ring: rgba(196, 61, 132, .5);
+  /* per-provider — hue kept identifiable, ink darkened for AA on white tints. The
+   * tints are SOLID pale washes of each brand hue (parity with the status tint
+   * pairs above) so a provider Chip reads as a clean pastel plate on white, not a
+   * muddy translucent film over the card gradient. */
+  --prov-claude: #c1502e;   --prov-claude-ink: #a8431f;   --prov-claude-tint: #fbe7de;   --prov-claude-ring: rgba(193, 80, 46, .5);
+  --prov-grok: #6d4fe0;     --prov-grok-ink: #5a35d6;     --prov-grok-tint: #ece4ff;     --prov-grok-ring: rgba(109, 79, 224, .5);
+  --prov-opencode: #0f9a8f; --prov-opencode-ink: #0b7d74; --prov-opencode-tint: #d6f3ef; --prov-opencode-ring: rgba(15, 154, 143, .5);
+  --prov-copilot: #c43d84;  --prov-copilot-ink: #a52d6e;  --prov-copilot-tint: #fbe0ee;  --prov-copilot-ring: rgba(196, 61, 132, .5);
 
   /* semantic state — deeper, AA on white */
   --st-done: #1f9d57;
@@ -487,6 +494,7 @@
   --st-crit-ink: #c0362f;   --st-crit-tint: #ffe0dd;
   --st-info-ink: #2f6fec;   --st-info-tint: #e7efff;
   --st-violet-ink: #6b46d6; --st-violet-tint: #ece4ff;
+  --st-neutral-ink: #5f6a79; --st-neutral-tint: #eef1f6;
 
   /* roles / syntax / diff — legible on light */
   --role-violet: #6d4fe0;

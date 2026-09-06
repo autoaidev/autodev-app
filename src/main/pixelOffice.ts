@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { join, resolve, sep } from 'path'
 import { homedir } from 'os'
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync, rmSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync, rmSync, readdirSync, statSync, realpathSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
 import { isValidSessionId, safeSeg, safeMcpUrl, safeWsUrl, isSecureBaseUrl } from './officeSanitize'
@@ -930,7 +930,69 @@ export class PixelOfficeClient {
     }
   }
 
-  async operate(officeSlug: string, agentId: string, agentSlug: string): Promise<{ ok: true; cwd: string; mcpUrl: string } | { error: string }> {
+  /**
+   * Resolve the raw-TUI launch command for an Operate pane so it RESUMES the
+   * agent's existing session instead of starting a blank one (the Operate path is
+   * separate from the loop, so without this a "Connect & operate" always opened a
+   * fresh chat and lost all prior context).
+   *
+   *   grok    → `grok --resume <id> --always-approve` when a NON-EMPTY prior session
+   *             exists for this scratch dir (grok keys sessions by encodeURIComponent
+   *             of the cwd, newest uuid wins — ported from agentManager
+   *             `_resolveGrokSessionId`), else bare `grok --always-approve`.
+   *   claude  → `claude --continue` (resumes the most-recent session in this cwd, no
+   *             picker; harmless when there is none — it just starts fresh).
+   *   others  → bare (opencode / copilot have no clean, non-interactive continue flag).
+   *
+   * POISON/EMPTY GUARD: the raw Operate pane has no poison self-heal, so we only
+   * `--resume` a grok session whose `chat_history.jsonl` exists and is non-empty —
+   * a dead/empty session would otherwise crash the pane on launch. A first connect
+   * on a fresh scratch dir legitimately has no session → bare.
+   */
+  private resolveOperateCommand(dir: string, provider: string): string {
+    const p = String(provider ?? '').toLowerCase()
+    const GROK = 'grok --always-approve'
+    if (p.startsWith('grok')) {
+      const id = this.newestGrokSession(dir)
+      return id ? `grok --resume ${id} --always-approve` : GROK
+    }
+    if (p.startsWith('claude') || p === '' ) return 'claude --continue'
+    if (p.startsWith('opencode')) return 'opencode'
+    if (p.startsWith('copilot')) return 'copilot'
+    return 'claude --continue'
+  }
+
+  /**
+   * Newest grok session UUID for a workspace dir whose chat_history.jsonl is present
+   * and non-empty, or null. grok keys its store by the URL-encoded cwd (raw AND
+   * realpath — the scratch dir can resolve through a symlink), newest mtime wins.
+   */
+  private newestGrokSession(dir: string): string | null {
+    const grokHome = process.env['GROK_HOME'] || join(homedir(), '.grok')
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const roots = new Set<string>([dir])
+    try { roots.add(realpathSync(dir)) } catch { /* ignore */ }
+    let best: { id: string; mtime: number } | null = null
+    for (const r of roots) {
+      const base = join(grokHome, 'sessions', encodeURIComponent(r))
+      if (!existsSync(base)) continue
+      try {
+        for (const e of readdirSync(base, { withFileTypes: true })) {
+          if (!e.isDirectory() || !isUuid.test(e.name)) continue
+          const sessionDir = join(base, e.name)
+          // Poison/empty guard: skip sessions with no usable transcript.
+          const hist = join(sessionDir, 'chat_history.jsonl')
+          try { if (!existsSync(hist) || statSync(hist).size === 0) continue } catch { continue }
+          let m = 0
+          try { m = statSync(sessionDir).mtimeMs } catch { /* ignore */ }
+          if (!best || m > best.mtime) best = { id: e.name, mtime: m }
+        }
+      } catch { /* ignore */ }
+    }
+    return best?.id ?? null
+  }
+
+  async operate(officeSlug: string, agentId: string, agentSlug: string, provider = ''): Promise<{ ok: true; cwd: string; mcpUrl: string; command: string } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     try {
       let creds: any
@@ -959,8 +1021,12 @@ export class PixelOfficeClient {
       markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir (claude)
       markGrokFolderTrusted(dir) // …and for grok — always launch in trust/auto mode
       this.recordProvisioned(dir) // track for key-purge on logout
-      dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir)
-      return { ok: true, cwd: dir, mcpUrl: url }
+      // Resume the agent's existing session (grok --resume <id> / claude --continue)
+      // rather than opening a blank chat — the Operate pane is separate from the loop
+      // (ADD 2). Bare/fresh when no non-empty prior session exists for this dir.
+      const command = this.resolveOperateCommand(dir, provider)
+      dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir, 'cmd', command)
+      return { ok: true, cwd: dir, mcpUrl: url, command }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
   }
 

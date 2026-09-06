@@ -374,10 +374,11 @@ function GroupHeader({
       </div>
       {/* Actions row (office grouping only): Run all / Spawn new agent get their
           OWN line below the name so they can never overlap or truncate long folder
-          names. Hover-revealed (or while the folder is checked) so a resting list
-          shows no extra chrome; buttons stop-propagate so the fold toggle still
-          works. flex-wrap keeps them inside the rail on very narrow labels. */}
-      {folderActions && (hover || groupChecked !== 'none') && (
+          names. ALWAYS visible (was hover/checked-gated) — the user wants the per-office
+          controls persistently shown, not revealed on hover; buttons stop-propagate so
+          the fold toggle still works. flex-wrap keeps them inside the rail on very
+          narrow labels. */}
+      {folderActions && (
         <div
           style={{
             display: 'flex',

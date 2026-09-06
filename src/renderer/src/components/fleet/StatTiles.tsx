@@ -20,7 +20,7 @@ function SectionLabel({
         alignItems: 'baseline',
         justifyContent: 'space-between',
         gap: 8,
-        marginBottom: 11
+        marginBottom: 6
       }}
     >
       <span
@@ -47,7 +47,9 @@ const tileBase: React.CSSProperties = {
   background: 'var(--grad-card)',
   border: '1px solid var(--bd-card)',
   borderRadius: 'var(--r-screen)',
-  padding: '13px 15px',
+  // Compact strip: halved vertical padding so the three stat cards cost far less of
+  // the fleet's vertical budget (the biggest fit-to-viewport win — ADD 1).
+  padding: '8px 12px',
   boxShadow: 'var(--depth-card)'
 }
 
@@ -181,9 +183,25 @@ export interface ThroughputTileProps {
   closed: number
 }
 
+const SPARK_H = 24
+
 export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX.Element {
-  const max = Math.max(1, ...bars)
   const n = bars.length
+  const nz = bars.filter((v) => v > 0)
+  // LOADING: the sampler seeds the window with zeros and rolls one real value in per
+  // poll, so on first mount nothing real exists yet. Rather than paint that as a row
+  // of solid accent blocks (the Round-1 defect — it read as broken), show a calm flat
+  // baseline skeleton until real, VARIED data has arrived (F3).
+  const loading = nz.length === 0
+  const minNz = nz.length ? Math.min(...nz) : 0
+  const maxNz = nz.length ? Math.max(...nz) : 0
+  // A cumulative counter barely moves sample-to-sample, so an early/flat series has no
+  // spread — every bar hugs max and the green→blue ramp lights them all up as if the
+  // fleet just closed a burst. Only apply the ramp when there is genuine variation;
+  // otherwise draw a quiet, uniform baseline that reads as "steady", not "loading".
+  const hasVariation = nz.length > 1 && maxNz > minNz
+  const max = Math.max(1, ...bars)
+
   return (
     <div style={{ ...tileBase, flex: '1 1 224px', minWidth: 200 }}>
       <SectionLabel>Throughput · 24h</SectionLabel>
@@ -192,37 +210,67 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
           display: 'flex',
           alignItems: 'flex-end',
           gap: 3,
-          height: 34,
-          marginBottom: 9
+          height: SPARK_H,
+          marginBottom: 6
         }}
         aria-hidden
       >
-        {bars.map((v, i) => {
-          const h = Math.max(3, Math.round((v / max) * 34))
-          const isLast = i === n - 1
-          // Gradient across time: older bars green (--st-done) ramping to accent
-          // blue at the newest, with the latest bar bright + softly glowing so the
-          // eye lands on "right now". Empty samples stay a faint track.
-          const pct = n > 1 ? Math.round((i / (n - 1)) * 100) : 100
-          const background =
-            v === 0
-              ? 'var(--st-track-bg)'
-              : isLast
-                ? 'var(--accent)'
-                : `color-mix(in srgb, var(--st-done), var(--accent) ${pct}%)`
-          return (
-            <div
-              key={i}
-              style={{
-                flex: 1,
-                height: h,
-                borderRadius: 'var(--r-checkbox)',
-                background,
-                boxShadow: isLast && v > 0 ? '0 0 6px rgba(74,158,255,.55)' : undefined
-              }}
-            />
-          )
-        })}
+        {loading
+          ? // Skeleton: a flat muted baseline of equal, short bars — no misleading
+            // colour, no fake movement, just "no data yet".
+            new Array(n).fill(0).map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: 6,
+                  borderRadius: 'var(--r-checkbox)',
+                  background: 'var(--st-track-bg)'
+                }}
+              />
+            ))
+          : bars.map((v, i) => {
+              const isLast = i === n - 1
+              if (!hasVariation) {
+                // Steady/flat series → a calm uniform baseline in the muted track
+                // colour (present samples a touch taller than empty ones), never the
+                // alarming accent ramp.
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      flex: 1,
+                      height: v > 0 ? 12 : 6,
+                      borderRadius: 'var(--r-checkbox)',
+                      background: v > 0 ? 'var(--st-track)' : 'var(--st-track-bg)'
+                    }}
+                  />
+                )
+              }
+              const h = Math.max(3, Math.round((v / max) * SPARK_H))
+              // Gradient across time: older bars green (--st-done) ramping to accent
+              // blue at the newest, with the latest bar bright + softly glowing so the
+              // eye lands on "right now". Empty samples stay a faint track.
+              const pct = n > 1 ? Math.round((i / (n - 1)) * 100) : 100
+              const background =
+                v === 0
+                  ? 'var(--st-track-bg)'
+                  : isLast
+                    ? 'var(--accent)'
+                    : `color-mix(in srgb, var(--st-done), var(--accent) ${pct}%)`
+              return (
+                <div
+                  key={i}
+                  style={{
+                    flex: 1,
+                    height: h,
+                    borderRadius: 'var(--r-checkbox)',
+                    background,
+                    boxShadow: isLast && v > 0 ? '0 0 6px rgba(74,158,255,.55)' : undefined
+                  }}
+                />
+              )
+            })}
       </div>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
         <span
@@ -232,7 +280,8 @@ export function ThroughputTile({ bars, closed }: ThroughputTileProps): React.JSX
             fontWeight: 700,
             lineHeight: 1,
             color: 'var(--tx-hi)',
-            letterSpacing: 'var(--ls-tight)'
+            letterSpacing: 'var(--ls-tight)',
+            fontFeatureSettings: 'var(--fvn-tabular)'
           }}
         >
           {closed.toLocaleString()}

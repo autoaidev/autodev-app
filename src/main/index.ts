@@ -333,7 +333,7 @@ ipcMain.handle('settings:get', () => appSettings.getSettings())
 ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light' }) => appSettings.updateSettings(patch ?? {}))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
-ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string) => office.operate(officeSlug, agentId, agentSlug))
+ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string) => office.operate(officeSlug, agentId, agentSlug, provider ?? ''))
 // Spawn an ENTIRE office as TRACKED autodev-cli LOOPS (not interactive PTYs).
 // pixelOffice.spawnOffice does the office-side prep (BLOCK-IF-ANY-ONLINE, scratch
 // dir + presence/MCP bind + provider) and returns the prepared workspaces; here we

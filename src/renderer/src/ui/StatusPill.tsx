@@ -71,6 +71,13 @@ export function StatusPill({
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        // Content-sized: hug the label, never stretch to fill a grid/flex cell. A
+        // grid item defaults to justify-self:stretch — fit-content + justify-self:start
+        // keep the pill exactly as wide as its text, left-aligned (Fleet STATE column,
+        // office cards). maxWidth:100% still guards a pathologically narrow cell.
+        width: 'fit-content',
+        maxWidth: '100%',
+        justifySelf: 'start',
         gap: sm ? 5 : 6,
         padding: sm ? '2px 8px' : '3px 10px',
         borderRadius: 'var(--r-pill)',

@@ -100,12 +100,15 @@ export function FleetHeader({
     <div
       style={{
         display: 'flex',
-        alignItems: 'flex-start',
+        alignItems: 'center',
         justifyContent: 'space-between',
         gap: 16
       }}
     >
-      <div style={{ minWidth: 0 }}>
+      {/* ONE compact line: label + focal count + inline office/open/closed stats —
+          collapsed from the old 44px display hero + a separate counts row so the
+          summary band costs one line, not three (ADD 1). */}
+      <div style={{ minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
         <h1
           style={{
             margin: 0,
@@ -119,18 +122,16 @@ export function FleetHeader({
         >
           Fleet
         </h1>
-        {/* HERO metric — the single focal number of the Fleet view (display tier,
-            mono + tabular). */}
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, marginTop: 2 }}>
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6 }}>
           <span
             style={{
               fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--fs-display)',
+              fontSize: 'var(--fs-metric)',
               fontWeight: 'var(--fw-display)',
-              lineHeight: 'var(--lh-display)',
+              lineHeight: 1,
               letterSpacing: 'var(--ls-display)',
-              // Colored hero — the fleet count is the ONE thing that wins the blur
-              // test on this view, in the reserved in-progress accent blue.
+              // Colored focal count — still the ONE number that wins the blur test,
+              // now at the compact metric tier (28px) instead of the 44px display hero.
               color: 'var(--accent)',
               fontFeatureSettings: 'var(--fvn-tabular)'
             }}
@@ -140,20 +141,11 @@ export function FleetHeader({
           <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', color: 'var(--tx-dim)' }}>
             {agentCount === 1 ? 'agent' : 'agents'}
           </span>
-        </div>
-        <div
-          style={{
-            marginTop: 6,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 14,
-            flexWrap: 'wrap'
-          }}
-        >
-          <HeaderStat icon="office" value={offices} label={offices === 1 ? 'office' : 'offices'} />
-          <HeaderStat icon="clock" value={openTasks} label="open" />
-          <HeaderStat icon="check" value={closedToday} label="closed today" tone="good" />
-        </div>
+        </span>
+        <span aria-hidden style={{ width: 1, alignSelf: 'stretch', background: 'var(--bd-2)' }} />
+        <HeaderStat icon="office" value={offices} label={offices === 1 ? 'office' : 'offices'} />
+        <HeaderStat icon="clock" value={openTasks} label="open" />
+        <HeaderStat icon="check" value={closedToday} label="closed today" tone="good" />
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 'none' }}>

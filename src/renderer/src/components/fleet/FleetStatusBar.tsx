@@ -33,6 +33,7 @@ export function FleetStatusBar({
         gap: 16,
         minHeight: 'var(--h-statusbar)',
         flex: 'none',
+        boxSizing: 'border-box',
         padding: '5px 22px',
         // Selection turns the bar into a tinted ACTION bar (accent tint + accent
         // hairline top) that reads as "N selected — act on them"; with nothing
@@ -67,7 +68,13 @@ export function FleetStatusBar({
                   background: 'transparent',
                   border: `1px solid ${danger ? 'var(--st-error-bd)' : 'var(--bd-accent)'}`,
                   borderRadius: 'var(--r-pill)',
+                  // lineHeight:1 + border-box keeps the button ≤20px tall so the whole
+                  // action bar fits inside its reserved --h-statusbar (30px) instead
+                  // of growing 2px past a maximized viewport and clipping its own
+                  // bottom padding (F4).
+                  boxSizing: 'border-box',
                   padding: '3px 11px',
+                  lineHeight: 1,
                   cursor: 'pointer',
                   fontFamily: 'var(--font-sans)',
                   fontSize: 'var(--fs-desc)',

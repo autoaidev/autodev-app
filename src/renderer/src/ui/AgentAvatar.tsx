@@ -210,6 +210,9 @@ export function ProviderChip({ provider, compact = false, style }: ProviderChipP
         style={{
           display: 'inline-flex',
           alignItems: 'center',
+          width: 'fit-content',
+          maxWidth: '100%',
+          justifySelf: 'start',
           gap: 4,
           fontFamily: 'var(--font-sans)',
           fontSize: 'var(--fs-micro)',
@@ -237,6 +240,9 @@ export function ProviderChip({ provider, compact = false, style }: ProviderChipP
       style={{
         display: 'inline-flex',
         alignItems: 'center',
+        width: 'fit-content',
+        maxWidth: '100%',
+        justifySelf: 'start',
         gap: 5,
         padding: '2px 7px',
         borderRadius: 'var(--r-chip)',

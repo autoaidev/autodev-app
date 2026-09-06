@@ -115,7 +115,10 @@ export function CharacterCard({
         minWidth: 0
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {/* HEADER ROW — avatar · name · gear. Name owns all the slack (flex + ellipsis)
+          so it truncates cleanly; the provider Chip and StatusPill live on their OWN
+          row below, so neither can clip mid-word or be occluded by the other (F2). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         {selectable && (
           <input
             type="checkbox"
@@ -145,44 +148,21 @@ export function CharacterCard({
           online={connected}
           title={agent.name}
         />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div
-            style={{
-              fontSize: 'var(--fs-meta)',
-              fontWeight: 600,
-              color: 'var(--tx-hi)',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}
-          >
-            {agent.name}
-          </div>
-          {/* Provider as a colored Chip (provider hue tint) instead of tiny grey
-              text — "which tool" reads in colour at a glance. */}
-          {agent.provider && (
-            <div style={{ marginTop: 3 }}>
-              <Chip variant="provider" provider={agent.provider}>
-                {providerLabel(agent.provider)}
-              </Chip>
-            </div>
-          )}
-          {modelLabel && (
-            <div
-              title={`Model: ${modelLabel}`}
-              style={{
-                fontSize: 'var(--fs-tiny)',
-                color: 'var(--tx-5)',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {modelLabel}
-            </div>
-          )}
+        <div
+          title={agent.name}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            fontSize: 'var(--fs-meta)',
+            fontWeight: 600,
+            color: 'var(--tx-hi)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}
+        >
+          {agent.name}
         </div>
-        <StatusPill variant={status.variant} label={status.label} size="sm" />
         {onSettings && (
           <IconButton
             label={`Settings for ${agent.name}`}
@@ -195,6 +175,40 @@ export function CharacterCard({
             }}
           />
         )}
+      </div>
+
+      {/* META ROW — provider Chip (left, brand hue, flex:none so it never clips) ·
+          model label (takes the slack, ellipsis) · StatusPill (right, flex:none).
+          The two pills are pinned to opposite ends with the model between them, so
+          they can never overlap regardless of card width. */}
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 5, minWidth: 0 }}>
+        {agent.provider && (
+          <Chip variant="provider" provider={agent.provider} style={{ flex: '0 0 auto', maxWidth: '100%' }}>
+            {providerLabel(agent.provider)}
+          </Chip>
+        )}
+        {modelLabel && (
+          <span
+            title={`Model: ${modelLabel}`}
+            style={{
+              flex: '1 1 auto',
+              minWidth: 0,
+              fontSize: 'var(--fs-tiny)',
+              color: 'var(--tx-5)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          >
+            {modelLabel}
+          </span>
+        )}
+        <StatusPill
+          variant={status.variant}
+          label={status.label}
+          size="sm"
+          style={{ marginLeft: 'auto', flex: '0 0 auto' }}
+        />
       </div>
 
       {/* Offline subtitle is just "not connected" — redundant with the idle dot + the

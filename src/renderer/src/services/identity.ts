@@ -127,25 +127,36 @@ export function providerDisplayLabel(provider?: string): string {
 }
 
 /**
- * The beautifui.dev provider → STATUS-HUE mapping for the Chip `provider` variant:
- *   claude → info (blue) · grok → warn (amber) · opencode → good (teal) ·
- *   copilot → violet · unknown/dummy → neutral.
- * This is the canonical Round-1 spec hue for provider chips. It is intentionally
- * DISTINCT from the per-provider brand accent (providerAccent, e.g. claude-coral)
- * that drives avatar rings/spines — unifying the two is a Round-2 item.
+ * providerHue — the resolved {ink, tint, ring} tone for a provider Chip, sourced
+ * from the SINGLE `--prov-*` brand map (claude coral · grok violet · opencode teal
+ * · copilot magenta · unknown → neutral).
+ *
+ * Round-2 unification: this used to map providers onto the SEMANTIC status hues
+ * (--st-good/warn/info/violet), which collided with state — an idle grok agent
+ * showed an amber "needs-you"-coloured chip. Provider colour is now SEVERED from
+ * the semantic palette: it routes exclusively through --prov-*, the SAME tokens
+ * that drive the avatar ring, providerAccent and the Fleet ProviderChip, so a
+ * Claude agent is coral everywhere and a provider hue can never read as a state.
  */
-export type ProviderHue = 'good' | 'warn' | 'info' | 'violet' | 'neutral'
-export function providerHue(provider?: string): ProviderHue {
-  switch (providerFamilyOf(provider)) {
-    case 'claude':
-      return 'info'
-    case 'grok':
-      return 'warn'
-    case 'opencode':
-      return 'good'
-    case 'copilot':
-      return 'violet'
-    default:
-      return 'neutral'
+export interface ProviderTone {
+  /** label + hairline ink: `var(--prov-*-ink)` (or neutral) */
+  ink: string
+  /** chip background wash: `var(--prov-*-tint)` (or neutral) */
+  tint: string
+  /** stronger ring/border stroke: `var(--prov-*-ring)` (or --bd-1) */
+  ring: string
+  /** true when the provider is unknown/local (renders the quiet neutral tone) */
+  neutral: boolean
+}
+export function providerHue(provider?: string): ProviderTone {
+  const family = providerFamilyOf(provider)
+  if (family === 'unknown') {
+    return { ink: 'var(--st-neutral-ink)', tint: 'var(--st-neutral-tint)', ring: 'var(--bd-1)', neutral: true }
+  }
+  return {
+    ink: `var(--prov-${family}-ink)`,
+    tint: `var(--prov-${family}-tint)`,
+    ring: `var(--prov-${family}-ring)`,
+    neutral: false
   }
 }

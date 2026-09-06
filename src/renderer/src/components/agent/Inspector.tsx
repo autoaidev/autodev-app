@@ -1,5 +1,6 @@
 import React from 'react'
-import { Button, StatusDot, Pill, Icon } from '@renderer/ui'
+import { Button, StatusDot, StatusPill, Chip, Pill, Icon } from '@renderer/ui'
+import type { StatusVariant } from '@renderer/ui'
 import { AgentState, providerShort } from './AgentRow'
 import { isAttention, attentionSummary } from '@renderer/services/model'
 import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
@@ -85,40 +86,68 @@ function ProgressBar({ ratio, tone = 'accent' }: { ratio: number; tone?: 'accent
   )
 }
 
-function KeyValueRow({ k, v, suffix }: { k: string; v: React.ReactNode; suffix?: React.ReactNode }): React.JSX.Element {
-  // Field name is the quieter tier by CASE + tracking (uppercase micro-label), the
-  // value the emphasized tier (primary text) — so a scan separates key from value
-  // at a glance rather than reading two same-size greys.
+/**
+ * DefRow — one row of the SETUP definition card: a fixed-width uppercase micro-label
+ * on the left, a rich value area on the right (a Chip, a StatusPill, text, or the
+ * inline model editor). Rows sit inside a single hairline card with interior
+ * dividers, so SETUP reads as ONE grouped panel instead of a stack of loose
+ * uppercase-label/value lines (R2a).
+ */
+function DefRow({
+  label,
+  children,
+  divider = true,
+  alignTop = false
+}: {
+  label: string
+  children: React.ReactNode
+  divider?: boolean
+  alignTop?: boolean
+}): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, padding: '8px 0' }}>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: alignTop ? 'flex-start' : 'center',
+        gap: 12,
+        padding: '10px 12px',
+        borderBottom: divider ? '1px solid var(--bd-2)' : 'none'
+      }}
+    >
       <span
         style={{
           flex: 'none',
-          width: 74,
+          width: 62,
+          paddingTop: alignTop ? 2 : 0,
           fontSize: 'var(--fs-section)',
-          fontWeight: 500,
+          fontWeight: 600,
           letterSpacing: 'var(--ls-state)',
           textTransform: 'uppercase',
           color: 'var(--tx-section)'
         }}
       >
-        {k}
+        {label}
       </span>
-      <span
-        style={{
-          flex: 1,
-          minWidth: 0,
-          fontSize: 'var(--fs-meta)',
-          color: 'var(--tx-hi)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}
-      >
-        {v}
-        {suffix}
-      </span>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>{children}</div>
     </div>
+  )
+}
+
+/** Plain single-line value text (ellipsised) for a DefRow. */
+function ValText({ children, title }: { children: React.ReactNode; title?: string }): React.JSX.Element {
+  return (
+    <span
+      title={title}
+      style={{
+        fontSize: 'var(--fs-meta)',
+        color: 'var(--tx-hi)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      {children}
+    </span>
   )
 }
 
@@ -409,97 +438,126 @@ function SetupSection({ agent, configRev, onEditSetup, onEditMcp }: { agent: Age
   const officeConn = useOfficeConnection()
   const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
   const officeStatus = deriveOfficeLinkStatus(officeLinked, !!agent.online, officeConn)
-  const office: React.ReactNode = officeStatus === 'reconnecting' ? (
-    // Non-blocking (R7): the local loop keeps running; this is a dim status, not an
-    // alarm. Reconnect only matters for watching/steering with teammates.
-    <span style={{ color: 'var(--tx-dim)' }}>reconnecting · local runs</span>
-  ) : agent.officeSlug ? (
-    officeStatus === 'connected' ? agent.officeSlug : `${agent.officeSlug} · offline`
-  ) : agent.wsUrl || agent.officeAgentSlug ? (
-    officeStatus === 'connected' ? 'connected' : 'linked · offline'
-  ) : (
-    '—'
-  )
+  // Office link state → a StatusPill {variant,label}: connected=good, reconnecting=warn,
+  // linked-but-offline=neutral, unlinked=null (render a plain "—"). Same derivation as
+  // the AgentDetail header so the two can never contradict.
+  const officePill: { variant: StatusVariant; label: string } | null =
+    officeStatus === 'reconnecting'
+      ? { variant: 'warn', label: 'reconnecting' }
+      : agent.officeSlug
+        ? officeStatus === 'connected'
+          ? { variant: 'good', label: agent.officeSlug }
+          : { variant: 'neutral', label: `${agent.officeSlug} · offline` }
+        : agent.wsUrl || agent.officeAgentSlug
+          ? officeStatus === 'connected'
+            ? { variant: 'good', label: 'connected' }
+            : { variant: 'neutral', label: 'linked · offline' }
+          : null
 
   return (
     <div style={{ padding: '18px 20px' }}>
       <SectionLabel right={<LinkBtn onClick={onEditSetup}>Edit…</LinkBtn>}>Setup</SectionLabel>
-      <KeyValueRow k="Provider" v={providerShort(agent.provider)} />
-      {/* MODEL — the value line ALWAYS states the effective model in plain words; the
-          transient status (saved / restart to apply) sits to its right and never
-          replaces it. A 1-click inline change lives in the dropdown below. */}
-      <div style={{ padding: '8px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-          <span style={{ flex: 'none', width: 74, fontSize: 'var(--fs-section)', fontWeight: 500, letterSpacing: 'var(--ls-state)', textTransform: 'uppercase', color: 'var(--tx-section)' }}>Model</span>
-          {/* value line — the effective model, always legible (never a status word) */}
-          <span
-            title={effective}
-            style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-meta)', color: 'var(--tx-hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          >
-            {effective}
-          </span>
-          {/* right-aligned micro-status: a real Restart button while running+unapplied,
-              else the transient note, else the persistent auto-save hint. Basic shows
-              Model as a plain read-only value (no inline editor / hints) — editing is
-              one click away via Edit… (Setup modal); Advanced keeps the live status. */}
-          {advanced &&
-            (running && modelNote === 'restart to apply' ? (
-              <span style={{ flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)', whiteSpace: 'nowrap' }}>restart to apply</span>
-                <Button size="sm" variant="secondary" onClick={restart} disabled={modelBusy}>Restart</Button>
-              </span>
-            ) : modelNote ? (
-              <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)', whiteSpace: 'nowrap' }}>
-                {modelNote}
-              </span>
-            ) : (
-              // Persistent affordance: make the auto-save explicit BEFORE interaction so
-              // committing-on-select isn't a surprise (the Setup modal batches; this
-              // inline control saves instantly).
-              <span style={{ flex: 'none', fontSize: 'var(--fs-tiny)', color: 'var(--tx-faint)', whiteSpace: 'nowrap' }}>saves on select</span>
-            ))}
-        </div>
-        {/* Inline model dropdown — Advanced only. In Basic the row above is the
-            read-only effective value; Edit… (Setup modal) is the change path. */}
-        {advanced && <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />}
-      </div>
-      {/* Office link state is a teammate-collaboration detail — Advanced only. Provider
-          + Model stay in Basic (the two setup facts a solo user cares about). */}
-      {advanced && <KeyValueRow k="Office" v={office} />}
-      {/* MCP + Files — expert rows, Advanced only (edit them via Setup… otherwise). */}
-      {advanced && (
-        <>
-          <KeyValueRow
-            k="MCP"
-            v={
-              mcp === null ? (
-                <span style={{ color: 'var(--tx-5)' }}>—</span>
+      {/* One hairline card grouping every setup fact — provider/model/office/mcp/files
+          read as a single scannable panel (16px rim, interior dividers) rather than a
+          form-dump of stacked uppercase labels (R2a). */}
+      <div
+        style={{
+          borderRadius: 'var(--r-card-lg)',
+          border: '1px solid var(--bd-card)',
+          background: 'var(--grad-card)',
+          boxShadow: 'var(--depth-card)',
+          overflow: 'hidden'
+        }}
+      >
+        {/* PROVIDER — a brand-hue Chip (--prov-*), so "which tool" reads in colour and
+            matches the avatar ring + header ProviderChip. */}
+        <DefRow label="Provider">
+          {agent.provider ? (
+            <Chip variant="provider" provider={agent.provider} style={{ alignSelf: 'flex-start' }}>
+              {providerShort(agent.provider)}
+            </Chip>
+          ) : (
+            <ValText>—</ValText>
+          )}
+        </DefRow>
+
+        {/* MODEL — the value line ALWAYS states the effective model in plain words; the
+            transient status (saved / restart to apply) sits to its right and never
+            replaces it. A 1-click inline change lives in the dropdown below. */}
+        <DefRow label="Model" alignTop divider={advanced}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%' }}>
+            <ValText title={effective}>{effective}</ValText>
+            {/* right-aligned micro-status: a real Restart button while running+unapplied,
+                else the transient note, else the persistent auto-save hint. Basic shows
+                Model as a plain read-only value (no inline editor / hints) — editing is
+                one click away via Edit… (Setup modal); Advanced keeps the live status. */}
+            {advanced &&
+              (running && modelNote === 'restart to apply' ? (
+                <span style={{ marginLeft: 'auto', flex: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--st-needsyou)', whiteSpace: 'nowrap' }}>restart to apply</span>
+                  <Button size="sm" variant="secondary" onClick={restart} disabled={modelBusy}>Restart</Button>
+                </span>
+              ) : modelNote ? (
+                <span style={{ marginLeft: 'auto', flex: 'none', fontSize: 'var(--fs-tiny)', color: /fail/i.test(modelNote) ? 'var(--st-error)' : 'var(--tx-dim)', whiteSpace: 'nowrap' }}>
+                  {modelNote}
+                </span>
               ) : (
-                // Obvious clickable affordance (UX-2): the ONLY way into the MCP
-                // editor from here — accent-coloured, hover-underlined, with a
-                // chevron + "Edit" hint so it doesn't read as static text.
-                <button
-                  type="button"
-                  onClick={onEditMcp}
-                  title="Edit MCP servers"
-                  style={{ all: 'unset', cursor: 'pointer', color: 'var(--accent)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
-                  onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
-                >
+                // Persistent affordance: make the auto-save explicit BEFORE interaction so
+                // committing-on-select isn't a surprise (the Setup modal batches; this
+                // inline control saves instantly).
+                <span style={{ marginLeft: 'auto', flex: 'none', fontSize: 'var(--fs-tiny)', color: 'var(--tx-faint)', whiteSpace: 'nowrap' }}>saves on select</span>
+              ))}
+          </div>
+          {/* Inline model dropdown — Advanced only. In Basic the row above is the
+              read-only effective value; Edit… (Setup modal) is the change path. */}
+          {advanced && <ModelSelect vendor={agent.provider || ''} value={model} onChange={changeModel} compact />}
+        </DefRow>
+
+        {/* Office link state is a teammate-collaboration detail — Advanced only. Provider
+            + Model stay in Basic (the two setup facts a solo user cares about). */}
+        {advanced && (
+          <DefRow label="Office">
+            {officePill ? (
+              <StatusPill variant={officePill.variant} label={officePill.label} size="sm" mono={false} style={{ alignSelf: 'flex-start', maxWidth: '100%' }} />
+            ) : (
+              <ValText>—</ValText>
+            )}
+          </DefRow>
+        )}
+
+        {/* MCP + Files — expert rows, Advanced only (edit them via Setup… otherwise). */}
+        {advanced && (
+          <DefRow label="MCP">
+            {mcp === null ? (
+              <ValText>—</ValText>
+            ) : (
+              // Obvious clickable affordance (UX-2): the ONLY way into the MCP editor
+              // from here — a count Chip + accent "Edit" + chevron, hover-underlined,
+              // so it doesn't read as static text.
+              <button
+                type="button"
+                onClick={onEditMcp}
+                title="Edit MCP servers"
+                style={{ all: 'unset', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, alignSelf: 'flex-start' }}
+                onMouseEnter={(e) => (e.currentTarget.style.textDecoration = 'underline')}
+                onMouseLeave={(e) => (e.currentTarget.style.textDecoration = 'none')}
+              >
+                <Chip variant={mcp.issues > 0 ? 'crit' : 'neutral'} mono>
                   {mcp.total} {mcp.total === 1 ? 'server' : 'servers'}
-                  <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>Edit</span>
-                  <Icon name="chevron" size={11} />
-                </button>
-              )
-            }
-            suffix={mcp && mcp.issues > 0 ? <span style={{ color: 'var(--st-error)' }}> · {mcp.issues} issue</span> : undefined}
-          />
-          <KeyValueRow
-            k="Files"
-            v={fileBrowser === null ? <span style={{ color: 'var(--tx-5)' }}>—</span> : fileBrowser ? 'browser on' : 'browser off'}
-          />
-        </>
-      )}
+                  {mcp.issues > 0 ? ` · ${mcp.issues} issue` : ''}
+                </Chip>
+                <span style={{ fontSize: 'var(--fs-tiny)', color: 'var(--accent)', fontWeight: 600 }}>Edit</span>
+                <Icon name="chevron" size={11} color="var(--accent)" />
+              </button>
+            )}
+          </DefRow>
+        )}
+        {advanced && (
+          <DefRow label="Files" divider={false}>
+            <ValText>{fileBrowser === null ? '—' : fileBrowser ? 'browser on' : 'browser off'}</ValText>
+          </DefRow>
+        )}
+      </div>
     </div>
   )
 }

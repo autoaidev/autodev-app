@@ -77,8 +77,9 @@ type Api = {
   officeOperate: (
     officeSlug: string,
     agentId: string,
-    agentSlug: string
-  ) => Promise<{ ok?: boolean; cwd?: string; mcpUrl?: string; error?: string }>
+    agentSlug: string,
+    provider?: string
+  ) => Promise<{ ok?: boolean; cwd?: string; mcpUrl?: string; command?: string; error?: string }>
   ptyKill: (id: string) => Promise<unknown>
 }
 const api = (): Api => (window as unknown as { api: Api }).api
@@ -178,7 +179,7 @@ export async function operate(
     emit()
     return { ok: true, id: existing.id, reused: true }
   }
-  const r = await api().officeOperate(officeSlug, agent.id, agent.slug)
+  const r = await api().officeOperate(officeSlug, agent.id, agent.slug, agent.provider)
   if (r?.error || !r?.cwd) return { error: r?.error || 'Could not prepare the operate workspace' }
   if (existing) {
     terms = terms.filter((t) => t.id !== existing.id)
@@ -194,7 +195,10 @@ export async function operate(
       mcpUrl: r.mcpUrl,
       name: `${agent.name} · ${agent.office}`,
       agentId: agent.id,
-      command: providerToCommand(agent.provider),
+      // Prefer the main-resolved resume command (grok --resume <id> / claude
+      // --continue) so Operate re-opens the existing session; fall back to the bare
+      // provider command when main didn't supply one (ADD 2).
+      command: r.command || providerToCommand(agent.provider),
       provider: agent.provider
     }
   ]

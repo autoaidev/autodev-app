@@ -373,8 +373,9 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
       style={{ height: '100%' }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, background: 'var(--grad-stage)' }}>
-        {/* summary band */}
-        <div style={{ background: 'transparent', padding: '18px var(--gap-gutter) 0', flex: 'none' }}>
+        {/* summary band — tight vertical rhythm so the header + stat strip cost as
+            little height as possible and the table gets the viewport (ADD 1). */}
+        <div style={{ background: 'transparent', padding: '11px var(--gap-gutter) 0', flex: 'none' }}>
           <FleetHeader
             agentCount={agents.length}
             officeCount={officeCount}
@@ -384,7 +385,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
             onStopAll={() => void stopAll()}
             busy={busy}
           />
-          <div style={{ display: 'flex', gap: 12, marginTop: 16, marginBottom: 18 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, marginBottom: 10 }}>
             {/* NeedsYou is the triage tile — always shown. Throughput + Providers are
                 Advanced-only analytics. */}
             <NeedsYouTile agents={needsYou} actionFor={attentionAction} />

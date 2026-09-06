@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { Fragment, useEffect, useState, useCallback } from 'react'
 import OfficeSelector from './OfficeSelector'
 import FileBrowserCheckbox from './FileBrowserCheckbox'
 import { SignInForm } from './components/office/SignInForm'
@@ -456,7 +456,12 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', height: '100%', overflow: 'auto', background: 'var(--bg-0)', fontFamily: 'var(--font-sans)' }}>
       <style>{`.makeapp-input:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px var(--accent-tint)}`}</style>
-      <div style={{ width: 620, maxWidth: '100%', padding: 24 }}>
+      {/* Wide, balanced shell: a single ~1040px column no longer floats in huge empty
+          margins on a maximized window. Below the header + stepper the body splits into
+          the primary funnel (left, takes the slack) and a persistent context rail
+          (right: office target · existing-project shortcut) that stacks under the funnel
+          on a narrow window (flex-wrap) — R2b. */}
+      <div style={{ width: '100%', maxWidth: 1040, padding: '28px 32px' }}>
         <h2 style={{ margin: '0 0 4px', fontSize: 'var(--fs-page-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>
           <span aria-hidden style={{ marginRight: 6 }}>🐣</span>Make app
         </h2>
@@ -481,64 +486,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
           </div>
         )}
 
-        {/* Have an existing project? Skip the whole AI funnel and register it as one
-            agent — no office login required (removes the "forced through AI team-gen"
-            dead-end from the audit). */}
-        <details style={{ margin: '0 0 16px', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', background: 'var(--bg-panel)' }}>
-          <summary style={{ padding: '10px 12px', cursor: 'pointer', fontSize: 'var(--fs-meta)', color: 'var(--tx-2)' }}>
-            Already have a project folder? Add it as one agent
-          </summary>
-          <div style={{ padding: '0 12px 12px' }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <input className="makeapp-input" value={existingFolder} onChange={(e) => { setExistingFolder(e.target.value); setExistingErr(''); setExistingMsg('') }}
-                placeholder="/path/to/existing/project" style={{ ...inp, margin: 0, flex: 1 }} disabled={addingExisting} />
-              <Button variant="secondary" onClick={pickExisting} disabled={addingExisting}>Browse</Button>
-            </div>
-            <label style={{ ...labelStyle, marginTop: 10 }}>Provider</label>
-            <select className="makeapp-input" value={existingProvider} onChange={(e) => setExistingProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={addingExisting}>
-              {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
-            </select>
-            {existingErr && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', marginTop: 8 }}>{existingErr}</div>}
-            <Button variant="primary" block style={{ marginTop: 10 }} disabled={addingExisting || !existingFolder.trim() || cliMissing} onClick={addExisting}>
-              {addingExisting ? 'Adding…' : '➕ Add folder as one agent'}
-            </Button>
-            {existingMsg && (
-              <div role="status" style={{ color: 'var(--st-running)', fontSize: 'var(--fs-desc)', marginTop: 8, lineHeight: 1.5 }}>
-                {existingMsg}
-                <Button variant="primary" size="sm" style={{ display: 'flex', marginTop: 8 }} onClick={() => app.navigate('agents')}>Go to Agents →</Button>
-              </div>
-            )}
-          </div>
-        </details>
-
-        {/* Local-only banner — shown when a user chose to skip sign-in. Offers a way
-            back into the office flow so the choice is never a trap. */}
-        {!connected && (
-          <div style={{ marginBottom: 16, padding: '10px 12px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
-            <strong style={{ color: 'var(--tx-2)' }}>Local agents only.</strong> Not connected to a Pixel Office — a generic default team is used (AI team-generation is office-backed).{' '}
-            <a href="#" onClick={(e) => { e.preventDefault(); setLocalOnly(false) }} style={{ color: 'var(--accent)' }}>Sign in to a Pixel Office</a> for an AI-generated team and shared offices.
-          </div>
-        )}
-
-        {/* Office targeting — only meaningful (and only shown) while connected. Checked:
-            generate/attach to a pixel office. Unchecked: local workspaces only. */}
-        <OfficeSelector
-          connected={connected}
-          useOffice={useOffice}
-          onToggle={officeSel.setUseOffice}
-          offices={offices}
-          selectedOfficeId={selectedOfficeId}
-          onSelect={setSelectedOfficeId}
-          disabled={creating}
-          allowNewOffice
-          newOfficeLabel="＋ New office (from description)"
-          idPrefix="makeapp"
-          uncheckedNote="Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed."
-          localOffices={localOffices}
-          selectedLocalOffice={folder}
-          onSelectLocalOffice={pickLocalOffice}
-        />
-
+        <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          {/* PRIMARY FUNNEL — describe → team → spawn (takes the slack). */}
+          <div style={{ flex: '1 1 520px', minWidth: 0 }}>
         <label style={labelStyle}>What do you want to build?</label>
         <textarea className="makeapp-input" value={desc} onChange={(e) => setDesc(e.target.value)}
           placeholder="e.g. A recipe app that suggests meals from ingredients I have at home"
@@ -740,6 +690,69 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
             </div>
           </div>
         )}
+          </div>
+          {/* CONTEXT RAIL — office target + the existing-project shortcut. Sits beside the
+              funnel on a wide window (uses the width) and wraps below it when narrow. */}
+          <aside style={{ flex: '1 1 300px', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Office targeting — only meaningful (and only shown) while connected. Checked:
+                generate/attach to a pixel office. Unchecked: local workspaces only. */}
+            <OfficeSelector
+              connected={connected}
+              useOffice={useOffice}
+              onToggle={officeSel.setUseOffice}
+              offices={offices}
+              selectedOfficeId={selectedOfficeId}
+              onSelect={setSelectedOfficeId}
+              disabled={creating}
+              allowNewOffice
+              newOfficeLabel="＋ New office (from description)"
+              idPrefix="makeapp"
+              uncheckedNote="Agents will be created as local workspaces only — not attached to any pixel office. A generic default team is used since AI team-generation is office-backed."
+              localOffices={localOffices}
+              selectedLocalOffice={folder}
+              onSelectLocalOffice={pickLocalOffice}
+            />
+
+            {/* Local-only banner — shown when a user chose to skip sign-in. Offers a way
+                back into the office flow so the choice is never a trap. */}
+            {!connected && (
+              <div style={{ padding: '10px 12px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', lineHeight: 1.5 }}>
+                <strong style={{ color: 'var(--tx-2)' }}>Local agents only.</strong> Not connected to a Pixel Office — a generic default team is used (AI team-generation is office-backed).{' '}
+                <a href="#" onClick={(e) => { e.preventDefault(); setLocalOnly(false) }} style={{ color: 'var(--accent)' }}>Sign in to a Pixel Office</a> for an AI-generated team and shared offices.
+              </div>
+            )}
+
+            {/* Have an existing project? Skip the whole AI funnel and register it as one
+                agent — no office login required (removes the "forced through AI team-gen"
+                dead-end from the audit). */}
+            <details style={{ border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)', background: 'var(--bg-panel)' }}>
+              <summary style={{ padding: '10px 12px', cursor: 'pointer', fontSize: 'var(--fs-meta)', color: 'var(--tx-2)' }}>
+                Already have a project folder? Add it as one agent
+              </summary>
+              <div style={{ padding: '0 12px 12px' }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input className="makeapp-input" value={existingFolder} onChange={(e) => { setExistingFolder(e.target.value); setExistingErr(''); setExistingMsg('') }}
+                    placeholder="/path/to/existing/project" style={{ ...inp, margin: 0, flex: 1 }} disabled={addingExisting} />
+                  <Button variant="secondary" onClick={pickExisting} disabled={addingExisting}>Browse</Button>
+                </div>
+                <label style={{ ...labelStyle, marginTop: 10 }}>Provider</label>
+                <select className="makeapp-input" value={existingProvider} onChange={(e) => setExistingProvider(e.target.value)} style={{ ...inp, marginBottom: 0 }} disabled={addingExisting}>
+                  {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
+                </select>
+                {existingErr && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', marginTop: 8 }}>{existingErr}</div>}
+                <Button variant="primary" block style={{ marginTop: 10 }} disabled={addingExisting || !existingFolder.trim() || cliMissing} onClick={addExisting}>
+                  {addingExisting ? 'Adding…' : '➕ Add folder as one agent'}
+                </Button>
+                {existingMsg && (
+                  <div role="status" style={{ color: 'var(--st-running)', fontSize: 'var(--fs-desc)', marginTop: 8, lineHeight: 1.5 }}>
+                    {existingMsg}
+                    <Button variant="primary" size="sm" style={{ display: 'flex', marginTop: 8 }} onClick={() => app.navigate('agents')}>Go to Agents →</Button>
+                  </div>
+                )}
+              </div>
+            </details>
+          </aside>
+        </div>
       </div>
     </div>
   )
@@ -810,29 +823,74 @@ function ProviderAuthNote({ providers }: { providers: string[] }): JSX.Element |
   )
 }
 
-/** Lightweight 3-step progress indicator for the describe → team → spawn wizard. */
+/**
+ * Steps — a real connected 3-stage stepper for the describe → team → spawn wizard.
+ * Each stage is a numbered node (28px) with a label + sub-hint; the connector
+ * between nodes fills accent→green once its segment is complete, the current node
+ * carries an accent ring glow, and done nodes show a ✓. Full-width so it uses the
+ * pane instead of reading as a thin text row (R2b).
+ */
+const STEP_META = [
+  { label: 'Describe', hint: 'what to build' },
+  { label: 'Team', hint: 'edit & tweak' },
+  { label: 'Spawn', hint: 'run locally' }
+]
+const NODE = 28
 function Steps({ current }: { current: number }): JSX.Element {
-  const labels = ['Describe', 'Team', 'Spawn']
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 16px' }}>
-      {labels.map((label, i) => {
+    <div style={{ display: 'flex', alignItems: 'flex-start', margin: '6px 0 24px' }}>
+      {STEP_META.map((s, i) => {
         const n = i + 1
         const done = current > n
         const active = current === n
+        const nodeBg = active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bg-chip-idle)'
+        const nodeBd = active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bd-field)'
         return (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: i < labels.length - 1 ? 1 : '0 0 auto' }}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-desc)', color: active ? 'var(--tx-hi)' : done ? 'var(--st-running)' : 'var(--tx-dim)', fontWeight: active ? 700 : 500 }}>
-              <span aria-hidden style={{
-                width: 18, height: 18, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 'var(--fs-tiny)', fontWeight: 700,
-                background: active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bg-chip-idle)',
-                color: active || done ? 'var(--tx-onaccent)' : 'var(--tx-dim)',
-                border: `1px solid ${active ? 'var(--accent)' : done ? 'var(--st-running)' : 'var(--bd-card)'}`
-              }}>{done ? '✓' : n}</span>
-              {label}
-            </span>
-            {i < labels.length - 1 && <span style={{ flex: 1, height: 1, background: 'var(--bd-card)' }} />}
-          </div>
+          <Fragment key={s.label}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, flex: '0 0 auto', width: 92, textAlign: 'center' }}>
+              <span
+                aria-hidden
+                style={{
+                  width: NODE,
+                  height: NODE,
+                  borderRadius: 999,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 'var(--fs-meta)',
+                  fontWeight: 700,
+                  fontFeatureSettings: 'var(--fvn-tabular)',
+                  background: nodeBg,
+                  color: active || done ? 'var(--tx-onaccent)' : 'var(--tx-dim)',
+                  border: `1px solid ${nodeBd}`,
+                  boxShadow: active ? '0 0 0 4px var(--accent-tint)' : 'none',
+                  transition: 'background .15s ease, box-shadow .15s ease'
+                }}
+              >
+                {done ? '✓' : n}
+              </span>
+              <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <span style={{ fontSize: 'var(--fs-desc)', fontWeight: active ? 700 : 600, color: active ? 'var(--tx-hi)' : done ? 'var(--st-running)' : 'var(--tx-dim)' }}>
+                  {s.label}
+                </span>
+                <span style={{ fontSize: 'var(--fs-micro)', color: 'var(--tx-faint)' }}>{s.hint}</span>
+              </span>
+            </div>
+            {i < STEP_META.length - 1 && (
+              <span
+                aria-hidden
+                style={{
+                  flex: 1,
+                  height: 2,
+                  marginTop: NODE / 2 - 1,
+                  borderRadius: 'var(--r-bar)',
+                  minWidth: 24,
+                  background: current > n ? 'var(--st-running)' : 'var(--bd-card)',
+                  transition: 'background .15s ease'
+                }}
+              />
+            )}
+          </Fragment>
         )
       })}
     </div>
