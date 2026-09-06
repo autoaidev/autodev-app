@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import TerminalPane from './TerminalPane'
+import { Icon } from '@renderer/ui'
 
 /**
  * One open pane in the office view. Two kinds:
@@ -149,8 +150,8 @@ export default function TerminalTabs({
           <span className="badge" title="Provider">{active.kind === 'log' ? (active.provider || 'loop') : active.command}</span>
           <div style={{ flex: 1 }} />
           {active.kind === 'log'
-            ? <button style={closeBtnStyle} title="Close this log view — the loop keeps running (use ⏹ Stop office to stop it)" onClick={() => onClose(active.id)}>✕ Close view</button>
-            : <button style={{ ...closeBtnStyle, color: 'var(--red)' }} title="End this session — the character goes offline" onClick={() => onClose(active.id)}>■ Close</button>}
+            ? <button style={{ ...closeBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Close this log view — the loop keeps running (use Stop office to stop it)" onClick={() => onClose(active.id)}><Icon name="close" size={10} /> Close view</button>
+            : <button style={{ ...closeBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }} title="End this session — the character goes offline" onClick={() => onClose(active.id)}><Icon name="stop" size={9} /> Close</button>}
           <div style={{ flexBasis: '100%', fontSize: 10, color: 'var(--muted)', fontFamily: 'monospace' }}>
             {active.kind === 'log'
               ? active.path

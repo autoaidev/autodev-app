@@ -55,6 +55,9 @@ export interface StatusDotProps extends React.HTMLAttributes<HTMLSpanElement> {
   size?: number
   /** render the soft focus ring for the active row */
   glow?: boolean
+  /** LIVE/active (working, streaming) — the dot gently breathes. Set only while
+   *  the state is live; disabled under prefers-reduced-motion. */
+  live?: boolean
 }
 
 // Non-hue redundancy (a11y): idle/stopped agents render as a HOLLOW ring while
@@ -67,16 +70,19 @@ export function StatusDot({
   status,
   size = 6,
   glow = false,
+  live = false,
   className,
   style,
   ...rest
 }: StatusDotProps): React.JSX.Element {
   const hollow = HOLLOW.has(status)
+  // Breathe only when live AND solid — a hollow idle/stopped ring never animates.
+  const cls = [live && !hollow ? 'ad-live-dot' : '', className].filter(Boolean).join(' ') || undefined
   return (
     <span
       role="img"
       aria-label={status}
-      className={className}
+      className={cls}
       style={{
         display: 'inline-block',
         flex: 'none',

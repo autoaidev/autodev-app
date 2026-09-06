@@ -48,8 +48,9 @@ const tileBase: React.CSSProperties = {
   border: '1px solid var(--bd-card)',
   borderRadius: 'var(--r-screen)',
   // Compact strip: halved vertical padding so the three stat cards cost far less of
-  // the fleet's vertical budget (the biggest fit-to-viewport win — ADD 1).
-  padding: '8px 12px',
+  // the fleet's vertical budget (the biggest fit-to-viewport win — ADD 1; R3 trims
+  // one more px to help the table clear 12 visible rows at 1456×759).
+  padding: '7px 12px',
   boxShadow: 'var(--depth-card)'
 }
 
@@ -78,7 +79,7 @@ export function NeedsYouTile({ agents, actionFor }: NeedsYouTileProps): React.JS
           display: 'flex',
           alignItems: 'center',
           gap: 9,
-          padding: '10px 14px',
+          padding: '8px 14px',
           border: '1px solid var(--bd-nav)',
           background: 'var(--bg-panel)'
         }}

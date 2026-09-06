@@ -50,9 +50,10 @@ function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): 
   return cols.join(' ')
 }
 const COL_GAP = 14
-// Denser rows (~57px → ~44px) so ~12+ agents fit a 1456×759 viewport without a
-// page-level scroll — the fleet is a scan surface, matching Sessions' density (ADD 1).
-const ROW_PAD = '8px 18px'
+// Denser rows (~57px → ~42px) so 12+ agents fit a 1456×759 viewport without a
+// page-level scroll — the fleet is a scan surface, matching Sessions' density (ADD 1,
+// R3: 8px→7px vertical shaves ~2px/row on top of the summary-strip trim).
+const ROW_PAD = '7px 18px'
 
 /** A row's trailing action: a "···" more-menu, or a coloured verb link. */
 export interface RowAction {
@@ -107,7 +108,9 @@ function Checkbox({
  *  live green pill instead of a bare word indistinguishable from an idle one. */
 function StateBadge({ a }: { a: AgentState }): React.JSX.Element {
   const { variant, label } = agentStatus(a)
-  return <StatusPill variant={variant} label={label} size="sm" />
+  // Breathe the dot only while the agent is actively producing output (working);
+  // idle/stopped/error rows stay static.
+  return <StatusPill variant={variant} label={label} size="sm" live={a.activity === 'working'} />
 }
 
 /**
@@ -301,7 +304,7 @@ function HeaderRow({ showCheck, showModel, showElapsed }: { showCheck: boolean; 
         gridTemplateColumns: gridFor(showCheck, showModel, showElapsed),
         columnGap: COL_GAP,
         alignItems: 'center',
-        padding: '7px 18px',
+        padding: '6px 18px',
         borderBottom: '1px solid var(--bd-row)',
         // Sticky column header — stays put as the fleet scrolls. Opaque stage fill
         // so rows never bleed through under it.

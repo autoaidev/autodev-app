@@ -1,4 +1,5 @@
 import React from 'react'
+import { Icon } from './Icon'
 
 /**
  * Toolbar — the bulk-select action band that appears above the agent list when
@@ -46,12 +47,10 @@ export function Toolbar({
           height: 14,
           borderRadius: 'var(--r-checkbox)',
           background: 'var(--accent)',
-          color: 'var(--tx-onaccent)',
-          fontSize: 'var(--fs-micro)',
-          fontWeight: 700
+          color: 'var(--tx-onaccent)'
         }}
       >
-        ✓
+        <Icon name="check" size={9} strokeWidth={2} />
       </span>
       <span
         style={{

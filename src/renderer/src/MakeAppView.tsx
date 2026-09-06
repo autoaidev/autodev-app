@@ -462,8 +462,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
           (right: office target · existing-project shortcut) that stacks under the funnel
           on a narrow window (flex-wrap) — R2b. */}
       <div style={{ width: '100%', maxWidth: 1040, padding: '28px 32px' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 'var(--fs-page-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>
-          <span aria-hidden style={{ marginRight: 6 }}>🐣</span>Make app
+        <h2 style={{ margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--fs-page-title)', fontWeight: 700, color: 'var(--tx-hi)' }}>
+          <Icon name="sparkle" size={17} color="var(--accent)" />Make app
         </h2>
         <p style={{ margin: '0 0 14px', fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>
           Describe your app, generate a team, tweak each agent&rsquo;s name and model, then spawn them locally or open the office.
@@ -523,7 +523,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
 
         {!edits && (
           <Button variant="primary" block style={{ marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
-            {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🐣 Generate team'}
+            {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : <><Icon name="sparkle" size={12} /> Generate team</>}
           </Button>
         )}
 
@@ -543,7 +543,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   the big "🐣 Generate team" primary is no longer rendered. */}
               <Button variant="secondary" size="sm" style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || !desc.trim()} onClick={make}
                 title="Generate a fresh team from the current description, team size & office">
-                {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : '🔄 Regenerate'}
+                {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : <><Icon name="refresh" size={12} /> Regenerate</>}
               </Button>
             </div>
             {edits.length === 0 && <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)', padding: 12, background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>{office ? 'No team was generated — you can still set it up in the browser.' : 'No team was generated.'}</div>}
@@ -642,8 +642,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   {spawning
                     ? (shareMode ? 'Wiring…' : 'Spawning…')
                     : shareMode
-                      ? `🔌 Wire ${edits.length} agent${edits.length === 1 ? '' : 's'} into shared .mcp.json`
-                      : `🐣 Spawn ${edits.length} agent${edits.length === 1 ? '' : 's'} into folder`}
+                      ? <><Icon name="terminal" size={12} /> Wire {edits.length} agent{edits.length === 1 ? '' : 's'} into shared .mcp.json</>
+                      : <><Icon name="sparkle" size={12} /> Spawn {edits.length} agent{edits.length === 1 ? '' : 's'} into folder</>}
                 </Button>
                 {/* Per-agent mode only: spawn AND start every loop in one click so
                     the user doesn't have to Start each agent in the sidebar. Shared
@@ -660,7 +660,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                 {shareMode && wired && (
                   <Button variant="primary" block style={{ marginTop: 8 }} disabled={addingSidebar || cliMissing} onClick={addSharedAsAgent}
                     title="Init this folder as one workspace and add it to the agents sidebar so you can Start a single loop that drives the whole team">
-                    {addingSidebar ? 'Adding…' : `➕ Add to sidebar as one agent (drives all ${edits.length})`}
+                    {addingSidebar ? 'Adding…' : <><Icon name="plus" size={12} /> Add to sidebar as one agent (drives all {edits.length})</>}
                   </Button>
                 )}
                 {spawnMsg && (
@@ -685,8 +685,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
             )}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              {office && <Button variant="secondary" style={{ flex: 1 }} onClick={openSetup}>↗ Open in browser</Button>}
-              <Button variant="ghost" style={{ flex: office ? '0 0 auto' : 1 }} onClick={reset} title="Start another">＋ New</Button>
+              {office && <Button variant="secondary" style={{ flex: 1 }} onClick={openSetup}><Icon name="external" size={12} /> Open in browser</Button>}
+              <Button variant="ghost" style={{ flex: office ? '0 0 auto' : 1 }} onClick={reset} title="Start another"><Icon name="plus" size={12} /> New</Button>
             </div>
           </div>
         )}
@@ -741,7 +741,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                 </select>
                 {existingErr && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', marginTop: 8 }}>{existingErr}</div>}
                 <Button variant="primary" block style={{ marginTop: 10 }} disabled={addingExisting || !existingFolder.trim() || cliMissing} onClick={addExisting}>
-                  {addingExisting ? 'Adding…' : '➕ Add folder as one agent'}
+                  {addingExisting ? 'Adding…' : <><Icon name="plus" size={12} /> Add folder as one agent</>}
                 </Button>
                 {existingMsg && (
                   <div role="status" style={{ color: 'var(--st-running)', fontSize: 'var(--fs-desc)', marginTop: 8, lineHeight: 1.5 }}>
@@ -867,7 +867,7 @@ function Steps({ current }: { current: number }): JSX.Element {
                   transition: 'background .15s ease, box-shadow .15s ease'
                 }}
               >
-                {done ? '✓' : n}
+                {done ? <Icon name="check" size={13} strokeWidth={2} /> : n}
               </span>
               <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <span style={{ fontSize: 'var(--fs-desc)', fontWeight: active ? 700 : 600, color: active ? 'var(--tx-hi)' : done ? 'var(--st-running)' : 'var(--tx-dim)' }}>

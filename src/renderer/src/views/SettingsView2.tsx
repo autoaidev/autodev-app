@@ -727,8 +727,8 @@ export function SettingsView2(): JSX.Element {
                     onChange={(id) => void saveDefaultModel(v.key, id)}
                   />
                   {savedVendor === v.key && (
-                    <div style={{ marginTop: 5, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
-                      Saved ✓
+                    <div style={{ marginTop: 5, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
                     </div>
                   )}
                 </div>
@@ -794,7 +794,7 @@ export function SettingsView2(): JSX.Element {
                   disabled={!loaded || saving || urlInvalid || !urlDirty}
                   onClick={() => void saveUrl()}
                 >
-                  {saving ? 'Saving…' : savedPulse ? 'Saved ✓' : 'Save'}
+                  {saving ? 'Saving…' : savedPulse ? <>Saved <Icon name="check" size={10} strokeWidth={2} /></> : 'Save'}
                 </Button>
                 <Button
                   variant="secondary"
@@ -822,7 +822,7 @@ export function SettingsView2(): JSX.Element {
                     color: testResult.ok ? 'var(--st-running)' : 'var(--st-error-bright)'
                   }}
                 >
-                  {testResult.ok ? '✓ ' : ''}
+                  {testResult.ok && <Icon name="check" size={11} strokeWidth={2} style={{ marginRight: 4, verticalAlign: '-1px' }} />}
                   {testResult.msg}
                 </div>
               )}

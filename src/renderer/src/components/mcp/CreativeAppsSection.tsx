@@ -250,8 +250,8 @@ function AppCard({
       {app.notes.length > 0 && (
         <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
           {app.notes.map((n, i) => (
-            <div key={i} style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', lineHeight: 1.5 }}>
-              ⚠ {n}
+            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', lineHeight: 1.5 }}>
+              <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1, color: 'var(--st-needsyou)' }}><Icon name="warn" size={12} /></span>{n}
             </div>
           ))}
         </div>

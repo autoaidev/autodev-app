@@ -94,13 +94,13 @@ export function Modal({
         // side); the body below scrolls while header/footer stay pinned, so a tall
         // generate/config dialog can't clip its header or ✕.
         maxHeight: 'calc(100vh - 48px)',
-        // Floating dialog sits on the TOP rung (float) over the scrim, with the
-        // composite float depth (top-highlight + deep shadow) so it clearly lifts
-        // above every card/canvas behind it rather than sharing the panel grey.
+        // Floating dialog sits on the TOP rung (float) over the blurred scrim: a
+        // HAIRLINE rim (not a heavy border) + a lit top edge + the --shadow-lift
+        // drop, so it reads as a soft raised card floating above the dimmed canvas.
         background: 'var(--surface-float)',
-        border: '1px solid var(--bd-strong)',
+        border: '1px solid var(--bd-1)',
         borderRadius: 'var(--r-modal)',
-        boxShadow: 'var(--depth-float), var(--hl-top-strong), var(--shadow-modal)',
+        boxShadow: 'var(--hl-top-strong), var(--shadow-lift)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
@@ -113,8 +113,8 @@ export function Modal({
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            padding: '15px 18px 13px',
-            borderBottom: '1px solid var(--bd-card)',
+            padding: '16px 20px 14px',
+            borderBottom: '1px solid var(--bd-2)',
             flexShrink: 0
           }}
         >
@@ -152,12 +152,16 @@ export function Modal({
                 <button
                   type="button"
                   aria-label="Close"
+                  className="ad-modal-close"
                   onClick={onClose}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    padding: 4,
+                    width: 26,
+                    height: 26,
+                    padding: 0,
+                    borderRadius: 'var(--r-button)',
                     background: 'transparent',
                     border: 'none',
                     color: 'var(--tx-dim)',
@@ -172,7 +176,7 @@ export function Modal({
         </div>
       )}
 
-      <div style={{ padding: '15px 18px', overflow: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
+      <div style={{ padding: '16px 20px', overflow: 'auto', flex: 1, minHeight: 0 }}>{children}</div>
 
       {footer && (
         <div
@@ -180,8 +184,13 @@ export function Modal({
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            padding: '12px 18px',
-            borderTop: '1px solid var(--bd-card)',
+            padding: '14px 20px',
+            borderTop: '1px solid var(--bd-2)',
+            // Footer sits on a faintly recessed band so the right-aligned actions
+            // read as a distinct action zone under the content.
+            background: 'var(--bg-panel-alt)',
+            borderBottomLeftRadius: 'var(--r-modal)',
+            borderBottomRightRadius: 'var(--r-modal)',
             flexShrink: 0
           }}
         >
@@ -202,7 +211,11 @@ export function Modal({
         // Above the floating chrome (CliBanner + Toast sit at z-index 1000) so an
         // open dialog is never covered by a banner/toast. Stacking: Modal > Toast/Banner > chrome.
         zIndex: 2000,
+        // Dimmed + softly blurred backdrop so the dialog reads as focused
+        // foreground and the busy canvas behind it recedes.
         background: 'var(--scrim)',
+        backdropFilter: 'blur(3px)',
+        WebkitBackdropFilter: 'blur(3px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

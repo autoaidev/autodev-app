@@ -232,7 +232,7 @@ export function AgentStream({
           borderRadius: 'var(--r-card)'
         }}
       >
-        <span title="Live instant-message (steer)" style={{ color: 'var(--role-violet)', fontSize: 13 }}>⚡</span>
+        <span title="Live instant-message (steer)" style={{ display: 'inline-flex', color: 'var(--role-violet)' }}><Icon name="bolt" size={13} /></span>
         <input
           value={text}
           onChange={(e) => setText(e.target.value)}

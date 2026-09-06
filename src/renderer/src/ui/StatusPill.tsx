@@ -50,6 +50,13 @@ export interface StatusPillProps extends React.HTMLAttributes<HTMLSpanElement> {
   mono?: boolean
   /** compact (sm) vs default (md) sizing */
   size?: 'sm' | 'md'
+  /**
+   * LIVE/active state (working, streaming) — the leading dot gently breathes to
+   * convey "active right now". Callers set this ONLY while the state is live (e.g.
+   * activity === 'working'); it MUST be false at rest so the motion stops the
+   * instant the agent is idle/stopped/error. Honoured off under prefers-reduced-motion.
+   */
+  live?: boolean
 }
 
 export function StatusPill({
@@ -58,6 +65,7 @@ export function StatusPill({
   dot = true,
   mono = true,
   size = 'md',
+  live = false,
   className,
   style,
   ...rest
@@ -97,6 +105,9 @@ export function StatusPill({
       {dot && (
         <span
           aria-hidden
+          // Breathe only when live AND the state is a solid (non-neutral) dot —
+          // an idle/resting hollow ring never animates.
+          className={live && !neutral ? 'ad-live-dot' : undefined}
           style={{
             width: sm ? 5 : 6,
             height: sm ? 5 : 6,

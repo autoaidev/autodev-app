@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AgentAvatar } from '@renderer/ui'
+import { AgentAvatar, Icon } from '@renderer/ui'
 import { OfficeAgent, authorColor, hhmm } from './officeTypes'
 import type { RoomEntry } from '@renderer/services/officeService'
 import { renderMarkdown } from '../agent/useMarkdown'
@@ -252,7 +252,7 @@ export function OfficeRoom({
             borderRadius: 'var(--r-card)'
           }}
         >
-          <span title="Live instant-message (steer)" style={{ color: 'var(--role-violet)', fontSize: 13 }}>⚡</span>
+          <span title="Live instant-message (steer)" style={{ display: 'inline-flex', color: 'var(--role-violet)' }}><Icon name="bolt" size={13} /></span>
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}

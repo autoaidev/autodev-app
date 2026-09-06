@@ -207,6 +207,8 @@ export function CharacterCard({
           variant={status.variant}
           label={status.label}
           size="sm"
+          // A LIVE (online, not waiting-on-you) character breathes to signal presence.
+          live={connected && tick !== 'needs-you'}
           style={{ marginLeft: 'auto', flex: '0 0 auto' }}
         />
       </div>

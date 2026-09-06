@@ -348,7 +348,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     if (!agentId || !text) return
     setSteerToast('')
     const r = await officeService.steer(agentId, text)
-    if ('ok' in r) setSteerToast('⚡ delivered')
+    if ('ok' in r) setSteerToast('delivered')
     else setSteerToast(r.error || 'Could not deliver — is the character online?')
     setTimeout(() => setSteerToast(''), 4000)
   }, [])
@@ -669,7 +669,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               </div>
               <div style={{ flex: 1 }} />
               {steerToast && (
-                <span style={{ fontSize: 'var(--fs-desc)', color: steerToast.startsWith('⚡') ? 'var(--st-running)' : 'var(--st-error)', whiteSpace: 'nowrap' }}>{steerToast}</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-desc)', color: steerToast === 'delivered' ? 'var(--st-running)' : 'var(--st-error)', whiteSpace: 'nowrap' }}>
+                  {steerToast === 'delivered' && <Icon name="bolt" size={11} />}{steerToast}
+                </span>
               )}
               {running ? (
                 <Button variant="secondary" size="sm" danger disabled={stoppingOffice === selectedGroup.slug} onClick={() => stopOffice(selectedGroup)}>
@@ -849,7 +851,7 @@ function TermSteer({ disabled, name, onSend }: { disabled: boolean; name: string
   const [text, setText] = useState('')
   return (
     <>
-      <span title="Live instant-message (steer)" style={{ color: 'var(--role-violet)', fontSize: 13 }}>⚡</span>
+      <span title="Live instant-message (steer)" style={{ display: 'inline-flex', color: 'var(--role-violet)' }}><Icon name="bolt" size={13} /></span>
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -866,7 +868,7 @@ function TermSteer({ disabled, name, onSend }: { disabled: boolean; name: string
         }}
       />
       <Button variant="primary" size="sm" disabled={disabled || !text.trim()} onClick={() => { const t = text.trim(); if (t) { onSend(t); setText('') } }}>
-        ⚡ Send
+        <Icon name="bolt" size={12} /> Send
       </Button>
     </>
   )

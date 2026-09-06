@@ -234,7 +234,7 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
         )}
         {/* state dot — the one place STATE color lives on the right; needs-you /
             running glow so attention rows shout while identity stays in the tile. */}
-        <StatusDot status={dot} glow={glow} />
+        <StatusDot status={dot} glow={glow} live={agent.activity === 'working'} />
         {selected && (
           <button
             type="button"

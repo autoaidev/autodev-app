@@ -35,6 +35,8 @@ export type IconName =
   | 'agents'     // two head-and-shoulders (Agents nav tab)
   | 'fleet'      // 2×2 grid of tiles (Fleet nav tab)
   | 'sparkle'    // 4-point star (Make app nav tab)
+  | 'bolt'       // lightning bolt (live steer / instant-message)
+  | 'warn'       // warning triangle (failing / attention count)
 
 type Kind = 'stroke' | 'fill'
 
@@ -156,6 +158,16 @@ const G: Record<IconName, Glyph> = {
   sparkle: {
     vb: '0 0 14 14', kind: 'fill',
     body: <path d="M7 1c.45 2.7 1.3 3.55 4 4-2.7.45-3.55 1.3-4 4-.45-2.7-1.3-3.55-4-4 2.7-.45 3.55-1.3 4-4z" />
+  },
+  // Lightning bolt — live steer / instant-message affordance.
+  bolt: {
+    vb: '0 0 14 14', kind: 'fill',
+    body: <path d="M8 1L3 8h3l-.6 5L11 6H7.6z" />
+  },
+  // Warning triangle with a bang — failing servers / attention counts.
+  warn: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <><path d="M7 2.2l5.3 9.1H1.7z" /><path d="M7 5.9v2.7" /><circle cx="7" cy="10.4" r=".55" fill="currentColor" stroke="none" /></>
   }
 }
 

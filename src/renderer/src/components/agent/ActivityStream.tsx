@@ -281,8 +281,26 @@ export function ActivityStream({
           <span style={{ color: 'var(--tx-dim)', display: 'inline-flex' }}>
             <Icon name="terminal" size={26} />
           </span>
-          <div style={{ fontSize: 'var(--fs-body)', fontWeight: 'var(--fw-selected)', color: 'var(--tx-2)' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 9,
+              fontSize: 'var(--fs-body)',
+              fontWeight: 'var(--fw-selected)',
+              color: 'var(--tx-2)'
+            }}
+          >
             {running ? 'Waiting for output…' : hasTask ? 'Agent is idle' : 'No tasks yet'}
+            {/* Streaming/thinking indicator — three breathing dots while the loop is
+                live and producing. Motion is disabled under prefers-reduced-motion. */}
+            {running && (
+              <span className="ad-thinking" aria-hidden style={{ color: 'var(--st-good-ink)' }}>
+                <i />
+                <i />
+                <i />
+              </span>
+            )}
           </div>
           <div style={{ maxWidth: 420, fontSize: 'var(--fs-meta)', lineHeight: 1.55, color: 'var(--tx-4)' }}>
             {running

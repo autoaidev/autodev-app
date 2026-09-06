@@ -106,7 +106,7 @@ function HeaderStatusPill({ agent }: { agent: AgentState }): React.JSX.Element {
   // the agent needs you (R4). Variant comes from the shared agentStatus map.
   const attn = attentionTitle(agent)
   const { variant, label } = agentStatus(agent)
-  return <StatusPill variant={variant} label={attn ?? label} />
+  return <StatusPill variant={variant} label={attn ?? label} live={agent.activity === 'working'} />
 }
 
 export interface AgentDetailProps {
