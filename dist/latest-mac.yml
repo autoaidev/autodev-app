@@ -1,0 +1,11 @@
+version: 0.3.35
+files:
+  - url: AutoDev-0.3.35-arm64-mac.zip
+    sha512: eIR/NPs8LO7OPLNdaEI5vCa6kTN8/BQ0Fj6bbI9AAIgPyATmWwGxgBayDCqjm54DnLAiBWdpVqpE9YE/ZDQ8uQ==
+    size: 113767391
+  - url: AutoDev-0.3.35-x64-mac.zip
+    sha512: q7cNUetJlEyBhJvaScmkhYC720cKwsvT1bgiLG/zFYBt8TUhGjYvr0HlbFEwGeRskCecULDIpPzVDSHoyz8ERg==
+    size: 119822405
+path: AutoDev-0.3.35-arm64-mac.zip
+sha512: eIR/NPs8LO7OPLNdaEI5vCa6kTN8/BQ0Fj6bbI9AAIgPyATmWwGxgBayDCqjm54DnLAiBWdpVqpE9YE/ZDQ8uQ==
+releaseDate: '2026-09-07T08:52:02.660Z'

@@ -753,8 +753,18 @@ export class AgentManager extends EventEmitter {
     child.on('exit', (code) => {
       this._procs.delete(path)
       this._streamState.delete(path)
-      this._lastExit.set(path, code)
-      this.emit('log', { path, line: `\n[loop exited code=${code ?? '?'}]\n` })
+      // USER-INITIATED stop (or app quit) is a CLEAN stop, NOT a crash — even though
+      // killing the loop makes it exit non-zero (SIGINT⇒130 / SIGTERM⇒143). stop()
+      // set _intentionalStop BEFORE the kill, so honor that intent here: record a
+      // CLEAN exit (0) and reset the crash-retry budget so readState reads 'stopped'
+      // (→ a plain "Stopped" badge + Start). Recording the raw 130/143 is exactly
+      // what made a user Stop render as "INTERRUPTED — retries exhausted (2/2)" with
+      // a Retry banner (model.ts keys that framing on exitCode 130/143). Only a
+      // genuine UNEXPECTED exit (flag unset) keeps the real code → crash/interrupted.
+      const userStopped = this._intentionalStop.has(path) || this._disposing
+      this._lastExit.set(path, userStopped ? 0 : code)
+      if (userStopped) this._crashRetries.delete(path)
+      this.emit('log', { path, line: `\n[loop exited code=${code ?? '?'}${userStopped ? ' (user stop)' : ''}]\n` })
       this.emit('changed')
       this._maybeAutoRestart(path, provider, code)
     })

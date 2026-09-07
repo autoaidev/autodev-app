@@ -111,6 +111,11 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
   const dot: DotStatus = agent.activity
   const showCount = !(agent.activity === 'idle' && agent.tasks.remaining === 0)
   const running = agent.running || agent.activity === 'working'
+  // Leading presence dot truth: ONLINE = locally running (or working) OR joined to
+  // its office (agent.online / office-present) — the SAME signal the avatar's
+  // `online` prop and the rail header's "N running" tally read. Green only when
+  // online; nothing rendered when offline (no green for a stopped agent).
+  const isOnline = running || agent.online === true
   // Split the amber "needs you" affordance (genuinely awaiting the user) from the
   // red FAILURE affordance (crashed / stalled). An interrupted / retries-exhausted
   // row must NOT read as amber "needs you" — it reads as an error (red spine/wash +
@@ -187,20 +192,48 @@ export function AgentRow({ agent, selected, checked, onSelect, onToggleCheck, mo
       />
 
       <div style={{ flex: 1, minWidth: 0 }}>
+        {/* name line — a leading GREEN presence dot (only when online), then the
+            name. The dot is flex:none so it never shifts the avatar; the name text
+            keeps the ellipsis in its own inner span so a long name still truncates
+            cleanly without pushing the dot. */}
         <div
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
             fontFamily: 'var(--font-sans)',
             fontSize: 'var(--fs-body)',
             // name is the bold scan anchor of the row (meta below is demoted)
             fontWeight: 'var(--fw-selected)',
             color: dim ? 'var(--tx-3)' : selected ? 'var(--tx-hi)' : 'var(--tx-1)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
+            minWidth: 0
           }}
           title={agent.path}
         >
-          {agentHeadline(agent)}
+          {/* LEADING presence dot — green (running/good token) only while ONLINE;
+              nothing when offline, so a stopped agent shows no leading dot. Reuses
+              StatusDot's `running` (=--st-good-ink green) so it matches the theme.
+              Distinct from the trailing STATE dot on the right (not a duplicate). */}
+          {isOnline && (
+            <StatusDot
+              status="running"
+              size={8}
+              live={agent.activity === 'working'}
+              style={{ marginTop: 1 }}
+              aria-label="online"
+              title="Online"
+            />
+          )}
+          <span
+            style={{
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {agentHeadline(agent)}
+          </span>
         </div>
         {meta.text && (
           <div
