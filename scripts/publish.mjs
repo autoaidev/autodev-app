@@ -22,6 +22,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pruneDownloads } from './prune-downloads.mjs';
+
+// How many past release versions to retain in a /download dir. Older versioned
+// AutoDev-* binaries are pruned after staging so the dir can't balloon (it hit
+// 18 GB × 47 versions before this existed). latest*.yml + *.vsix are never touched.
+const KEEP_RELEASES = 2;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skipBuild = process.argv.includes('--skip-build');
@@ -105,12 +111,20 @@ const winPortableDst = copyIfExists(CANON.winPortable, 'Windows portable.exe');
 // Copy the update feeds + every blockmap so electron-updater can resolve deltas.
 // These sit NEXT TO the artifacts they reference; their `path:`/`url:` are the
 // canonical names above (built == served), so no rewriting is needed.
+// latest-mac.yml + the mac zips are staged here too so the mac auto-update feed
+// is complete without a manual copy step (they used to be hand-staged each release).
 for (const f of fs.readdirSync(dist)) {
-  if (f === 'latest.yml' || f === 'latest-linux.yml' || f.endsWith('.blockmap')) {
+  if (f === 'latest.yml' || f === 'latest-linux.yml' || f === 'latest-mac.yml'
+      || f.endsWith('.blockmap') || f.endsWith('-mac.zip')) {
     fs.copyFileSync(path.join(dist, f), path.join(downloadDir, f));
     say(`• staged ${f}`);
   }
 }
+
+// Prune old versioned binaries so the download dir keeps only the newest N
+// releases (current + one prior for rollback). Runs AFTER all current-version
+// files are staged, so it never removes what we just wrote.
+pruneDownloads(downloadDir, KEEP_RELEASES, say);
 
 // ── 3. Re-pin the launcher's sha256 (it fetches + verifies the AppImage) ──────
 const launcherPath = path.join(ROOT, 'npm', 'bin', 'autodev-app.js');
@@ -162,3 +176,5 @@ say(`\nNext (review, then run):`);
 say(`  (autodev-app)  npm test && git add npm dist/*.yml && git commit`);
 say(`  (npm publish)  cd npm && npm publish --access public`);
 say(`  (pixel-office) git add public/download && git commit   # if /download is tracked`);
+say(`  (prod + mirror) after staging the prod download dir + autoaidev releases,`);
+say(`                  prune them too: node scripts/prune-downloads.mjs <dir> ${KEEP_RELEASES}`);
