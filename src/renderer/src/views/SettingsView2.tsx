@@ -158,6 +158,15 @@ export function SettingsView2(): JSX.Element {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
 
+  // --- Cozempic long-session guard (app preference, seeds new agents) ---------
+  // Stored in app-settings.json (same mechanism as defaultModels) and seeded into
+  // each new agent's `.autodev/settings.json` at create — where the CLI reads
+  // `cozempicAutoInit` at loop start. Default false. `cozempicSaved` briefly flags
+  // the just-persisted write for feedback.
+  const [cozempic, setCozempic] = useState(false)
+  const [cozempicSaved, setCozempicSaved] = useState(false)
+  const cozempicTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Per-provider default models (#8) — an app preference that seeds new agents.
   // `defaultModels[vendor]` = '' means "provider default". `savedVendor` briefly
   // flags the row that just persisted so a select-to-save gives real feedback.
@@ -200,15 +209,30 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
       setDefaultBase(v)
+      setCozempic(cfg.cozempicAutoInit === true)
       setLoaded(true)
     })()
     return () => {
       if (pulseTimer.current) clearTimeout(pulseTimer.current)
+      if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
+    }
+  }, [])
+
+  // Toggle the Cozempic guard preference — optimistic, then persist + flash Saved.
+  const toggleCozempic = useCallback(async (next: boolean) => {
+    setCozempic(next) // optimistic; a failed write is corrected on next open
+    try {
+      await window.api.setSettings({ cozempicAutoInit: next })
+      setCozempicSaved(true)
+      if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
+      cozempicTimer.current = setTimeout(() => setCozempicSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
     }
   }, [])
 
@@ -609,6 +633,76 @@ export function SettingsView2(): JSX.Element {
                     </button>
                   )
                 })}
+              </div>
+            </div>
+
+            {/* Cozempic long-session guard — an optional, off-by-default guard that
+                seeds new agents (same app-preference mechanism as default models).
+                The CLI reads `cozempicAutoInit` from each agent's settings at loop
+                start and only acts for Claude agents with cozempic on PATH. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Cozempic long-session guard (optional)
+                  {cozempicSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  Auto-trims very long Claude sessions for Claude agents. Off by default;
+                  requires <code>pip install cozempic</code>. Applied to agents you create
+                  after enabling.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={cozempic}
+                  aria-label="Cozempic long-session guard"
+                  disabled={!loaded}
+                  onClick={() => void toggleCozempic(!cozempic)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: loaded ? 'pointer' : 'default'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: cozempic ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {cozempic ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: cozempic ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${cozempic ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: cozempic ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: cozempic ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
               </div>
             </div>
           </Section>

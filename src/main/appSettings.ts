@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -126,6 +126,23 @@ export function setAdvancedMode(on: boolean): boolean {
   return getAdvancedMode()
 }
 
+/**
+ * The Cozempic long-session guard preference. Default false. A UI seed only —
+ * like `defaultModels`, the app writes the resolved value into each new agent's
+ * `.autodev/settings.json` at create time (via `autodev config set
+ * cozempicAutoInit`), which is where the CLI reads it at loop start. Nothing here
+ * mutates an existing agent or the global CLI.
+ */
+export function getCozempicAutoInit(): boolean {
+  return load().cozempicAutoInit === true
+}
+
+/** Persist the Cozempic long-session guard flag (a plain boolean UI preference). */
+export function setCozempicAutoInit(on: boolean): boolean {
+  persist({ ...load(), cozempicAutoInit: !!on })
+  return getCozempicAutoInit()
+}
+
 /** The persisted theme preference (system | dark | light). Defaults 'system'. */
 export function getTheme(): ThemePref {
   const t = load().theme
@@ -140,8 +157,8 @@ export function setTheme(theme: ThemePref): ThemePref {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit() }
 }
 
 /**
@@ -189,8 +206,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -208,6 +225,9 @@ export function updateSettings(
     if ('theme' in patch && patch.theme) {
       setTheme(patch.theme)
     }
+    if ('cozempicAutoInit' in patch) {
+      setCozempicAutoInit(patch.cozempicAutoInit === true)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit() }
 }

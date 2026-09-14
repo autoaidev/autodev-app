@@ -163,6 +163,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // #8 — seed the per-provider default model (Settings) onto the new workspace.
       const dm = defaultModelFor(defaults, existingProvider)
       if (dm) await window.api.runCli(['config', 'set', modelKeyFor(existingProvider), dm, path])
+      // Seed the Cozempic long-session guard (Settings) onto the new workspace —
+      // the CLI reads `cozempicAutoInit` here at loop start.
+      if ((await window.api.getSettings()).cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
       const added = await window.api.addAgent(path) as { error?: string }
       if (added?.error) { setExistingErr(added.error); return }
       setSpawnedOk(true)
@@ -311,6 +314,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     }
 
     // ── Default: one autodev workspace per agent. ──
+    // Cozempic long-session guard (Settings) — seeded onto each new workspace so
+    // the CLI reads `cozempicAutoInit` at loop start. Fetched once for the batch.
+    const seedCozempic = (await window.api.getSettings()).cozempicAutoInit === true
     let ok = 0
     let started = 0
     let bound = 0
@@ -326,6 +332,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // Enable the file browser per-workspace via the settings key (the init-flow
       // way the Create dialog uses) so each spawned agent gets the Files tab.
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
+      if (seedCozempic) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
       const added = await window.api.addAgent(path)
       const addErr = (added as { error?: string })?.error
       if (addErr) { fails.push(`${e.name}: ${addErr}`); continue }
@@ -387,6 +394,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // even if init wrote a .gitignore or the folder shifted underneath us.
       await window.api.officeWriteSharedMcp(path, office.slug, edits!.map((e) => ({ id: e.id, slug: e.slug, name: e.name })), fileBrowser)
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
+      if ((await window.api.getSettings()).cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
       const added = await window.api.addAgent(path)
       if ((added as { error?: string })?.error) { setSpawnTone('error'); setSpawnMsg((added as { error: string }).error); return }
       setSpawnedOk(true)
