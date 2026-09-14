@@ -9,7 +9,7 @@ import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
 // is only ever used inside function bodies (never at module top level) on both
 // sides, so the cycle resolves before either is called.
-import { getOfficeBaseUrl } from './appSettings'
+import { getOfficeBaseUrl, getCozempicAutoInit } from './appSettings'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -1068,6 +1068,32 @@ export class PixelOfficeClient {
   }
 
   /**
+   * Seed the Cozempic long-session-guard preference into a spawned loop's
+   * `<dir>/.autodev/settings.json` so the CLI reads `cozempicAutoInit` at loop
+   * start (On ⇒ auto-runs `cozempic init` for Claude projects; Off ⇒ no-op).
+   * The renderer create flows (MakeAppView) already `config set` this key; the
+   * app-only "⚡ Spawn office" path materializes settings.json entirely in-process
+   * and never touched it, so the Settings toggle had no effect on those loops.
+   * MERGE-write (preserves every existing key, e.g. the presence binding and
+   * provider bindWorkspaceToOffice/writeProvider just wrote); mirrors writeProvider.
+   * Reads the app preference via appSettings.getCozempicAutoInit(). Best-effort.
+   */
+  private writeCozempicAutoInit(dir: string): void {
+    try {
+      const want = getCozempicAutoInit() === true
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if (s.cozempicAutoInit === want) return
+      s.cozempicAutoInit = want
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
    * Prepare EVERY character in an office to run as a TRACKED autodev-cli LOOP.
    * BLOCKS (with no side effects) if ANY character is already online — returns
    * `{ error, online:[names] }` — so we never double-drive a live character.
@@ -1133,6 +1159,11 @@ export class PixelOfficeClient {
         if ('error' in bound) return { error: `Couldn't bind "${name}" to the office — ${bound.error}` }
         // Persist the loop's provider (override wins) so `autodev start` uses it.
         this.writeProvider(dir, provider)
+        // Seed the Cozempic long-session-guard preference (Settings toggle) so the
+        // CLI reads cozempicAutoInit at loop start — the renderer create flows do
+        // this via `config set`, but this app-only spawn path writes settings.json
+        // entirely in-process, so the toggle would otherwise never reach it.
+        this.writeCozempicAutoInit(dir)
         // Pre-accept Claude Code's folder-trust dialog for this app-owned scratch
         // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
         // repos) so a loop / interactive claude here never blocks on the prompt.
