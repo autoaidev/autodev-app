@@ -5,20 +5,29 @@ import { NativeSelect } from '@renderer/components/NativeSelect'
 import { AgentState } from '@renderer/services/model'
 import { actions } from '@renderer/services/agentStore'
 import { useAppActions } from '@renderer/services/appActions'
-import { modelKeyFor, vendorOf, PROVIDER_GROUPS } from '@renderer/lib/providers'
+import { modelKeyFor, vendorOf, PROVIDER_GROUPS, ENGINE_FAMILIES, defaultProviderIdForFamily } from '@renderer/lib/providers'
 
 /**
- * BulkModelModal (#6) — set the model across a multi-agent selection in one pass.
+ * BulkModelModal (#6) — set the ENGINE (provider) and/or model across a multi-agent
+ * selection in one pass.
  *
- * Mixed-provider handling: a selection can span vendors, and one model id is only
- * valid for one vendor. Rather than guess, the modal makes the target explicit:
- *   - When the selection spans >1 vendor, a small vendor picker chooses WHICH
- *     vendor a concrete model applies to; the write only touches that vendor's
- *     items (each via its OWN key — grokModel for grok, claudeModel for claude…).
- *   - "Provider default" (the empty ModelSelect value) is provider-agnostic, so it
- *     applies to EVERY selected item (clears each one's own vendor key).
+ * Two things this drives, chosen via the top "Engine" selector:
+ *   1. KEEP CURRENT ENGINE (default) — model-only, exactly the original behavior.
+ *      A selection can span vendors, and one model id is only valid for one vendor,
+ *      so the modal makes the target explicit:
+ *        - When the selection spans >1 vendor, a small vendor picker chooses WHICH
+ *          vendor a concrete model applies to; the write only touches that vendor's
+ *          items (each via its OWN key — grokModel for grok, claudeModel for claude…).
+ *        - "Provider default" (the empty ModelSelect value) is provider-agnostic, so
+ *          it applies to EVERY selected item (clears each one's own vendor key).
+ *   2. A SPECIFIC ENGINE — CONVERSION. Every selected item is switched to that
+ *      provider FAMILY (Claude/Grok/OpenCode/Copilot) and the model dropdown shows
+ *      THAT engine's models; Apply writes BOTH provider and model to ALL selected
+ *      items (the per-vendor split doesn't apply — the whole selection targets the
+ *      one chosen engine). This is the office equivalent of the per-character
+ *      CharacterSettingsModal's `updateCharacter({ provider: family, model })`.
  * After applying, we offer to restart/reconnect the still-active items so the new
- * model (which only takes hold on the next loop/connect) applies now.
+ * engine/model (which only takes hold on the next loop/connect) applies now.
  *
  * ── Two persistence backends, one modal ─────────────────────────────────────
  * The SAME picker drives two very different writes without duplicating the UI:
@@ -69,12 +78,19 @@ export interface BulkModelApplyNow {
 /** The full backend the modal drives — selection + per-item write + optional follow-up. */
 export interface BulkModelAdapter {
   items: BulkModelItem[]
-  /** Persist `model` ('' = provider default) for one item. Return true on success. */
-  setModel: (item: BulkModelItem, model: string) => Promise<boolean>
+  /**
+   * Persist `model` ('' = provider default) for one item — and, when `family` is
+   * given, ALSO switch the item's engine to that provider FAMILY (a conversion).
+   * Return true on success. `family` undefined = keep the item's current engine.
+   */
+  setModel: (item: BulkModelItem, model: string, family?: string) => Promise<boolean>
   /** The optional restart/reconnect offered after applying to still-active items. */
   applyNow?: BulkModelApplyNow
   /** Selection-subtitle noun (singular), default "agent". */
   unit?: string
+  /** Whether this backend can switch an item's engine (provider). Defaults to true;
+   *  set false to hide the Engine selector (a backend that can only set the model). */
+  canSetProvider?: boolean
 }
 
 interface BulkModelModalProps {
@@ -102,12 +118,24 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     const selected = (agents ?? []).filter((a) => set.has(a.path))
     return {
       unit: 'agent',
+      // Local agents CAN change engine: `autodev config set provider <id>` (the same
+      // seam Fleet's provider picker uses). A conversion writes the concrete provider
+      // id for the family, then the model under that family's key.
+      canSetProvider: true,
       items: selected.map((a) => ({ key: a.path, provider: a.provider || '', active: !!a.running })),
-      setModel: async (item, model) => {
+      setModel: async (item, model, family) => {
         try {
-          const r = (await window.api.runCli(['config', 'set', modelKeyFor(item.provider), model, item.key])) as {
-            code?: number
+          if (family) {
+            const pr = (await window.api.runCli([
+              'config', 'set', 'provider', defaultProviderIdForFamily(family), item.key
+            ])) as { code?: number }
+            if (pr && pr.code !== undefined && pr.code !== 0) return false
           }
+          // On a conversion, write the model under the NEW family's key (grokModel…),
+          // not the item's old vendor key.
+          const r = (await window.api.runCli([
+            'config', 'set', modelKeyFor(family ?? item.provider), model, item.key
+          ])) as { code?: number }
           return !r || r.code === 0
         } catch {
           return false
@@ -147,16 +175,21 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     return [...m.entries()].sort((a, b) => b[1] - a[1])
   }, [items])
 
+  const [engine, setEngine] = useState('') // '' = keep current engine; else a provider FAMILY (conversion)
   const [vendor, setVendor] = useState('')
   const [value, setValue] = useState('') // '' = provider default (provider-agnostic)
   const [busy, setBusy] = useState(false)
   const [phase, setPhase] = useState<'pick' | 'applied'>('pick')
   const [activeAfter, setActiveAfter] = useState<BulkModelItem[]>([])
 
-  // Seed the picker ONCE per open (busiest vendor first, Provider default). Guarded
-  // by a ref so a background poll — which re-creates `vendorCounts` every few seconds
-  // while the modal is open — can't reset an in-progress choice or bounce the
-  // 'applied' phase back to 'pick'.
+  // Whether this backend can switch engines (office always; local via `config set
+  // provider`). When false the Engine selector is hidden and it's model-only.
+  const canEngine = eff.canSetProvider !== false
+
+  // Seed the picker ONCE per open (busiest vendor first, Keep current engine,
+  // Provider default). Guarded by a ref so a background poll — which re-creates
+  // `vendorCounts` every few seconds while the modal is open — can't reset an
+  // in-progress choice or bounce the 'applied' phase back to 'pick'.
   const seeded = useRef(false)
   useEffect(() => {
     if (!open) {
@@ -165,6 +198,7 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     }
     if (seeded.current) return
     seeded.current = true
+    setEngine('')
     setVendor(vendorCounts[0]?.[0] ?? 'claude')
     setValue('')
     setPhase('pick')
@@ -172,12 +206,19 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     setActiveAfter([])
   }, [open, vendorCounts])
 
+  // Converting = a specific engine was chosen → switch the WHOLE selection to it.
+  const converting = engine !== ''
+  const engineLabel = ENGINE_FAMILIES.find((f) => f.family === engine)?.label ?? vendorLabel(engine)
+  // The family driving the Model dropdown: the chosen engine when converting, else
+  // the mixed-vendor sub-picker's vendor (model-only mode).
+  const modelVendor = converting ? engine : vendor
   const mixed = vendorCounts.length > 1
-  // A concrete model only touches the chosen vendor's items; Provider default ('')
-  // is provider-agnostic and touches all selected.
+  // When converting, EVERY selected item is a target. Otherwise a concrete model only
+  // touches the chosen vendor's items; Provider default ('') touches all selected.
   const targets = useMemo(
-    () => (value.trim() ? items.filter((it) => vendorOf(it.provider || '') === vendor) : items),
-    [value, items, vendor]
+    () =>
+      converting || !value.trim() ? items : items.filter((it) => vendorOf(it.provider || '') === vendor),
+    [converting, value, items, vendor]
   )
 
   const apply = async (): Promise<void> => {
@@ -185,12 +226,14 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     setBusy(true)
     let n = 0
     for (const it of targets) {
-      if (await eff.setModel(it, value.trim())) n++
+      if (await eff.setModel(it, value.trim(), converting ? engine : undefined)) n++
     }
     setBusy(false)
     const active = targets.filter((it) => it.active)
     appActions.toast(
-      `Set model for ${n} ${unit}${n === 1 ? '' : 's'}${value.trim() ? '' : ' to provider default'}.`,
+      converting
+        ? `Converted ${n} ${unit}${n === 1 ? '' : 's'} to ${engineLabel}${value.trim() ? '' : ' (provider default model)'}.`
+        : `Set model for ${n} ${unit}${n === 1 ? '' : 's'}${value.trim() ? '' : ' to provider default'}.`,
       n === 0
     )
     if (n > 0 && active.length > 0 && eff.applyNow) {
@@ -219,7 +262,7 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
     <Modal
       open={open}
       onClose={onClose}
-      title="Set model"
+      title={canEngine ? 'Set engine & model' : 'Set model'}
       subtitle={
         phase === 'applied' && eff.applyNow
           ? eff.applyNow.subtitle(activeAfter.length)
@@ -235,7 +278,7 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
                 Cancel
               </Button>
               <Button variant="primary" size="sm" onClick={() => void apply()} disabled={busy || targets.length === 0}>
-                {busy ? 'Applying…' : `Apply to ${targets.length}`}
+                {busy ? 'Applying…' : converting ? `Convert ${targets.length}` : `Apply to ${targets.length}`}
               </Button>
             </>
           ) : (
@@ -257,7 +300,42 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
         </div>
       ) : (
         <>
-          {mixed && (
+          {canEngine && (
+            <div style={{ marginBottom: 12 }}>
+              <span style={labelStyle}>Engine (provider)</span>
+              <NativeSelect
+                value={engine}
+                onChange={(e) => {
+                  // Switching engine must not carry a stale model id from a different
+                  // family; reset the draft to Provider default (the key={modelVendor}
+                  // on ModelSelect below remounts it so any Custom… input collapses).
+                  setEngine(e.target.value)
+                  setValue('')
+                }}
+                aria-label="Engine to set for the selection"
+              >
+                <option value="">Keep current engine</option>
+                {ENGINE_FAMILIES.map((f) => (
+                  <option key={f.family} value={f.family}>
+                    Convert to {f.label}
+                  </option>
+                ))}
+              </NativeSelect>
+              <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5, lineHeight: 1.45 }}>
+                {converting ? (
+                  <>
+                    Switches <strong>all {items.length}</strong> selected {unit}
+                    {items.length === 1 ? '' : 's'} to {engineLabel} (keeps each one&rsquo;s
+                    name &amp; identity), then sets the model below. Applies on the next connect.
+                  </>
+                ) : (
+                  <>Keep each {unit}&rsquo;s current engine and only set the model.</>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!converting && mixed && (
             <div style={{ marginBottom: 12 }}>
               <span style={labelStyle}>Apply a specific model to</span>
               <NativeSelect
@@ -286,16 +364,20 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
           )}
 
           <span style={labelStyle}>Model</span>
-          {/* key={vendor}: remount on vendor switch so ModelSelect's internal Custom…
-              state resets (dropdown returns to Provider default, no stale raw input).
-              ModelSelect carries the same on-blur "Not a known <provider> model"
-              warning the per-agent picker and Fleet editor show. */}
-          <ModelSelect key={vendor} vendor={vendor} value={value} onChange={setValue} />
+          {/* key={modelVendor}: remount on engine/vendor switch so ModelSelect's
+              internal Custom… state resets (dropdown returns to Provider default, no
+              stale raw input). ModelSelect carries the same on-blur "Not a known
+              <provider> model" warning the per-agent picker and Fleet editor show. */}
+          <ModelSelect key={modelVendor} vendor={modelVendor} value={value} onChange={setValue} />
 
           <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 8, lineHeight: 1.45 }}>
-            {value.trim()
-              ? `Applies to ${targets.length} ${vendorLabel(vendor)} ${unit}${targets.length === 1 ? '' : 's'}${mixed ? ' (other providers in the selection are skipped)' : ''}.`
-              : `Provider default — applies to all ${items.length} selected ${unit}${items.length === 1 ? '' : 's'}.`}
+            {converting
+              ? value.trim()
+                ? `Convert all ${items.length} ${unit}${items.length === 1 ? '' : 's'} to ${engineLabel} and set model ${value.trim()}.`
+                : `Convert all ${items.length} ${unit}${items.length === 1 ? '' : 's'} to ${engineLabel} with its provider-default model.`
+              : value.trim()
+                ? `Applies to ${targets.length} ${vendorLabel(vendor)} ${unit}${targets.length === 1 ? '' : 's'}${mixed ? ' (other providers in the selection are skipped)' : ''}.`
+                : `Provider default — applies to all ${items.length} selected ${unit}${items.length === 1 ? '' : 's'}.`}
           </div>
         </>
       )}

@@ -69,6 +69,31 @@ export function providerLabel(id: string): string {
 /** The vendor (`claude`, `grok`, `opencode`, `copilot`) for a provider id. */
 export const vendorOf = (p: string): string => p.split('-')[0]
 
+/**
+ * The default full provider id for a vendor FAMILY — the family's first grouped
+ * variant, e.g. `grok` → `grok-cli`, `claude` → `claude-tui`. Used when a family
+ * choice (as the office API stores it) must persist as a CONCRETE provider id the
+ * local CLI expects (`autodev config set provider <id>`, the same ids Fleet's
+ * provider picker writes). Falls back to the family itself if unrecognized.
+ */
+export const defaultProviderIdForFamily = (family: string): string => {
+  const fam = vendorOf(family)
+  const g = PROVIDER_GROUPS.find((grp) => vendorOf(grp.options[0].id) === fam)
+  return g?.options[0].id ?? family
+}
+
+/**
+ * The provider FAMILIES the bulk engine-switcher offers, in the canonical grouped
+ * order — `{ family: 'grok', label: 'Grok' }`, one per vendor in PROVIDER_GROUPS
+ * (Claude / GitHub Copilot / OpenCode / Grok). The `family` is what the office API
+ * (`updateCharacter({ provider })`) and `modelKeyFor` consume; `label` is the
+ * vendor display name.
+ */
+export const ENGINE_FAMILIES: { family: string; label: string }[] = PROVIDER_GROUPS.map((g) => ({
+  family: vendorOf(g.options[0].id),
+  label: g.vendor
+}))
+
 /** Per-vendor `autodev config set` model key. */
 export const MODEL_KEY: Record<string, string> = {
   claude: 'claudeModel',

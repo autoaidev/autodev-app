@@ -429,9 +429,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     const chosen = (selectedGroup?.agents ?? []).filter((a) => bulkSelected.has(a.id))
     return {
       unit: 'character',
+      // Characters CAN switch engine — the office API stores the provider FAMILY, so
+      // a conversion is a `updateCharacter({ provider: family, model })` (the same
+      // write the per-character CharacterSettingsModal makes), identity preserved.
+      canSetProvider: true,
       items: chosen.map((a) => ({ key: a.id, provider: a.provider || 'claude', active: !!a.online })),
-      setModel: async (item, model) => {
-        const r = await officeService.updateCharacter(item.key, { model })
+      setModel: async (item, model, family) => {
+        const r = await officeService.updateCharacter(item.key, family ? { provider: family, model } : { model })
         return 'ok' in r
       },
       applyNow: {
