@@ -1,5 +1,5 @@
 import React from 'react'
-import { StatusPill, Chip, AgentAvatar, IconButton } from '@renderer/ui'
+import { StatusPill, Chip, AgentAvatar, IconButton, Icon } from '@renderer/ui'
 import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
@@ -34,6 +34,18 @@ export interface CharacterCardProps {
   busy: boolean
   onSelect: () => void
   onOperate: () => void
+  /**
+   * True when THIS app owns a live Operate session (interactive PTY) for the
+   * character — i.e. the loop this app launched and can stop. Drives which
+   * lifecycle control the card shows: Start when not running, Stop + Restart when
+   * running. Distinct from `agent.online` (office presence, which may be a remote
+   * loop this app cannot stop per-character).
+   */
+  running?: boolean
+  /** Stop this app's Operate session for the character (kills its PTY). */
+  onStop?: () => void
+  /** Restart it — stop the live Operate session, then connect & operate again. */
+  onRestart?: () => void
   /** Open the SETTINGS editor for this character (provider / model / name). */
   onSettings?: () => void
   /** The character's effective model as a friendly label (e.g. "Grok 4"), shown as a
@@ -53,6 +65,9 @@ export function CharacterCard({
   busy,
   onSelect,
   onOperate,
+  running,
+  onStop,
+  onRestart,
   onSettings,
   modelLabel,
   selectable,
@@ -235,40 +250,100 @@ export function CharacterCard({
         </div>
       )}
 
-      {/* Operate affordance. Offline it doubles as connect (Basic reads simply
-          "Connect"); the online "Open console" opens a live terminal — an operate
-          action, shown only in Advanced. */}
-      {(advanced || !connected) && (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation()
-            onOperate()
-          }}
-          disabled={busy}
-          aria-label={connected ? `Open console for ${agent.name}` : `Connect ${agent.name}`}
-          style={{
-            alignSelf: 'flex-start',
-            padding: 0,
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--accent)',
-            fontFamily: 'var(--font-sans)',
-            fontSize: 'var(--fs-desc)',
-            fontWeight: 600,
-            cursor: busy ? 'default' : 'pointer'
-          }}
-        >
-          {busy
-            ? connected
-              ? 'Opening…'
-              : 'Connecting…'
-            : connected
-              ? 'Open console'
-              : advanced
-                ? 'Connect & operate'
-                : 'Connect'}
-        </button>
+      {/* LIFECYCLE controls — on their own footer row so they never overlap the
+          status / meta pills (F2). Which control shows follows the app-owned Operate
+          session state (`running`), not office presence:
+            • running  → Stop + Restart (you can stop what this app launched), plus an
+                         Advanced "Open console" link to focus the live terminal.
+            • !running → Start: "Connect & operate" (offline) / "Operate" (online but
+                         no app session). Operating a live online character is an
+                         Advanced action, so Basic hides Start for an already-online
+                         character (matches the prior card behavior); an offline
+                         character keeps its Connect CTA in Basic. */}
+      {running ? (
+        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 }}>
+          <IconButton
+            label={`Stop ${agent.name}`}
+            icon="stop"
+            size={24}
+            iconSize={12}
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation()
+              onStop?.()
+            }}
+          />
+          <IconButton
+            label={`Restart ${agent.name}`}
+            icon="restart"
+            size={24}
+            iconSize={12}
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation()
+              onRestart?.()
+            }}
+          />
+          {advanced && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOperate()
+              }}
+              disabled={busy}
+              aria-label={`Open console for ${agent.name}`}
+              style={{
+                marginLeft: 2,
+                padding: 0,
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--accent)',
+                fontFamily: 'var(--font-sans)',
+                fontSize: 'var(--fs-desc)',
+                fontWeight: 600,
+                cursor: busy ? 'default' : 'pointer'
+              }}
+            >
+              {busy ? 'Opening…' : 'Open console'}
+            </button>
+          )}
+        </div>
+      ) : (
+        (advanced || !connected) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOperate()
+            }}
+            disabled={busy}
+            aria-label={connected ? `Operate ${agent.name}` : `Connect ${agent.name}`}
+            style={{
+              alignSelf: 'flex-start',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: 0,
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--accent)',
+              fontFamily: 'var(--font-sans)',
+              fontSize: 'var(--fs-desc)',
+              fontWeight: 600,
+              cursor: busy ? 'default' : 'pointer'
+            }}
+          >
+            <Icon name="play" size={11} />
+            {busy
+              ? 'Connecting…'
+              : connected
+                ? 'Operate'
+                : advanced
+                  ? 'Connect & operate'
+                  : 'Connect'}
+          </button>
+        )
       )}
     </div>
   )

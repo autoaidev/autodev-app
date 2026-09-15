@@ -257,6 +257,37 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     } finally { setOperatingId('') }
   }, [operatingId, handleAuthExpiry])
 
+  // The live Operate PTY id THIS app owns for a character (its base id or a
+  // generation-suffixed re-operate), excluding ENDED panes. '' when this app owns no
+  // live session — so the card's Stop/Restart only act on what this app can actually
+  // kill (a remote/office-spawned loop has no per-character stop backend).
+  const liveOpTermId = useCallback((officeSlug: string, agentId: string): string => {
+    const baseId = `op-${officeSlug}-${agentId}`
+    const t = allTerms.find(
+      (x) => (x.id === baseId || x.id.startsWith(`${baseId}#`)) && !endedIds.has(x.id)
+    )
+    return t ? t.id : ''
+  }, [allTerms, endedIds])
+
+  // Stop one character's app-owned Operate session (kills its PTY via the registry).
+  // No-op if this app owns no live session for it.
+  const stopCharacter = useCallback((a: OfficeAgent) => {
+    const id = liveOpTermId(a.officeSlug, a.id)
+    if (!id) return
+    termRegistry.close(id)
+    actions.toast(`Stopped ${a.name}`)
+    void officeService.refresh()
+  }, [liveOpTermId, actions])
+
+  // Restart one character — stop its live Operate session, then connect & operate
+  // again (operate mints a fresh PTY since close() removed the old term).
+  const restartCharacter = useCallback(async (a: OfficeAgent) => {
+    const id = liveOpTermId(a.officeSlug, a.id)
+    if (id) termRegistry.close(id)
+    await operate(a)
+    actions.toast(`Restarted ${a.name}`)
+  }, [liveOpTermId, operate, actions])
+
   // Spawn the WHOLE office as tracked loops (block-if-any-online); the registry opens
   // read-only log panes for the returned loops.
   const spawnOffice = useCallback(async (g: OfficeGroup) => {
@@ -760,8 +791,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   agent={a}
                   selected={a.id === focusedChar?.id}
                   busy={operatingId === a.officeSlug + a.id}
+                  running={!!liveOpTermId(a.officeSlug, a.id)}
                   onSelect={() => setFocusedId(a.id)}
                   onOperate={() => operate(a)}
+                  onStop={() => stopCharacter(a)}
+                  onRestart={() => restartCharacter(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
                   modelLabel={modelNameFor(a)}
                   selectable={advanced}

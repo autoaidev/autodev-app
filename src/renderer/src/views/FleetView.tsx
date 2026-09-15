@@ -409,6 +409,18 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
               // for now selecting the row is the affordance.
               toggleSelect(path)
             }}
+            onStart={(path) => {
+              void start(path)
+              toast('Starting agent…')
+            }}
+            onStop={(path) => {
+              void stop(path)
+              toast('Stopping agent…')
+            }}
+            onRestart={(path) => {
+              void restart(path)
+              toast('Restarting agent…')
+            }}
           />
         </div>
 

@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
-import { Icon, StatusPill, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { Icon, IconButton, StatusPill, AgentAvatar, ProviderChip } from '@renderer/ui'
 import { ModelSelect } from '@renderer/components/ModelSelect'
 import { useModelCatalog, effectiveModelDisplay, modelsForFamily, type ModelCatalogEntry } from '@renderer/lib/providers'
 import { providerAccent } from '@renderer/services/identity'
@@ -46,7 +46,9 @@ function gridFor(showCheck: boolean, showModel: boolean, showElapsed: boolean): 
   if (showModel) cols.push('132px')
   cols.push('minmax(0,1fr)', '84px')
   if (showElapsed) cols.push('72px')
-  cols.push('56px')
+  // ACTION — widened to fit the explicit lifecycle cluster (Start/Stop + Restart)
+  // ahead of the contextual action (Add task / ··· menu).
+  cols.push('132px')
   return cols.join(' ')
 }
 const COL_GAP = 14
@@ -353,6 +355,12 @@ export interface FleetRowProps {
   onSetModel: (a: AgentState, id: string) => Promise<void> | void
   onToggleSelect: () => void
   onOpen: () => void
+  /** Manager lifecycle — Start the agent loop (stopped → running). */
+  onStart: (path: string) => void
+  /** Stop the agent loop (running → stopped). */
+  onStop: (path: string) => void
+  /** Restart (stop then start) — available whenever the agent has a workspace. */
+  onRestart: (path: string) => void
 }
 
 function FleetRow({
@@ -367,8 +375,13 @@ function FleetRow({
   catalog,
   onSetModel,
   onToggleSelect,
-  onOpen
+  onOpen,
+  onStart,
+  onStop,
+  onRestart
 }: FleetRowProps): React.JSX.Element {
+  // Running truth for the lifecycle control: a live loop OR actively working.
+  const running = agent.running || agent.activity === 'working'
   const tone = washTone(agent)
   const office = fleetOffice(agent)
   const cls = [
@@ -527,8 +540,32 @@ function FleetRow({
         </span>
       )}
 
-      {/* ACTION */}
-      <span style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      {/* ACTION — explicit manager lifecycle (Start when stopped, Stop when running;
+          Restart always, since the agent has a workspace) ahead of the contextual
+          action (Add task / ··· menu). Retry/Re-auth on attention rows is itself a
+          restart, so the Restart button covers it too. */}
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+        <IconButton
+          label={running ? `Stop ${agent.name}` : `Start ${agent.name}`}
+          icon={running ? 'stop' : 'play'}
+          size={22}
+          iconSize={11}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (running) onStop(agent.path)
+            else onStart(agent.path)
+          }}
+        />
+        <IconButton
+          label={`Restart ${agent.name}`}
+          icon="restart"
+          size={22}
+          iconSize={11}
+          onClick={(e) => {
+            e.stopPropagation()
+            onRestart(agent.path)
+          }}
+        />
         {action.kind === 'more' ? (
           <button
             type="button"
@@ -577,6 +614,10 @@ export interface FleetTableProps {
   onSetModel: (a: AgentState, id: string) => Promise<void> | void
   onToggleSelect: (path: string) => void
   onOpen: (path: string) => void
+  /** Manager lifecycle actions per row — Start / Stop / Restart the agent loop. */
+  onStart: (path: string) => void
+  onStop: (path: string) => void
+  onRestart: (path: string) => void
 }
 
 export function FleetTable({
@@ -587,7 +628,10 @@ export function FleetTable({
   actionFor,
   onSetModel,
   onToggleSelect,
-  onOpen
+  onOpen,
+  onStart,
+  onStop,
+  onRestart
 }: FleetTableProps): React.JSX.Element {
   // MODEL + ELAPSED are expert columns — Advanced only. ELAPSED additionally drops
   // when nothing is running (else a full column of "—"). The bulk-select checkbox
@@ -630,6 +674,9 @@ export function FleetTable({
               onSetModel={onSetModel}
               onToggleSelect={() => onToggleSelect(a.path)}
               onOpen={() => onOpen(a.path)}
+              onStart={onStart}
+              onStop={onStop}
+              onRestart={onRestart}
             />
           )
         })
