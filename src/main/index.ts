@@ -7,7 +7,7 @@ import { PixelOfficeClient } from './pixelOffice'
 import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson } from './cli'
 import type { McpCatalogServer, McpJsonEntry } from './agentManager'
 import * as appSettings from './appSettings'
-import { initAutoUpdate } from './autoUpdate'
+import { initAutoUpdate, checkForUpdatesManually } from './autoUpdate'
 import { readFileSync } from 'fs'
 
 /** One provider family's model catalog, as emitted by `autodev models --json`. */
@@ -162,6 +162,7 @@ function refreshTray(): void {
     { label: n > 0 ? `${n} agent(s) running` : 'No agents running', enabled: false },
     { type: 'separator' },
     { label: 'Show AutoDev', click: () => { mainWindow?.show(); mainWindow?.focus() } },
+    { label: 'Check for Updates…', click: () => { checkForUpdatesManually() } },
     { type: 'separator' },
     // Always a clearly-labelled quit so the app is quittable even if the tray
     // icon is hidden by the desktop's icon theme. When agents are running the
