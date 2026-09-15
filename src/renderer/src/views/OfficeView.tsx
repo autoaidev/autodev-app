@@ -365,8 +365,12 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         // same office-backed AI generation Make-app uses). Best-effort: a failure
         // to generate still leaves the created office selected.
         let seeded = false
-        if (genStarter && desc && typeof r.office.id === 'number') {
-          try { await window.api.officeGenerateTeam(r.office.id, desc, 4); seeded = true } catch { /* keep the empty office */ }
+        // Seed from the description when given, else fall back to the office name
+        // (the name alone is a fine prompt — e.g. "railroad research"), so the
+        // starter-team option works even when the optional description is blank.
+        const seed = desc || name
+        if (genStarter && seed && typeof r.office.id === 'number') {
+          try { await window.api.officeGenerateTeam(r.office.id, seed, 4); seeded = true } catch { /* keep the empty office */ }
         }
         setNewOfficeName(''); setNewOfficeDesc(''); setGenStarter(false); setShowNewOffice(false)
         // Refresh BEFORE selecting so the new office (empty offices now fold into the
@@ -560,10 +564,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 }}
               />
               <label style={{ display: 'flex', alignItems: 'flex-start', gap: 7, fontSize: 'var(--fs-desc)', color: 'var(--tx-2)', cursor: creatingOffice ? 'default' : 'pointer' }}>
-                <input type="checkbox" checked={genStarter} disabled={creatingOffice || !newOfficeDesc.trim()} onChange={(e) => setGenStarter(e.target.checked)} style={{ marginTop: 2 }} />
+                <input type="checkbox" checked={genStarter} disabled={creatingOffice || !(newOfficeDesc.trim() || newOfficeName.trim())} onChange={(e) => setGenStarter(e.target.checked)} style={{ marginTop: 2 }} />
                 <span>
-                  Generate a starter team from the description
-                  <span style={{ display: 'block', color: 'var(--tx-dim)' }}>Otherwise the office starts empty. Needs a description above.</span>
+                  Generate a starter team
+                  <span style={{ display: 'block', color: 'var(--tx-dim)' }}>Otherwise the office starts empty. Uses your description, or the office name.</span>
                 </span>
               </label>
               <div style={{ display: 'flex', gap: 6 }}>

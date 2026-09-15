@@ -1,12 +1,12 @@
-version: 0.3.37
+version: 0.3.38
 files:
-  - url: AutoDev-0.3.37-x86_64.AppImage
-    sha512: 9ns1cIUtbb2sJCIq8w+rY1RwhjSTr55cun6ybdpxK2A2obUNiSgl8LCaqLSoDJfKGvS2m6UIxXlNQhs9YPsPdA==
-    size: 128225687
-    blockMapSize: 135595
-  - url: AutoDev-0.3.37-amd64.deb
-    sha512: JmAQjYSUN5SWgICARHfBa/W6a7wTl+w0Ee/XBTYUQvXbkqKy0Stk66PRgLkpXntioe1DaodoB8JYG/HbILgnHw==
-    size: 84673048
-path: AutoDev-0.3.37-x86_64.AppImage
-sha512: 9ns1cIUtbb2sJCIq8w+rY1RwhjSTr55cun6ybdpxK2A2obUNiSgl8LCaqLSoDJfKGvS2m6UIxXlNQhs9YPsPdA==
-releaseDate: '2026-09-14T10:32:22.658Z'
+  - url: AutoDev-0.3.38-x86_64.AppImage
+    sha512: 6qhnYanwuCKiq+3ojUrCQYgLklWwSLvpmPht+zrGxCxhfUPjuBkNtRUGVXimCra7hdlvUy0ps/5hHk1XBMnHGQ==
+    size: 128488011
+    blockMapSize: 135775
+  - url: AutoDev-0.3.38-amd64.deb
+    sha512: 2dckrBRzL+4IhRTDJwavH71C/hMsezCRa7DGQIdljNkIhFvHTsSg97GkFJRYBTZZuKRjJ38F7VLSiXnZsNJwxQ==
+    size: 84815832
+path: AutoDev-0.3.38-x86_64.AppImage
+sha512: 6qhnYanwuCKiq+3ojUrCQYgLklWwSLvpmPht+zrGxCxhfUPjuBkNtRUGVXimCra7hdlvUy0ps/5hHk1XBMnHGQ==
+releaseDate: '2026-09-15T10:33:02.751Z'
