@@ -1,8 +1,8 @@
-version: 0.3.40
+version: 0.3.41
 files:
-  - url: AutoDev-0.3.40-setup.exe
-    sha512: zihIcPmW+BTEXHv+WgNpJuYpXDy8iGYrNJLXjEx8k5VMYHE++3IJkR31yDkIeVBI9R6vZxbLojzQKtmnyQjsZg==
-    size: 97090355
-path: AutoDev-0.3.40-setup.exe
-sha512: zihIcPmW+BTEXHv+WgNpJuYpXDy8iGYrNJLXjEx8k5VMYHE++3IJkR31yDkIeVBI9R6vZxbLojzQKtmnyQjsZg==
-releaseDate: '2026-09-15T11:18:06.947Z'
+  - url: AutoDev-0.3.41-setup.exe
+    sha512: 9HXYFUMPBDheT3P2jw7h0MVFBdEDTTGyRk6lORFDkeJxZQRJpCvupL3CTguAf/z9K4dCqIhS/m/x2hi3WDFNhA==
+    size: 97091600
+path: AutoDev-0.3.41-setup.exe
+sha512: 9HXYFUMPBDheT3P2jw7h0MVFBdEDTTGyRk6lORFDkeJxZQRJpCvupL3CTguAf/z9K4dCqIhS/m/x2hi3WDFNhA==
+releaseDate: '2026-09-15T14:52:53.786Z'

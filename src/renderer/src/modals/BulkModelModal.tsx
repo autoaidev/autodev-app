@@ -213,12 +213,12 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
   // the mixed-vendor sub-picker's vendor (model-only mode).
   const modelVendor = converting ? engine : vendor
   const mixed = vendorCounts.length > 1
-  // When converting, EVERY selected item is a target. Otherwise a concrete model only
-  // touches the chosen vendor's items; Provider default ('') touches all selected.
+  // When converting, EVERY selected item is a target. Otherwise the write is scoped to
+  // the chosen engine's items (matches the "set model for Grok (12)" option) — model
+  // ids are per-engine, so a single write can only target one engine's characters.
   const targets = useMemo(
-    () =>
-      converting || !value.trim() ? items : items.filter((it) => vendorOf(it.provider || '') === vendor),
-    [converting, value, items, vendor]
+    () => (converting ? items : items.filter((it) => vendorOf(it.provider || '') === vendor)),
+    [converting, items, vendor]
   )
 
   const apply = async (): Promise<void> => {
@@ -300,26 +300,38 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
         </div>
       ) : (
         <>
-          {canEngine && (
+          {(canEngine || mixed) && (
             <div style={{ marginBottom: 12 }}>
-              <span style={labelStyle}>Engine (provider)</span>
+              <span style={labelStyle}>Engine</span>
               <NativeSelect
-                value={engine}
+                value={converting ? `to:${engine}` : `keep:${vendor}`}
                 onChange={(e) => {
-                  // Switching engine must not carry a stale model id from a different
-                  // family; reset the draft to Provider default (the key={modelVendor}
-                  // on ModelSelect below remounts it so any Custom… input collapses).
-                  setEngine(e.target.value)
-                  setValue('')
+                  // One control, two modes: `keep:<family>` sets a model for that engine's
+                  // items (no conversion); `to:<family>` converts the WHOLE selection to
+                  // that engine. Reset the model draft either way so a stale id from another
+                  // family can't carry over (ModelSelect remounts on key={modelVendor}).
+                  const v = e.target.value
+                  if (v.startsWith('to:')) { setEngine(v.slice(3)); setValue('') }
+                  else { setEngine(''); setVendor(v.slice(5)); setValue('') }
                 }}
-                aria-label="Engine to set for the selection"
+                aria-label="Engine and scope for the selection"
               >
-                <option value="">Keep current engine</option>
-                {ENGINE_FAMILIES.map((f) => (
-                  <option key={f.family} value={f.family}>
-                    Convert to {f.label}
-                  </option>
-                ))}
+                <optgroup label="Keep engine — set model for">
+                  {vendorCounts.map(([v, n]) => (
+                    <option key={`keep:${v}`} value={`keep:${v}`}>
+                      {vendorLabel(v)} ({n} {unit}{n === 1 ? '' : 's'})
+                    </option>
+                  ))}
+                </optgroup>
+                {canEngine && (
+                  <optgroup label="Convert all to">
+                    {ENGINE_FAMILIES.map((f) => (
+                      <option key={`to:${f.family}`} value={`to:${f.family}`}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </NativeSelect>
               <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5, lineHeight: 1.45 }}>
                 {converting ? (
@@ -328,37 +340,11 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
                     {items.length === 1 ? '' : 's'} to {engineLabel} (keeps each one&rsquo;s
                     name &amp; identity), then sets the model below. Applies on the next connect.
                   </>
+                ) : mixed ? (
+                  <>Sets the model for one engine&rsquo;s {unit}s. Use “Convert all to …” to move the whole selection to a single engine.</>
                 ) : (
-                  <>Keep each {unit}&rsquo;s current engine and only set the model.</>
+                  <>Set the model for the current engine, or convert the selection to another engine.</>
                 )}
-              </div>
-            </div>
-          )}
-
-          {!converting && mixed && (
-            <div style={{ marginBottom: 12 }}>
-              <span style={labelStyle}>Apply a specific model to</span>
-              <NativeSelect
-                value={vendor}
-                onChange={(e) => {
-                  // Switching target vendor must not carry a stale Custom id from the
-                  // previous provider (a grok id could otherwise be applied to a claude
-                  // item). Reset the draft to Provider default; the `key={vendor}` on
-                  // ModelSelect below remounts it so its Custom… input collapses too.
-                  setVendor(e.target.value)
-                  setValue('')
-                }}
-                aria-label="Provider to set the model for"
-              >
-                {vendorCounts.map(([v, n]) => (
-                  <option key={v} value={v}>
-                    {vendorLabel(v)} — {n} {unit}{n === 1 ? '' : 's'}
-                  </option>
-                ))}
-              </NativeSelect>
-              <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 5, lineHeight: 1.45 }}>
-                Your selection spans {vendorCounts.length} providers. A specific model applies only to
-                the chosen provider&rsquo;s {unit}s. <strong>Provider default</strong> applies to all selected.
               </div>
             </div>
           )}
@@ -376,8 +362,8 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
                 ? `Convert all ${items.length} ${unit}${items.length === 1 ? '' : 's'} to ${engineLabel} and set model ${value.trim()}.`
                 : `Convert all ${items.length} ${unit}${items.length === 1 ? '' : 's'} to ${engineLabel} with its provider-default model.`
               : value.trim()
-                ? `Applies to ${targets.length} ${vendorLabel(vendor)} ${unit}${targets.length === 1 ? '' : 's'}${mixed ? ' (other providers in the selection are skipped)' : ''}.`
-                : `Provider default — applies to all ${items.length} selected ${unit}${items.length === 1 ? '' : 's'}.`}
+                ? `Sets model ${value.trim()} on ${targets.length} ${vendorLabel(vendor)} ${unit}${targets.length === 1 ? '' : 's'}.`
+                : `Sets the provider-default model on ${targets.length} ${vendorLabel(vendor)} ${unit}${targets.length === 1 ? '' : 's'}.`}
           </div>
         </>
       )}
