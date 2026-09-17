@@ -9,7 +9,14 @@ import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { OfficeRoom } from '../components/office/OfficeRoom'
 import { SignInForm } from '../components/office/SignInForm'
-import { OfficeAgent, OfficeGroup, isAuthError } from '../components/office/officeTypes'
+import {
+  OfficeAgent,
+  OfficeGroup,
+  isAuthError,
+  OfficeSort,
+  OFFICE_SORTS,
+  sortOffices
+} from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
 import { useAppActions } from '../services/appActions'
@@ -138,6 +145,25 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   }, [office.base, office.email])
 
   const grouped = office.offices
+  // Office-rail order. Default "Recent" = most-recently-active first (the office's
+  // max agent activity from /api/offices). The choice persists per-user.
+  const [officeSort, setOfficeSort] = useState<OfficeSort>(() => {
+    try {
+      const v = localStorage.getItem('autodev.officeSort')
+      if (v && OFFICE_SORTS.some((s) => s.id === v)) return v as OfficeSort
+    } catch {
+      /* private mode / blocked storage — fall back to the default */
+    }
+    return 'recent'
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('autodev.officeSort', officeSort)
+    } catch {
+      /* ignore */
+    }
+  }, [officeSort])
+  const sortedOffices = useMemo(() => sortOffices(grouped, officeSort), [grouped, officeSort])
   const onlineAgentIds = useMemo(
     () => new Set(office.agents.filter((a) => a.online).map((a) => a.id)),
     [office.agents]
@@ -173,8 +199,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   }, [allTerms, grouped])
 
   const selectedGroup = useMemo(
-    () => grouped.find((g) => g.slug === selectedSlug) ?? grouped[0],
-    [grouped, selectedSlug]
+    () => sortedOffices.find((g) => g.slug === selectedSlug) ?? sortedOffices[0],
+    [sortedOffices, selectedSlug]
   )
   const focusedChar = useMemo(
     () => selectedGroup?.agents.find((a) => a.id === focusedId) ?? selectedGroup?.agents[0],
@@ -183,8 +209,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   // Keep selection valid as the list changes.
   useEffect(() => {
-    if (grouped.length && !grouped.some((g) => g.slug === selectedSlug)) setSelectedSlug(grouped[0].slug)
-  }, [grouped, selectedSlug])
+    if (sortedOffices.length && !sortedOffices.some((g) => g.slug === selectedSlug))
+      setSelectedSlug(sortedOffices[0].slug)
+  }, [sortedOffices, selectedSlug])
   useEffect(() => {
     if (selectedGroup && !selectedGroup.agents.some((a) => a.id === focusedId)) {
       setFocusedId(selectedGroup.agents[0]?.id ?? '')
@@ -567,8 +594,40 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               <Icon name="refresh" size={13} />
             </IconButton>
           </div>
-          <div style={{ marginTop: 6, fontSize: 'var(--fs-desc)', color: 'var(--tx-5)' }}>
-            {grouped.length} office{grouped.length === 1 ? '' : 's'} · {office.agents.length} character{office.agents.length === 1 ? '' : 's'}
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 'var(--fs-desc)', color: 'var(--tx-5)' }}>
+              {grouped.length} office{grouped.length === 1 ? '' : 's'} · {office.agents.length} character{office.agents.length === 1 ? '' : 's'}
+            </div>
+            {/* Office-rail order — persists per user. Default "Recent" surfaces the
+                office you last worked in at the top. Only shown once it can reorder
+                something (2+ offices). */}
+            {grouped.length > 1 && (
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, flex: 'none' }}>
+                <span style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-dim)' }}>Sort</span>
+                <select
+                  value={officeSort}
+                  onChange={(e) => setOfficeSort(e.target.value as OfficeSort)}
+                  aria-label="Sort offices"
+                  title="Sort offices"
+                  style={{
+                    padding: '3px 6px',
+                    background: 'var(--bg-input)',
+                    border: '1px solid var(--bd-1)',
+                    borderRadius: 'var(--r-input)',
+                    color: 'var(--tx-2)',
+                    fontFamily: 'var(--font-sans)',
+                    fontSize: 'var(--fs-desc)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {OFFICE_SORTS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           {showNewOffice && (
             <form onSubmit={(e) => { e.preventDefault(); void createOffice() }} style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
@@ -647,7 +706,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               </Button>
             </div>
           )}
-          {grouped.map((g) => (
+          {sortedOffices.map((g) => (
             <OfficeCard
               key={g.slug}
               group={g}

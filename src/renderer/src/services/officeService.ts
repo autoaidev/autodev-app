@@ -101,7 +101,17 @@ type Api = {
   officeLogin: (base: string, email: string, password: string) => Promise<{ ok?: boolean; error?: string }>
   officeLogout: () => Promise<unknown>
   officeAgents: () => Promise<RawOfficeAgent[]>
-  officeOffices: () => Promise<Array<{ slug: string; id: number; name: string }>>
+  officeOffices: () => Promise<
+    Array<{
+      slug: string
+      id: number
+      name: string
+      lastActivityAt?: string | null
+      createdAt?: string | null
+      agentsCount?: number | null
+      onlineAgentsCount?: number | null
+    }>
+  >
   officeSteer: (agentId: string, text: string) => Promise<{ ok?: boolean; error?: string }>
   officeUpdateCharacter: (
     agentId: string,
@@ -139,6 +149,12 @@ interface OfficeMetaEntry {
   slug: string
   id: number
   name: string
+  /** Most-recent agent activity across the office (ISO) — the office-rail recency
+   *  sort key. Null when the office has never had activity. */
+  lastActivityAt?: string | null
+  createdAt?: string | null
+  agentsCount?: number | null
+  onlineAgentsCount?: number | null
 }
 
 interface OfficeState extends OfficeConnection {
@@ -219,6 +235,17 @@ function computeOffices(agents: OfficeAgent[], meta: OfficeMetaEntry[]): OfficeG
     for (const o of meta) {
       if (!have.has(o.slug)) groups.push({ slug: o.slug, name: o.name || o.slug, agents: [], onlineCount: 0 })
     }
+    // Attach each office's recency signal (from the /api/offices withMax) onto its
+    // folded group so the rail can sort by most-recently-active. Empty offices get
+    // it too (they were just pushed above).
+    const bySlug = new Map(meta.map((o) => [o.slug, o]))
+    for (const g of groups) {
+      const o = bySlug.get(g.slug)
+      if (o) {
+        g.lastActivityAt = o.lastActivityAt ?? null
+        g.createdAt = o.createdAt ?? null
+      }
+    }
   }
   return groups
 }
@@ -227,7 +254,14 @@ function computeOffices(agents: OfficeAgent[], meta: OfficeMetaEntry[]): OfficeG
 function officeMetaEqual(a: OfficeMetaEntry[], b: OfficeMetaEntry[]): boolean {
   if (a.length !== b.length) return false
   for (let i = 0; i < a.length; i++) {
-    if (a[i].slug !== b[i].slug || a[i].name !== b[i].name || a[i].id !== b[i].id) return false
+    if (
+      a[i].slug !== b[i].slug ||
+      a[i].name !== b[i].name ||
+      a[i].id !== b[i].id ||
+      // Recency drives the rail sort — a changed lastActivityAt must re-fold/re-sort.
+      (a[i].lastActivityAt ?? null) !== (b[i].lastActivityAt ?? null)
+    )
+      return false
   }
   return true
 }

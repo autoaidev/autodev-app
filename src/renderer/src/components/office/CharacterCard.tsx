@@ -4,6 +4,7 @@ import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
+import { AgentLifecycleControls } from '@renderer/components/agent/AgentLifecycleControls'
 import { OfficeAgent, tickFor } from './officeTypes'
 
 /**
@@ -261,54 +262,45 @@ export function CharacterCard({
                          character (matches the prior card behavior); an offline
                          character keeps its Connect CTA in Basic. */}
       {running ? (
-        <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, minWidth: 0 }}>
-          <IconButton
-            label={`Stop ${agent.name}`}
-            icon="stop"
-            size={24}
-            iconSize={12}
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation()
-              onStop?.()
-            }}
-          />
-          <IconButton
-            label={`Restart ${agent.name}`}
-            icon="restart"
-            size={24}
-            iconSize={12}
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation()
-              onRestart?.()
-            }}
-          />
-          {advanced && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onOperate()
-              }}
-              disabled={busy}
-              aria-label={`Open console for ${agent.name}`}
-              style={{
-                marginLeft: 2,
-                padding: 0,
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--accent)',
-                fontFamily: 'var(--font-sans)',
-                fontSize: 'var(--fs-desc)',
-                fontWeight: 600,
-                cursor: busy ? 'default' : 'pointer'
-              }}
-            >
-              {busy ? 'Opening…' : 'Open console'}
-            </button>
-          )}
-        </div>
+        // Shared Start/Stop/Restart cluster (icon variant) — Start is driven by the
+        // office Connect CTA below, so this surface only needs Stop + Restart. The
+        // Advanced "Open console" link rides along in the cluster's `after` slot.
+        <AgentLifecycleControls
+          running
+          name={agent.name}
+          size={24}
+          iconSize={12}
+          busy={busy}
+          hideStart
+          onStop={() => onStop?.()}
+          onRestart={() => onRestart?.()}
+          after={
+            advanced && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onOperate()
+                }}
+                disabled={busy}
+                aria-label={`Open console for ${agent.name}`}
+                style={{
+                  marginLeft: 2,
+                  padding: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--accent)',
+                  fontFamily: 'var(--font-sans)',
+                  fontSize: 'var(--fs-desc)',
+                  fontWeight: 600,
+                  cursor: busy ? 'default' : 'pointer'
+                }}
+              >
+                {busy ? 'Opening…' : 'Open console'}
+              </button>
+            )
+          }
+        />
       ) : (
         (advanced || !connected) && (
           <button

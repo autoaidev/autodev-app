@@ -12,6 +12,7 @@ import {
 import { useOfficeConnection, deriveOfficeLinkStatus } from '@renderer/services/officeService'
 import { useAppActions } from '@renderer/services/appActions'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
+import { AgentLifecycleControls } from './AgentLifecycleControls'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
@@ -283,19 +284,19 @@ export function AgentDetail({
           )}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
             {/* ONE primary CTA per view — Start is the accent-gradient hero; every
-                other header action is demoted to ghost so the eye lands on Start. */}
-            {agent.running ? (
-              <Button size="sm" variant="secondary" onClick={onStop} disabled={agent.external}>
-                <Icon name="stop" size={10} /> Stop
-              </Button>
-            ) : (
-              <Button size="sm" variant="cta" onClick={onStart}>
-                <Icon name="play" size={10} color="var(--tx-onaccent)" /> Start
-              </Button>
-            )}
-            <Button size="sm" variant="ghost" onClick={onRestart}>
-              <Icon name="restart" size={11} /> Restart
-            </Button>
+                other header action is demoted to ghost so the eye lands on Start.
+                Shared Start/Stop/Restart cluster (button variant) — same decision
+                + a11y as every other agent card. Stop is disabled for an external
+                loop this app didn't launch. */}
+            <AgentLifecycleControls
+              variant="button"
+              running={agent.running}
+              name={agent.name}
+              stopDisabled={agent.external}
+              onStart={onStart}
+              onStop={onStop}
+              onRestart={onRestart}
+            />
             <Button size="sm" variant="ghost" onClick={onOpenFolder}>
               <Icon name="folder" size={12} /> Open folder
             </Button>

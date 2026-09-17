@@ -713,11 +713,32 @@ export class PixelOfficeClient {
     return r.json()
   }
 
-  /** The user's offices (for the connect-session picker). */
-  async offices(): Promise<Array<{ slug: string; id: number; name: string }>> {
+  /** The user's offices (for the connect-session picker + the office-rail sort).
+   *  Carries the office's recency signal (`lastActivityAt` — the max agent activity
+   *  the list endpoint computes via withMax) and its counts so the rail can sort by
+   *  most-recently-active without a second round-trip. */
+  async offices(): Promise<
+    Array<{
+      slug: string
+      id: number
+      name: string
+      lastActivityAt?: string | null
+      createdAt?: string | null
+      agentsCount?: number | null
+      onlineAgentsCount?: number | null
+    }>
+  > {
     if (!this._authed) throw new Error('Not connected to a pixel-office.')
     const list = (await this.getJson('/api/offices'))?.data?.offices ?? []
-    return list.map((o: any) => ({ slug: o.slug, id: o.id, name: o.name }))
+    return list.map((o: any) => ({
+      slug: o.slug,
+      id: o.id,
+      name: o.name,
+      lastActivityAt: o.lastActivityAt ?? null,
+      createdAt: o.createdAt ?? null,
+      agentsCount: typeof o.agentsCount === 'number' ? o.agentsCount : null,
+      onlineAgentsCount: typeof o.onlineAgentsCount === 'number' ? o.onlineAgentsCount : null
+    }))
   }
 
   /**

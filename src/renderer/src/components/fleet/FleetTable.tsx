@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react'
-import { Icon, IconButton, StatusPill, AgentAvatar, ProviderChip } from '@renderer/ui'
+import { Icon, StatusPill, AgentAvatar, ProviderChip } from '@renderer/ui'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { AgentLifecycleControls } from '@renderer/components/agent/AgentLifecycleControls'
 import { useModelCatalog, effectiveModelDisplay, modelsForFamily, type ModelCatalogEntry } from '@renderer/lib/providers'
 import { providerAccent } from '@renderer/services/identity'
 import {
@@ -545,26 +546,15 @@ function FleetRow({
           action (Add task / ··· menu). Retry/Re-auth on attention rows is itself a
           restart, so the Restart button covers it too. */}
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
-        <IconButton
-          label={running ? `Stop ${agent.name}` : `Start ${agent.name}`}
-          icon={running ? 'stop' : 'play'}
+        <AgentLifecycleControls
+          running={running}
+          name={agent.name}
           size={22}
           iconSize={11}
-          onClick={(e) => {
-            e.stopPropagation()
-            if (running) onStop(agent.path)
-            else onStart(agent.path)
-          }}
-        />
-        <IconButton
-          label={`Restart ${agent.name}`}
-          icon="restart"
-          size={22}
-          iconSize={11}
-          onClick={(e) => {
-            e.stopPropagation()
-            onRestart(agent.path)
-          }}
+          style={{ gap: 6 }}
+          onStart={() => onStart(agent.path)}
+          onStop={() => onStop(agent.path)}
+          onRestart={() => onRestart(agent.path)}
         />
         {action.kind === 'more' ? (
           <button

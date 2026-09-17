@@ -52,6 +52,58 @@ export interface OfficeGroup {
   name: string
   agents: OfficeAgent[]
   onlineCount: number
+  /** Most-recent agent activity across the office (ISO), from `/api/offices` withMax.
+   *  The office-rail's default "Recent" sort key. Undefined/null when never active. */
+  lastActivityAt?: string | null
+  /** Office creation time (ISO) — the recency tiebreak when there's no activity yet. */
+  createdAt?: string | null
+}
+
+/** How the office rail is ordered. `recent` (default) = most-recently-active first. */
+export type OfficeSort = 'recent' | 'name' | 'online' | 'characters'
+
+/** The sort options the rail dropdown offers, in display order. */
+export const OFFICE_SORTS: ReadonlyArray<{ id: OfficeSort; label: string }> = [
+  { id: 'recent', label: 'Recent' },
+  { id: 'name', label: 'Name' },
+  { id: 'online', label: 'Online first' },
+  { id: 'characters', label: 'Most characters' }
+]
+
+/** Epoch ms of an office's last activity (0 → never active / no signal). */
+function recencyMs(g: OfficeGroup): number {
+  const t = g.lastActivityAt ? Date.parse(g.lastActivityAt) : NaN
+  if (Number.isFinite(t)) return t
+  const c = g.createdAt ? Date.parse(g.createdAt) : NaN
+  return Number.isFinite(c) ? c : 0
+}
+
+/**
+ * Order the office rail by the chosen sort. Non-mutating (returns a new array).
+ * Every sort falls back to name (A–Z) as the final tiebreak so the order is stable.
+ *   • recent     — most-recently-active first (lastActivityAt desc, then createdAt).
+ *   • name       — A–Z.
+ *   • online     — offices with online characters first (onlineCount desc), then recency.
+ *   • characters — most characters first (agent count desc), then recency.
+ */
+export function sortOffices(groups: readonly OfficeGroup[], sort: OfficeSort): OfficeGroup[] {
+  const byName = (a: OfficeGroup, b: OfficeGroup): number =>
+    (a.name || a.slug).localeCompare(b.name || b.slug, undefined, { sensitivity: 'base' })
+  const out = groups.slice()
+  out.sort((a, b) => {
+    switch (sort) {
+      case 'name':
+        return byName(a, b)
+      case 'online':
+        return b.onlineCount - a.onlineCount || recencyMs(b) - recencyMs(a) || byName(a, b)
+      case 'characters':
+        return b.agents.length - a.agents.length || recencyMs(b) - recencyMs(a) || byName(a, b)
+      case 'recent':
+      default:
+        return recencyMs(b) - recencyMs(a) || byName(a, b)
+    }
+  })
+  return out
 }
 
 /** A live conversation message (`officeMessages().messages`). */
