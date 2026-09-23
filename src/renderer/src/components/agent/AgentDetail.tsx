@@ -16,6 +16,8 @@ import { AgentLifecycleControls } from './AgentLifecycleControls'
 import { ActivityStream } from './ActivityStream'
 import { ChatTab } from './ChatTab'
 import { TerminalTab } from './TerminalTab'
+import { AttachButton, AttachChips } from './AttachControl'
+import { useAttachments, withAttachmentRefs } from './useAttachments'
 
 /**
  * AgentDetail — the center column of the Agent-detail screen (2a). One surface
@@ -161,6 +163,9 @@ export function AgentDetail({
   // way to switch. The Terminal host stays mounted (display:none) for keep-alive.
   const effectiveTab: DetailTab = advanced ? tab : tab === 'terminal' ? 'activity' : tab
   const [draft, setDraft] = React.useState('')
+  // Task-composer attachments — files/photos saved into the workspace and
+  // referenced in the appended TODO.md task line so the agent can read them.
+  const attach = useAttachments(agent.path)
   // A per-agent dismiss for the (non-blocking) office-disconnected notice (R7).
   const [officeNoticeDismissed, setOfficeNoticeDismissed] = React.useState<string | null>(null)
 
@@ -186,6 +191,11 @@ export function AgentDetail({
     setDraft('')
     setRaw(false)
     setFollow(true)
+    // AgentDetail isn't re-keyed on selection change, so the attachment hook's
+    // state persists — clear it too, or agent A's chips (pointing at A's
+    // workspace) would carry into agent B's composer.
+    attach.clear()
+    attach.clearError()
   }, [agent.path])
 
   // Keep-alive terminal host. A mounted <TerminalPane> === a live PTY, and its
@@ -229,9 +239,12 @@ export function AgentDetail({
 
   const submit = (): void => {
     const t = draft.trim()
-    if (!t) return
-    onAddTask(t)
+    // Allow an attachments-only submit ("review the attached file") — but never an
+    // empty one with nothing typed AND nothing attached.
+    if (!t && attach.items.length === 0) return
+    onAddTask(withAttachmentRefs(t, attach.items))
     setDraft('')
+    attach.clear()
   }
 
   return (
@@ -455,8 +468,11 @@ export function AgentDetail({
             tasksRemaining={agent.tasks.remaining}
             onStart={onStart}
           />
-          {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat) */}
+          {/* Composer — appends "- [ ] text" to TODO.md (a queued task, not a live chat).
+              An attach control saves files/photos into the workspace and references
+              them in the task line so the agent can read them. */}
           <div style={{ padding: '10px 18px', borderTop: '1px solid var(--bd-card)' }}>
+            <AttachChips attach={attach} />
             <div
               style={{
                 display: 'flex',
@@ -468,7 +484,7 @@ export function AgentDetail({
                 border: '1px solid var(--bd-1)'
               }}
             >
-              <Icon name="plus" size={12} color="var(--tx-dim)" />
+              <AttachButton attach={attach} />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}

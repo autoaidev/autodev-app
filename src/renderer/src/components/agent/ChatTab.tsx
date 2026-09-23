@@ -4,6 +4,8 @@ import { useAppActions } from '@renderer/services/appActions'
 import { useOfficeMessages, useOfficeConnection, deriveOfficeLinkStatus, steer } from '@renderer/services/officeService'
 import type { ChatMessage } from '../office/officeTypes'
 import { renderMarkdown } from './useMarkdown'
+import { AttachButton, AttachChips } from './AttachControl'
+import { useAttachments } from './useAttachments'
 import './ChatTab.css'
 import './markdown.css'
 
@@ -57,6 +59,9 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  // Steer-composer attachments: saved into this agent's workspace and referenced
+  // in the message ("see attached: attachments/…") so the agent can read them.
+  const attach = useAttachments(agentPath)
   // Which slash chip is being pressed — gives the chips a real active/press state
   // (border + hover live in ChatTab.css; this adds the momentary pressed feedback).
   const [pressedChip, setPressedChip] = useState<string | null>(null)
@@ -137,7 +142,8 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
 
   const send = useCallback(async (): Promise<void> => {
     const t = draft.trim()
-    if (!t || sending) return
+    const hasAttach = attach.items.length > 0
+    if ((!t && !hasAttach) || sending) return
     // Never let a stale resolved id steer the wrong agent: trust the service's
     // resolvedAgentId only when it matches THIS agent's officeAgentId (or when the
     // agent has no id and was resolved by slug). Otherwise fall back to the current
@@ -148,9 +154,12 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
         ? resolvedAgentId
         : agent?.officeAgentId
     if (!targetId) return // link not resolved yet
+    // Reference any attachments (saved into the workspace) in the steer text.
+    const refs = attach.items.map((a) => a.relPath).join(', ')
+    const text = hasAttach ? (t ? `${t}\n\nsee attached: ${refs}` : `see attached: ${refs}`) : t
     setSending(true)
     setSendError('')
-    const r = await steer(targetId, t)
+    const r = await steer(targetId, text)
     setSending(false)
     if ('error' in r) {
       setSendError(r.error)
@@ -160,9 +169,10 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
     // message into every open conversation for this agent, and the next shared poll
     // reconciles it against the server record — no local message list to maintain.
     setDraft('')
+    attach.clear()
     atBottomRef.current = true
     taRef.current?.focus()
-  }, [draft, sending, resolvedAgentId, agent])
+  }, [draft, sending, resolvedAgentId, agent, attach])
 
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -334,7 +344,11 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
         ))}
       </div>
 
+      <div style={{ margin: '0 12px' }}>
+        <AttachChips attach={attach} />
+      </div>
       <div className="dv-chat__composer">
+        <AttachButton attach={attach} />
         <textarea
           ref={taRef}
           rows={1}
@@ -348,7 +362,7 @@ export function ChatTab({ agentPath }: { agentPath: string }): JSX.Element {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKey}
         />
-        <Button variant="primary" disabled={sending || !draft.trim()} onClick={() => void send()}>
+        <Button variant="primary" disabled={sending || (!draft.trim() && attach.items.length === 0)} onClick={() => void send()}>
           {sending ? 'Sending…' : 'Send'}
         </Button>
       </div>

@@ -60,6 +60,23 @@ function createWindow(): void {
     }
   })
 
+  // Camera / mic permission for the task-composer "Take photo" capture. The
+  // renderer is a fixed local SPA (file:// packaged, or the dev server) that can't
+  // navigate away, so getUserMedia is only ever requested by our own origin —
+  // allow `media`, deny everything else. Both handlers are set: the request
+  // handler covers the getUserMedia prompt, the check handler covers the
+  // synchronous permission probe some Chromium paths run first.
+  const isOwnOrigin = (url: string): boolean => {
+    const dev = process.env['ELECTRON_RENDERER_URL']
+    return url.startsWith('file://') || (!!dev && url.startsWith(dev))
+  }
+  mainWindow.webContents.session.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    callback(permission === 'media' && isOwnOrigin(details.requestingUrl || 'file://'))
+  })
+  mainWindow.webContents.session.setPermissionCheckHandler((_wc, permission, requestingOrigin) =>
+    permission === 'media' && (requestingOrigin === 'null' || isOwnOrigin(requestingOrigin || 'file://'))
+  )
+
   mainWindow.on('ready-to-show', () => mainWindow?.show())
   // Closing the window must NOT SIGKILL every running agent. If loops are active,
   // hide to the tray and keep them running; the user quits explicitly from the
@@ -216,6 +233,13 @@ ipcMain.handle('dialog:confirm', async (_e, message: string, detail?: string) =>
   return r.response === 1
 })
 ipcMain.handle('agent:message', (_e, path: string, text: string) => manager.sendMessage(path, text))
+// Save a task attachment (picked file / captured photo) INTO the agent workspace,
+// so the agent can read it when acting on the task. Returns the workspace-relative
+// path the composer references in the task line. Path safety is enforced in the
+// manager (name sanitise + in-attachments-dir assertion).
+ipcMain.handle('attachments:save', (_e, agentPath: string, filename: string, dataBase64: string) =>
+  manager.saveAttachment(agentPath, filename, dataBase64)
+)
 ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
 ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
 ipcMain.handle('agent:mcpStatus', (_e, path: string) => manager.mcpStatus(path))

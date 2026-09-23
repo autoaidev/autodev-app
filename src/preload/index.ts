@@ -85,6 +85,14 @@ const api = {
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),
   stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
   sendAgentMessage: (path: string, text: string) => ipcRenderer.invoke('agent:message', path, text),
+  // Save a task attachment (picked file / captured photo) into the agent workspace.
+  // Returns the workspace-relative path (attachments/<name>) referenced in the task.
+  attachmentsSave: (
+    agentPath: string,
+    filename: string,
+    dataBase64: string
+  ): Promise<{ ok: true; relPath: string } | { error: string }> =>
+    ipcRenderer.invoke('attachments:save', agentPath, filename, dataBase64),
   readAgentMcp: (path: string) => ipcRenderer.invoke('agent:readMcp', path),
   writeAgentMcp: (path: string, content: string) => ipcRenderer.invoke('agent:writeMcp', path, content),
   agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),

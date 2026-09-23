@@ -37,6 +37,8 @@ export type IconName =
   | 'sparkle'    // 4-point star (Make app nav tab)
   | 'bolt'       // lightning bolt (live steer / instant-message)
   | 'warn'       // warning triangle (failing / attention count)
+  | 'paperclip'  // attach a file to a task
+  | 'camera'     // take a photo (webcam capture)
 
 type Kind = 'stroke' | 'fill'
 
@@ -168,6 +170,16 @@ const G: Record<IconName, Glyph> = {
   warn: {
     vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
     body: <><path d="M7 2.2l5.3 9.1H1.7z" /><path d="M7 5.9v2.7" /><circle cx="7" cy="10.4" r=".55" fill="currentColor" stroke="none" /></>
+  },
+  // Paperclip — attach a file to a task.
+  paperclip: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <path d="M10.5 5.2 5.6 10a2.3 2.3 0 0 1-3.3-3.3l5.4-5.4a1.5 1.5 0 0 1 2.1 2.1l-5 5a.7.7 0 0 1-1-1l4.6-4.6" />
+  },
+  // Camera — take a photo (webcam capture).
+  camera: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <><rect x="1.5" y="4" width="11" height="7.5" rx="1.6" /><circle cx="7" cy="7.7" r="2" /><path d="M5 4l1-1.6h2L9 4" /></>
   }
 }
 

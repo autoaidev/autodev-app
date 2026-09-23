@@ -978,6 +978,54 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  /**
+   * Save an attachment (a file the user picked, or a photo captured from the
+   * webcam) INTO the agent's workspace so the agent can read it when acting on a
+   * task — provider-agnostic: we save-to-workspace + reference the relative path
+   * in the task line, never ship a multimodal payload to any provider.
+   *
+   * Writes `<path>/attachments/<safe-unique-name>` and returns the workspace-
+   * relative path. The filename is sanitised down to `[A-Za-z0-9._-]` (all path
+   * separators and leading dots removed, so `..`/absolute/`/`-bearing names can't
+   * traverse) and the resolved destination is asserted to stay inside the
+   * workspace's `attachments/` dir before any bytes are written.
+   */
+  saveAttachment(path: string, filename: string, dataBase64: string): { ok: true; relPath: string } | { error: string } {
+    if (!existsSync(join(path, '.autodev', 'settings.json')) && !existsSync(join(path, 'TODO.md'))) {
+      return { error: 'Not an AutoDev workspace.' }
+    }
+    try {
+      const dir = join(path, 'attachments')
+      mkdirSync(dir, { recursive: true })
+      // Sanitise: keep only the base name, then only safe chars; strip leading
+      // dots so a `..` (or `.hidden`) can never survive as a traversal/hidden file.
+      const raw = basename(String(filename ?? '').replace(/\\/g, '/'))
+      let safe = raw.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '').slice(0, 120)
+      if (!safe) safe = 'attachment'
+      // Uniquify if the name is already taken (timestamp + counter suffix).
+      let name = safe
+      if (existsSync(join(dir, name))) {
+        const dot = safe.lastIndexOf('.')
+        const stem = dot > 0 ? safe.slice(0, dot) : safe
+        const ext = dot > 0 ? safe.slice(dot) : ''
+        let n = 0
+        do { name = `${stem}-${Date.now()}${n ? `-${n}` : ''}${ext}`; n++ } while (existsSync(join(dir, name)))
+      }
+      const dest = join(dir, name)
+      // Defence in depth: the resolved destination MUST stay inside attachments/.
+      if (resolve(dest) !== resolve(dir, name) || !(resolve(dest) + '').startsWith(resolve(dir) + sep)) {
+        return { error: 'Invalid attachment name.' }
+      }
+      const bytes = Buffer.from(String(dataBase64 ?? ''), 'base64')
+      if (bytes.length === 0) return { error: 'Attachment is empty.' }
+      if (bytes.length > 25 * 1024 * 1024) return { error: 'Attachment too large (max 25 MB).' }
+      writeFileSync(dest, bytes)
+      return { ok: true, relPath: `attachments/${name}` }
+    } catch (e: any) {
+      return { error: e?.message ?? 'Failed to save attachment.' }
+    }
+  }
+
   /** Read the workspace's .mcp.json (raw) for editing. */
   readMcp(path: string): { content: string } | { error: string } {
     try {
