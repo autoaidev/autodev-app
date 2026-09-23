@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, unlinkSync, renameSync, rmSync, readdirSync, statSync, realpathSync } from 'fs'
 import { Jar } from './cookieJar'
 import { resolveCliJs, nodeRunner } from './cli'
+import { resolveBinOnPath } from './spawnEnv'
 import { isValidSessionId, safeSeg, safeMcpUrl, safeWsUrl, isSecureBaseUrl } from './officeSanitize'
 import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
@@ -180,6 +181,18 @@ function toAutodevProvider(provider?: string): string {
   if (p.startsWith('opencode')) return 'opencode-cli'
   if (p.startsWith('copilot')) return 'copilot-cli'
   return 'claude-cli'
+}
+
+/**
+ * A friendly provider name + install hint for the missing-CLI pre-check, keyed by
+ * the interactive binary the Operate pane launches. Lets a missing provider read as
+ * "Grok CLI not found on PATH — install it…" instead of a cryptic spawn error.
+ */
+const PROVIDER_BIN_INFO: Record<string, { label: string; install: string }> = {
+  grok: { label: 'Grok CLI', install: 'install grok and make sure it is on your PATH' },
+  claude: { label: 'Claude Code CLI', install: 'install `claude` (npm i -g @anthropic-ai/claude-code) and sign in' },
+  opencode: { label: 'OpenCode CLI', install: 'install `opencode` and make sure it is on your PATH' },
+  copilot: { label: 'GitHub Copilot CLI', install: 'install `copilot` and make sure it is on your PATH' }
 }
 
 /** Map an office agent's provider (family name OR a -cli/-tui/-sdk variant) to
@@ -1046,6 +1059,18 @@ export class PixelOfficeClient {
       // rather than opening a blank chat — the Operate pane is separate from the loop
       // (ADD 2). Bare/fresh when no non-empty prior session exists for this dir.
       const command = this.resolveOperateCommand(dir, provider)
+      // PRE-CHECK the provider binary is resolvable BEFORE handing the command to a
+      // PTY — otherwise a missing CLI surfaces only as a cryptic node-pty "File not
+      // found" (win32) or a silent shell "command not found". Surface a clear,
+      // provider-named reason with an install hint instead.
+      const bin = command.trim().split(/\s+/)[0] || ''
+      if (bin && !resolveBinOnPath(bin)) {
+        const info = PROVIDER_BIN_INFO[bin.toLowerCase()]
+        const label = info?.label ?? `${bin} CLI`
+        const hint = info ? ` — ${info.install}, then try again` : ' — install it and make sure it is on your PATH, then try again'
+        dbg('operate: provider CLI missing', bin)
+        return { error: `${label} not found on PATH${hint}.` }
+      }
       dbg('operate: wired', agentSlug || agentId, '→', url, 'cwd', dir, 'cmd', command)
       return { ok: true, cwd: dir, mcpUrl: url, command }
     } catch (e) { dbg('operate error', e); return { error: String((e as Error)?.message ?? e) } }
@@ -1083,6 +1108,38 @@ export class PixelOfficeClient {
       try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
       if (s.provider === p) return
       s.provider = p
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
+   * Persist the office character's chosen MODEL into a spawned loop's
+   * `<dir>/.autodev/settings.json` under the per-vendor model key
+   * (`grokModel`/`claudeModel`/`opencodeModel`/`copilotModel`, mirroring the app's
+   * MODEL_KEY map), so `autodev start` launches on the model the owner set in the
+   * office — without this, spawnOffice only wrote `provider`, so changing a
+   * character's model in the office had NO effect on the loop it spawned. Empty /
+   * unknown model → no-op ("provider default"). MERGE-write (preserves provider +
+   * presence keys). Best-effort.
+   */
+  private writeModel(dir: string, provider: string, model?: string): void {
+    try {
+      const m = String(model ?? '').trim()
+      if (!m) return
+      const vendor = String(provider ?? '').toLowerCase().split('-')[0]
+      const KEY: Record<string, string> = {
+        claude: 'claudeModel', grok: 'grokModel', opencode: 'opencodeModel', copilot: 'copilotModel'
+      }
+      const key = KEY[vendor]
+      if (!key) return
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if (s[key] === m) return
+      s[key] = m
       writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
       try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
     } catch { /* best effort */ }
@@ -1180,6 +1237,9 @@ export class PixelOfficeClient {
         if ('error' in bound) return { error: `Couldn't bind "${name}" to the office — ${bound.error}` }
         // Persist the loop's provider (override wins) so `autodev start` uses it.
         this.writeProvider(dir, provider)
+        // …and the owner's chosen model, so a model change in the office actually
+        // applies to the spawned loop (was previously dropped — only provider stuck).
+        this.writeModel(dir, provider, typeof a.model === 'string' ? a.model : undefined)
         // Seed the Cozempic long-session-guard preference (Settings toggle) so the
         // CLI reads cozempicAutoInit at loop start — the renderer create flows do
         // this via `config set`, but this app-only spawn path writes settings.json

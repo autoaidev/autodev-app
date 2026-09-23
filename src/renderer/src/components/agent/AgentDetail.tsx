@@ -180,6 +180,19 @@ export function AgentDetail({
   const officeLinked = !!(agent.officeAgentId || agent.officeAgentSlug)
   const officeStatus = deriveOfficeLinkStatus(officeLinked, !!agent.online, officeConn)
 
+  // "Open in Pixel Office" — deep-link the linked character straight into its office
+  // chat in the web app (the pixel-office route reads ?view=chat&chat=<slug|id>). Uses
+  // the same openExternal mechanism as the office "Open in browser" affordance. Shown
+  // only when the agent is office-linked AND we know the office base + slug.
+  const officeWebUrl = React.useMemo(() => {
+    const base = officeConn.base.trim().replace(/\/+$/, '')
+    const slug = agent.officeSlug
+    if (!base || !slug) return ''
+    const chat = agent.officeAgentSlug || agent.officeAgentId
+    const q = chat ? `?view=chat&chat=${encodeURIComponent(chat)}` : ''
+    return `${base}/office/${encodeURIComponent(slug)}${q}`
+  }, [officeConn.base, agent.officeSlug, agent.officeAgentSlug, agent.officeAgentId])
+
   // AgentDetail is intentionally NOT keyed on agent.path (keying would unmount the
   // terminal host and ptyKill live shells). But that means local composer state
   // persists across a selection change — a half-typed task would otherwise carry
@@ -313,6 +326,16 @@ export function AgentDetail({
             <Button size="sm" variant="ghost" onClick={onOpenFolder}>
               <Icon name="folder" size={12} /> Open folder
             </Button>
+            {officeWebUrl && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void window.api.openExternal(officeWebUrl)}
+                title="Open this office (and agent) in the Pixel Office web app"
+              >
+                <Icon name="external" size={12} /> Open in Pixel Office
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={(e) => onMenu(e as unknown as React.MouseEvent, agent)} aria-label="More actions">
               <Icon name="more" size={12} />
             </Button>

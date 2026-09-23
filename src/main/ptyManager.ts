@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events'
 import * as pty from 'node-pty'
 import { augmentPath } from './spawnEnv'
+import { buildPtyInvocation, friendlySpawnError } from './ptyShell'
 
 /**
  * Spawns interactive PTYs (one per pane) so the renderer can run a real terminal
@@ -24,15 +25,10 @@ export class PtyManager extends EventEmitter {
     opts: { cwd: string; command?: string; cols?: number; rows?: number; keepShell?: boolean }
   ): { ok: true } | { error: string } {
     if (this._ptys.has(id)) return { ok: true }
-    const shell = process.env.SHELL || 'bash'
-    const args = opts.command
-      ? opts.keepShell === false
-        // `command` is the final process: its exit ends the PTY and fires `exit`.
-        ? ['-lc', opts.command]
-        : ['-lc', `${opts.command}; echo; echo "[${opts.command} exited — shell]"; exec ${shell} -l`]
-      : ['-il']
+    // Cross-platform shell + argv (win32 cmd.exe vs unix bash) — see ptyShell.ts.
+    const { file, args } = buildPtyInvocation(opts.command, opts.keepShell)
     try {
-      const p = pty.spawn(shell, args, {
+      const p = pty.spawn(file, args, {
         name: 'xterm-256color',
         cols: opts.cols || 80,
         rows: opts.rows || 24,
@@ -47,7 +43,10 @@ export class PtyManager extends EventEmitter {
       this._ptys.set(id, p)
       return { ok: true }
     } catch (e) {
-      return { error: String((e as Error)?.message ?? e) }
+      // Map a node-pty ENOENT / "File not found" to a clear, provider-named reason
+      // (e.g. "Couldn't start "grok" — it wasn't found on your PATH…") rather than
+      // the raw error, on every platform.
+      return { error: friendlySpawnError(e, opts.command) }
     }
   }
 

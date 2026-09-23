@@ -576,9 +576,8 @@ export interface InspectorProps {
 }
 
 export function Inspector({ agent, todo, configRev, onEditSetup, onEditMcp, onWatch }: InspectorProps): React.JSX.Element {
-  // The live SESSION card (raw msgs·kb, Watch live, Open trace) is an expert probe —
-  // Advanced only. Basic keeps the Inspector to TODO + Setup.
-  const { advanced } = useAdvancedMode()
+  // The SESSION card (Watch live, Open trace, All sessions) is shown in Basic too now,
+  // so a restarted agent's PERSISTED prior transcript stays reachable (#5).
   return (
     <div
       style={{
@@ -624,7 +623,11 @@ export function Inspector({ agent, todo, configRev, onEditSetup, onEditMcp, onWa
         </span>
       </div>
       <TodoSection agent={agent} todo={todo} />
-      {advanced && <SessionSection agent={agent} onWatch={onWatch} />}
+      {/* Session affordance is shown in BASIC too (was Advanced-only): after a Restart
+          the live PTY/scrollback resets, so a durable "Open trace / All sessions" link
+          to the agent's PERSISTED prior transcript is how you get the previous
+          conversation back (#5 — restart no longer loses viewable history). */}
+      <SessionSection agent={agent} onWatch={onWatch} />
       <SetupSection agent={agent} configRev={configRev} onEditSetup={onEditSetup} onEditMcp={onEditMcp} />
     </div>
   )

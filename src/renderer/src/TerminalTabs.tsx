@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import TerminalPane from './TerminalPane'
 import { Icon } from '@renderer/ui'
+import { stripAnsi } from '@renderer/lib/ansi'
 
 /**
  * One open pane in the office view. Two kinds:
@@ -63,7 +64,10 @@ function LogPane({ getText, subscribe }: { getText: () => string; subscribe: (cb
   // fresh pane starts pinned to the newest output. Mirrors ActivityStream's follow.
   const followRef = useRef(true)
   useEffect(() => subscribe(() => force((t) => t + 1)), [subscribe])
-  const text = getText()
+  // Strip ANSI/terminal escapes: this is a plain <pre>, not an xterm terminal, so a
+  // raw loop's colour codes (\x1b[90m…) would otherwise render as literal text and
+  // their ESC byte as a □ box (the "squares in the loop rendering" bug).
+  const text = stripAnsi(getText())
   useEffect(() => {
     const el = ref.current
     if (el && followRef.current) el.scrollTop = el.scrollHeight

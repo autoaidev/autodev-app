@@ -115,7 +115,15 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
                 type="button"
                 role="radio"
                 aria-checked={on}
-                onClick={() => setFamily(fam)}
+                onClick={() => {
+                  if (fam === family) return
+                  setFamily(fam)
+                  // Model ids are per-provider — a model chosen for the OLD family is
+                  // invalid for the new one and, if sent, persists garbage the loop
+                  // can't launch. Reset to the provider default on an engine switch
+                  // (mirrors BulkModelModal). The user re-picks from the new family's list.
+                  setModel('')
+                }}
                 style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
                   padding: '10px 6px', borderRadius: 'var(--r-card)', cursor: 'pointer',

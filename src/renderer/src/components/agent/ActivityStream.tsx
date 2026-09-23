@@ -5,6 +5,7 @@ import { useAgentLog } from '@renderer/services/logBuffer'
 import { describeExit } from '@renderer/services/model'
 import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
+import { stripAnsi } from '@renderer/lib/ansi'
 
 /**
  * ActivityStream — the parsed Activity tab body (2a).
@@ -36,7 +37,6 @@ interface RowItem {
 }
 type StreamItem = DividerItem | RowItem
 
-const ANSI = /\x1b\[[0-9;]*m/g
 // A leading clock-time: optional "[", the time, an optional 12-hour AM/PM suffix,
 // an optional closing "]", then whitespace. Matching the AM/PM + "]" here is what
 // stops the "PM]" channel-prefix artifact from leaking into every body line (R2).
@@ -86,8 +86,7 @@ function hash(s: string): string {
 
 /** Parse the raw buffer into dividers + rows, folding consecutive MCP lines. */
 export function parseLog(raw: string): StreamItem[] {
-  const lines = raw
-    .replace(ANSI, '')
+  const lines = stripAnsi(raw)
     .split('\n')
     .map((l) => l.replace(/\s+$/, ''))
     .filter((l) => l.trim().length > 0)
@@ -346,7 +345,7 @@ export function ActivityStream({
             wordBreak: 'break-word'
           }}
         >
-          {text}
+          {stripAnsi(text)}
         </pre>
       ) : (
         items.map((it) =>

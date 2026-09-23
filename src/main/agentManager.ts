@@ -423,6 +423,20 @@ export class AgentManager extends EventEmitter {
    * embedded in its wsUrl (`…&endpoint=<slug>`) or its settings `agentId`.
    * Undefined when no office is connected or this workspace isn't office-bound.
    */
+  /**
+   * Map an office character's `status` (idle|working|reading|waiting|active|offline)
+   * to this app's Activity vocabulary, so an office-online agent's card/row shows
+   * WORKING vs IDLE matching what pixel-office draws — not a flat "online". Anything
+   * actively-doing (working/reading/active) reads as working; everything else idle.
+   * ('needs-you' isn't in the local Activity set — office cards surface that via
+   * their own tick heuristic — so a 'waiting' character reads as idle here.)
+   */
+  private _officeActivity(status?: string): Activity {
+    const s = String(status ?? '').toLowerCase()
+    if (s === 'working' || s === 'reading' || s === 'active') return 'working'
+    return 'idle'
+  }
+
   private _officePresence(wsUrl?: string, agentId?: string): { online: boolean; status?: string; officeSlug?: string; agentId?: string; avatarUrl?: string; color?: string } | undefined {
     if (this._officeOnline.size === 0) return undefined
     const slug = this._endpointSlug(wsUrl)
@@ -485,13 +499,14 @@ export class AgentManager extends EventEmitter {
       const hookAct = this._activityFromHooks(path)
       if (hookAct === 'needs-auth') { activity = 'needs-auth'; error = 'Provider login expired — re-authenticate to resume.' }
       else if (hookAct === 'rate-limited') { activity = 'rate-limited'; error = 'Rate-limited by the provider — auto-resumes when the window clears.' }
-      else if (officeOnline) activity = presence?.status === 'working' ? 'working' : 'idle'
+      else if (officeOnline) activity = this._officeActivity(presence?.status)
       else activity = hookAct === 'working' ? 'working' : 'idle'
     } else if (officeOnline) {
       // Live in the office (presence WS open) but no local loop we can detect —
       // reflect the office's own status rather than a false "Stopped". The office
-      // reports 'working' while the character is mid-turn, else it's idle-polling.
-      activity = presence?.status === 'working' ? 'working' : 'idle'
+      // reports working/reading/active while the character is busy, waiting when it
+      // needs a human, else it's idle-polling.
+      activity = this._officeActivity(presence?.status)
     } else {
       exitCode = this._lastExit.get(path)
       if (typeof exitCode === 'number' && exitCode !== 0) {
