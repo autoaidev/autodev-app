@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -172,9 +172,27 @@ export function setDesktopNotifications(on: boolean): boolean {
   return getDesktopNotifications()
 }
 
+/**
+ * Whether the Windows Explorer "Open as AutoDev agent" right-click menu is
+ * enabled. Default FALSE (opt-in). This preference is kept CONSISTENT with the
+ * actual HKCU registry state: turning it on installs the context-menu entries,
+ * off uninstalls them (see main/shellIntegration.ts), and on app start a `true`
+ * value re-installs to self-heal after an update changed the exe path. Windows
+ * only — on Linux/mac the flag is inert (the registry calls never run).
+ */
+export function getShellIntegration(): boolean {
+  return load().shellIntegration === true
+}
+
+/** Persist the shell-integration opt-in flag (a plain boolean UI preference). */
+export function setShellIntegration(on: boolean): boolean {
+  persist({ ...load(), shellIntegration: !!on })
+  return getShellIntegration()
+}
+
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration() }
 }
 
 /**
@@ -222,8 +240,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -247,6 +265,12 @@ export function updateSettings(
     if ('desktopNotifications' in patch) {
       setDesktopNotifications(patch.desktopNotifications === true)
     }
+    if ('shellIntegration' in patch) {
+      // Persist only — the actual registry install/uninstall is driven through the
+      // dedicated `shell:integrationSet` IPC so the two never drift; this keeps the
+      // generic settings writer free of platform side-effects.
+      setShellIntegration(patch.shellIntegration === true)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration() }
 }

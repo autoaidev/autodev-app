@@ -10,7 +10,7 @@ import { SessionsView } from '@renderer/views/SessionsView'
 import { SettingsView2 } from '@renderer/views/SettingsView2'
 import MakeAppView from './MakeAppView'
 import { useFleetCounts } from '@renderer/services/agentStore'
-import { AppActionsProvider } from '@renderer/services/appActions'
+import { AppActionsProvider, useAppActions } from '@renderer/services/appActions'
 import { HelpPanel } from '@renderer/components/help/HelpPanel'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from './nav'
 
@@ -182,6 +182,7 @@ export default function App(): JSX.Element {
       onFocusAttention={() => go('agents')}
       onOpenHelp={() => setHelpOpen(true)}
     >
+    <OpenFolderBridge />
     <div
       style={{
         height: '100vh',
@@ -250,6 +251,41 @@ export default function App(): JSX.Element {
     </CliStatusProvider>
     </ThemeProvider>
   )
+}
+
+/**
+ * Bridges the main process's `--open-folder` launches (Windows Explorer's
+ * right-click "Open as AutoDev agent") into the same "open as agent" flow the
+ * Sessions view uses: register the folder as an agent and reveal it, or — if it
+ * isn't yet an AutoDev workspace — route to the create-agent funnel seeded with it.
+ *
+ * Two delivery paths (see main/index.ts): a COLD-start folder is pulled once via
+ * `consumeOpenFolder()` on mount; WARM deliveries (a second launch while the app
+ * runs) arrive on the `app:openFolder` broadcast. Renders nothing — it only owns
+ * the subscription, and must live inside <AppActionsProvider> to reach the bus.
+ */
+function OpenFolderBridge(): null {
+  const { openAgent, newAgent, toast } = useAppActions()
+  useEffect(() => {
+    const openAsAgent = async (cwd: string): Promise<void> => {
+      if (!cwd) return
+      try {
+        const r = (await window.api.addAgent(cwd)) as { error?: string; path?: string }
+        if (r && typeof r === 'object' && 'error' in r && r.error) {
+          newAgent({ path: cwd })
+          return
+        }
+        openAgent({ path: cwd })
+      } catch {
+        toast('Could not open that folder as an agent.', true)
+      }
+    }
+    // Cold start: pull a folder passed before this listener existed.
+    void window.api.consumeOpenFolder().then((p) => { if (p) void openAsAgent(p) })
+    // Warm: a second launch relayed a folder while we were already running.
+    return window.api.onOpenFolder((p) => { void openAsAgent(p) })
+  }, [openAgent, newAgent, toast])
+  return null
 }
 
 /** Global toast — floats above every screen; tokenised, no legacy CSS. */

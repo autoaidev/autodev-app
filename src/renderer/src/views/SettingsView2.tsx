@@ -176,6 +176,19 @@ export function SettingsView2(): JSX.Element {
   const [desktopNotifSaved, setDesktopNotifSaved] = useState(false)
   const desktopNotifTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Windows shell integration ("Open as AutoDev agent" right-click) --------
+  // Whether the Explorer folder right-click menu is registered. `shellIntegWin`
+  // gates the whole row off entirely on Linux/mac (hidden); `shellIntegAvail` is
+  // false in a dev run (Windows but not packaged) so the toggle is disabled with a
+  // note. Reflects the real HKCU state read from the main process on load, and
+  // stays in sync with the tray checkbox via `onShellIntegrationChanged`.
+  const [shellInteg, setShellInteg] = useState(false)
+  const [shellIntegWin, setShellIntegWin] = useState(false)
+  const [shellIntegAvail, setShellIntegAvail] = useState(false)
+  const [shellIntegBusy, setShellIntegBusy] = useState(false)
+  const [shellIntegSaved, setShellIntegSaved] = useState(false)
+  const shellIntegTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Per-provider default models (#8) — an app preference that seeds new agents.
   // `defaultModels[vendor]` = '' means "provider default". `savedVendor` briefly
   // flags the row that just persisted so a select-to-save gives real feedback.
@@ -230,10 +243,21 @@ export function SettingsView2(): JSX.Element {
       setDesktopNotif(cfg.desktopNotifications === true)
       setLoaded(true)
     })()
+    // Shell integration reflects the REAL HKCU registry state (not just the stored
+    // preference) so the toggle is honest even if a manual reg edit diverged it.
+    void window.api.shellIntegrationStatus().then((s) => {
+      setShellIntegWin(s.windows)
+      setShellIntegAvail(s.available)
+      setShellInteg(s.installed)
+    })
+    // Keep in sync when the tray checkbox flips it (both surfaces broadcast).
+    const offShell = window.api.onShellIntegrationChanged((d) => setShellInteg(d.installed))
     return () => {
       if (pulseTimer.current) clearTimeout(pulseTimer.current)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
       if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
+      if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
+      offShell()
     }
   }, [])
 
@@ -262,6 +286,33 @@ export function SettingsView2(): JSX.Element {
       /* leave the optimistic value; the next open re-reads truth */
     }
   }, [])
+
+  // Toggle the Windows shell integration. Unlike the other preferences this does a
+  // real side-effect (installs/uninstalls HKCU registry entries), so we reflect the
+  // ACTUAL post-op installed state the main process returns rather than the
+  // requested value — a failed registry write must not leave the toggle lying.
+  const toggleShellInteg = useCallback(async (next: boolean) => {
+    if (shellIntegBusy) return
+    setShellIntegBusy(true)
+    setShellInteg(next) // optimistic
+    try {
+      const r = await window.api.shellIntegrationSet(next)
+      setShellInteg(r.installed)
+      if (r.ok) {
+        setShellIntegSaved(true)
+        if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
+        shellIntegTimer.current = setTimeout(() => setShellIntegSaved(false), 1600)
+      }
+    } catch {
+      // Re-read the truth on failure so the toggle matches the registry.
+      try {
+        const s = await window.api.shellIntegrationStatus()
+        setShellInteg(s.installed)
+      } catch { /* leave optimistic */ }
+    } finally {
+      setShellIntegBusy(false)
+    }
+  }, [shellIntegBusy])
 
   // Live connection status + office count (guarded: officeOffices THROWS on a dead
   // session, so only probe when connected and swallow failures).
@@ -801,6 +852,82 @@ export function SettingsView2(): JSX.Element {
                 </button>
               </div>
             </div>
+
+            {/* Windows: "Open as AutoDev agent" right-click menu. Hidden entirely
+                off-Windows; disabled (with a note) in an unpackaged dev run where
+                the registry can't be safely touched. Installs/uninstalls HKCU
+                context-menu entries; stays in sync with the tray checkbox. */}
+            {shellIntegWin && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={S.rowLabel}>
+                    Windows: &ldquo;Open as AutoDev agent&rdquo; right-click menu
+                    {shellIntegSaved && (
+                      <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                        Saved <Icon name="check" size={9} strokeWidth={2} />
+                      </span>
+                    )}
+                  </div>
+                  <div style={S.rowDesc}>
+                    Adds &ldquo;Open as AutoDev agent&rdquo; to the Explorer right-click
+                    menu for a folder (and a folder&rsquo;s empty background). Picking it
+                    launches AutoDev and adds that folder as an agent.
+                    {!shellIntegAvail && (
+                      <span style={{ color: 'var(--tx-4)' }}> Only available in the installed app.</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={shellInteg}
+                    aria-label="Windows Open as AutoDev agent right-click menu"
+                    disabled={!shellIntegAvail || shellIntegBusy}
+                    onClick={() => void toggleShellInteg(!shellInteg)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 9,
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 0,
+                      opacity: shellIntegAvail ? 1 : 0.5,
+                      cursor: shellIntegAvail && !shellIntegBusy ? 'pointer' : 'default'
+                    }}
+                  >
+                    <span style={{ fontSize: 11.5, color: shellInteg ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                      {shellInteg ? 'On' : 'Off'}
+                    </span>
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'relative',
+                        width: 34,
+                        height: 18,
+                        borderRadius: 'var(--r-pill)',
+                        background: shellInteg ? 'var(--accent)' : 'var(--bg-input)',
+                        border: `1px solid ${shellInteg ? 'var(--accent)' : 'var(--bd-1)'}`,
+                        transition: 'background .12s ease'
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 1,
+                          left: shellInteg ? 17 : 1,
+                          width: 14,
+                          height: 14,
+                          borderRadius: '50%',
+                          background: shellInteg ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                          transition: 'left .12s ease'
+                        }}
+                      />
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
           </Section>
 
           {/* ── Providers ──────────────────────────────────────────────── */}

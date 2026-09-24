@@ -8,6 +8,15 @@ import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson } from './
 import type { McpCatalogServer, McpJsonEntry } from './agentManager'
 import * as appSettings from './appSettings'
 import { initAutoUpdate, checkForUpdatesManually } from './autoUpdate'
+import {
+  installShellIntegration,
+  uninstallShellIntegration,
+  isShellIntegrationInstalled,
+  shellIntegrationStatus,
+  reconcileShellIntegration,
+  parseOpenFolderArg,
+  isWindows
+} from './shellIntegration'
 import { readFileSync } from 'fs'
 
 /** One provider family's model catalog, as emitted by `autodev models --json`. */
@@ -24,10 +33,57 @@ let tray: Tray | null = null
 // emits a burst of toasts.
 let quitting = false
 let isQuitting = false
+// A folder passed via `--open-folder` (Windows Explorer right-click) before the
+// renderer has mounted its IPC listener. Held here until the renderer pulls it via
+// `app:consumeOpenFolder` on first mount (cold-start path). `rendererReady` flips
+// true then, so later (warm) deliveries broadcast `app:openFolder` directly.
+let pendingOpenFolder: string | null = null
+let rendererReady = false
 const manager = new AgentManager()
 const sessions = new SessionManager()
 const ptys = new PtyManager()
 const office = new PixelOfficeClient()
+
+// --- single-instance lock --------------------------------------------------
+// Required so a second launch (e.g. Explorer's right-click verb while the app is
+// already running) relays its argv to the running instance instead of starting a
+// rival process. Without the lock, two app copies would fight over the tray, the
+// PTYs and the office socket. If we don't get the lock we are the second instance:
+// Electron delivers our argv to the primary via `second-instance` below, so we
+// quit immediately.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_e, argv) => {
+    // A second launch relayed its command line to us. Focus our window and, if it
+    // carried `--open-folder <path>`, open that folder as an agent.
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      if (!mainWindow.isVisible()) mainWindow.show()
+      mainWindow.focus()
+    }
+    const folder = parseOpenFolderArg(argv)
+    if (folder) deliverOpenFolder(folder)
+  })
+}
+
+/**
+ * Route a folder (from `--open-folder`) to the renderer's "open as agent" flow.
+ * If the renderer has mounted (rendererReady), push it live via `app:openFolder`;
+ * otherwise stash it for the renderer to pull on first mount (cold start). Also
+ * raises the window so the user lands in the app either way.
+ */
+function deliverOpenFolder(p: string): void {
+  if (!p) return
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    if (!mainWindow.isVisible()) mainWindow.show()
+    mainWindow.focus()
+  }
+  if (rendererReady) broadcast('app:openFolder', p)
+  else pendingOpenFolder = p
+}
 
 /**
  * Only ever hand http(s)/mailto URLs to the OS URL dispatcher. shell.openExternal
@@ -197,12 +253,34 @@ function refreshTray(): void {
   if (!tray) return
   const n = manager.runningCount()
   tray.setToolTip(n > 0 ? `AutoDev — ${n} agent(s) running` : 'AutoDev')
+  // Windows-only: a checkbox to toggle the Explorer "Open as AutoDev agent"
+  // right-click menu, staying in sync with the Settings toggle (both call the same
+  // install/uninstall + persist + broadcast). Hidden on Linux/mac.
+  const shellItems = isWindows()
+    ? [
+        {
+          label: 'Open-folder right-click menu',
+          type: 'checkbox' as const,
+          checked: isShellIntegrationInstalled(),
+          click: (item: { checked: boolean }) => {
+            const on = item.checked
+            if (on) installShellIntegration()
+            else uninstallShellIntegration()
+            appSettings.setShellIntegration(on)
+            refreshTray()
+            broadcast('shell:integrationChanged', { installed: isShellIntegrationInstalled(), on })
+          }
+        },
+        { type: 'separator' as const }
+      ]
+    : []
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: n > 0 ? `${n} agent(s) running` : 'No agents running', enabled: false },
     { type: 'separator' },
     { label: 'Show AutoDev', click: () => { mainWindow?.show(); mainWindow?.focus() } },
     { label: 'Check for Updates…', click: () => { checkForUpdatesManually() } },
     { type: 'separator' },
+    ...shellItems,
     // Always a clearly-labelled quit so the app is quittable even if the tray
     // icon is hidden by the desktop's icon theme. When agents are running the
     // label spells out the side effect so it's never a surprise stop.
@@ -402,7 +480,31 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }) => appSettings.updateSettings(patch ?? {}))
+// --- Windows shell integration ("Open as AutoDev agent" right-click) ---------
+// Status the Settings toggle / tray checkbox reflect on load: whether the entries
+// are registered AND whether this build can register them (Windows + packaged).
+ipcMain.handle('shell:integrationStatus', () => shellIntegrationStatus())
+// Toggle the integration: ON installs the HKCU context-menu entries, OFF removes
+// them. The persisted preference is kept CONSISTENT with the registry (both driven
+// here), and the change is broadcast so the tray checkbox and Settings toggle stay
+// in sync wherever the toggle was flipped.
+ipcMain.handle('shell:integrationSet', (_e, on: boolean) => {
+  const r = on ? installShellIntegration() : uninstallShellIntegration()
+  appSettings.setShellIntegration(!!on)
+  refreshTray()
+  broadcast('shell:integrationChanged', { installed: r.installed, on: !!on })
+  return r
+})
+// The renderer pulls a folder passed via `--open-folder` on cold start (before its
+// IPC listener existed). Returns the pending path once and clears it; also marks
+// the renderer ready so later (warm) deliveries broadcast `app:openFolder` live.
+ipcMain.handle('app:consumeOpenFolder', () => {
+  rendererReady = true
+  const p = pendingOpenFolder
+  pendingOpenFolder = null
+  return p
+})
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', async (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => {
@@ -524,6 +626,14 @@ ipcMain.handle('office:updateCharacter', (_e, agentId: string, patch: { provider
 app.whenReady().then(() => {
   createWindow()
   createTray()
+  // Windows shell integration: if the user enabled the "Open as AutoDev agent"
+  // right-click menu, (re)install it now so it self-heals after an update changed
+  // the exe path; if disabled, clear any stale entries. No-op off-Windows / in dev.
+  reconcileShellIntegration(appSettings.getShellIntegration())
+  // Cold start: honor a folder passed via `--open-folder` (Explorer right-click
+  // launching a fresh instance). Stashed for the renderer to pull on first mount.
+  const coldFolder = parseOpenFolderArg(process.argv)
+  if (coldFolder) deliverOpenFolder(coldFolder)
   // Auto-update (packaged builds only; guarded + try/catch so a missing feed is a
   // no-op). Downloads in the background, then ASKS before restarting to install.
   initAutoUpdate(() => mainWindow)

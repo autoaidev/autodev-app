@@ -197,9 +197,24 @@ const api = {
   ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> =>
     ipcRenderer.invoke('office:updateCharacter', agentId, patch),
   // App preferences (non-secret; persisted in userData/app-settings.json)
-  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean }> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
-  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
+  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+  // Windows Explorer "Open as AutoDev agent" right-click integration. Status
+  // reflects whether the entries are registered AND whether this build can register
+  // them (Windows + packaged); set(on) installs/uninstalls + persists the setting.
+  shellIntegrationStatus: (): Promise<{ ok: boolean; installed: boolean; available: boolean; windows: boolean; reason?: string }> =>
+    ipcRenderer.invoke('shell:integrationStatus'),
+  shellIntegrationSet: (on: boolean): Promise<{ ok: boolean; installed: boolean; available: boolean; windows: boolean; reason?: string }> =>
+    ipcRenderer.invoke('shell:integrationSet', on),
+  // Fires when the integration is toggled anywhere (tray or Settings) so the other
+  // surface can update its checkbox/toggle without a re-read.
+  onShellIntegrationChanged: (cb: (d: { installed: boolean; on: boolean }) => void) => sub('shell:integrationChanged', cb),
+  // A folder passed via `--open-folder` (Explorer right-click). `consumeOpenFolder`
+  // pulls a cold-start pending path once (on first mount); `onOpenFolder` receives
+  // later (warm) deliveries while the app is already running.
+  consumeOpenFolder: (): Promise<string | null> => ipcRenderer.invoke('app:consumeOpenFolder'),
+  onOpenFolder: (cb: (path: string) => void) => sub('app:openFolder', cb)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {
