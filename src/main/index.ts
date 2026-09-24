@@ -88,7 +88,9 @@ function createWindow(): void {
     if (!isQuitting && manager.runningCount() > 0) {
       e.preventDefault()
       mainWindow?.hide()
-      if (Notification.isSupported()) {
+      // Only surface the tray toast when desktop notifications are enabled (off by
+      // default) — the hide-to-tray behavior itself is unconditional.
+      if (appSettings.getDesktopNotifications() && Notification.isSupported()) {
         new Notification({ title: 'AutoDev still running', body: `${manager.runningCount()} agent(s) keep working in the background. Reopen or quit from the tray icon.` }).show()
       }
     }

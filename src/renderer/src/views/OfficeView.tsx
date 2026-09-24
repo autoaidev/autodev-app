@@ -1115,8 +1115,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           officeSlug={selectedGroup.slug}
           officeName={selectedGroup.name}
           existingCount={selectedGroup.agents.length}
+          existingNames={selectedGroup.agents.map((a) => a.name)}
           onClose={() => setShowAddChar(false)}
           onCreated={({ id }) => { setFocusedId(id); void officeService.refresh() }}
+          onTeamGenerated={() => { void officeService.refresh() }}
         />
       )}
     </div>

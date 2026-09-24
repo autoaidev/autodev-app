@@ -4,6 +4,7 @@ import { ModelSelect } from '@renderer/components/ModelSelect'
 import { PROVIDER_FAMILIES, providerAccent, type ProviderFamily } from '@renderer/services/identity'
 import { useDefaultModels, defaultModelFor } from '@renderer/lib/providers'
 import * as officeService from '@renderer/services/officeService'
+import { useAppActions } from '@renderer/services/appActions'
 
 /**
  * AddCharacterModal — create ONE office character from the office manage window.
@@ -24,6 +25,13 @@ import * as officeService from '@renderer/services/officeService'
  *   2. updateCharacter(id, { provider, model })  → PATCH the chosen engine/model in
  * The numeric officeId isn't carried on the folded OfficeGroup, so we resolve it on
  * demand from officeOffices() by slug (mirrors the old inline create tile).
+ *
+ * A second mode — "Generate team" — AI-authors N complementary teammates in one
+ * shot via officeGenerateTeam(officeId, prompt, count). The pixel-office
+ * /api/agents/generate endpoint already seeds the LLM with the office's existing
+ * roster names ("Do NOT reuse these existing names …"), so duplicate roles are
+ * avoided SERVER-SIDE from the officeId alone; we keep a client-side dedupe check
+ * purely to surface a note if the model repeats a name anyway.
  */
 
 /** A small, distinct default palette (hex, office `color` shape) + emoji faces. */
@@ -46,8 +54,13 @@ export interface AddCharacterModalProps {
   /** Current character count in the office — rotates the default face/hue so a fresh
    *  character isn't identical to the last one. */
   existingCount: number
+  /** The office's existing character names — used ONLY for a client-side dedupe
+   *  note after a team generation (server-side avoidance is the primary guard). */
+  existingNames?: string[]
   onClose: () => void
   onCreated: (agent: { id: string; slug: string }) => void
+  /** Called after a successful team generation so the office can refresh its roster. */
+  onTeamGenerated?: (count: number) => void
 }
 
 export function AddCharacterModal({
@@ -55,11 +68,17 @@ export function AddCharacterModal({
   officeSlug,
   officeName,
   existingCount,
+  existingNames = [],
   onClose,
-  onCreated
+  onCreated,
+  onTeamGenerated
 }: AddCharacterModalProps): React.JSX.Element {
   const { defaults } = useDefaultModels()
+  const actions = useAppActions()
 
+  // Two modes in one modal: "one" adds a single hand-configured character; "team"
+  // AI-authors a whole complementary roster (no duplicate roles vs the office).
+  const [mode, setMode] = useState<'one' | 'team'>('one')
   const [name, setName] = useState('')
   const [family, setFamily] = useState<ProviderFamily>('claude')
   const [model, setModel] = useState('')
@@ -67,6 +86,9 @@ export function AddCharacterModal({
   const [emoji, setEmoji] = useState(EMOJIS[0])
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  // Generate-team inputs.
+  const [teamPrompt, setTeamPrompt] = useState('')
+  const [teamCount, setTeamCount] = useState(3)
   // Track whether the user hand-edited the model, so a family switch can re-seed the
   // default without clobbering a deliberate choice.
   const [modelTouched, setModelTouched] = useState(false)
@@ -80,12 +102,15 @@ export function AddCharacterModal({
     if (!open) { seeded.current = false; return }
     if (seeded.current) return
     seeded.current = true
+    setMode('one')
     setName('')
     setFamily('claude')
     setColor(COLORS[existingCount % COLORS.length])
     setEmoji(EMOJIS[existingCount % EMOJIS.length])
     setModel(defaultModelFor(defaults, 'claude'))
     setModelTouched(false)
+    setTeamPrompt('')
+    setTeamCount(3)
     setBusy(false)
     setStatus('')
   }, [open, existingCount, defaults])
@@ -155,6 +180,48 @@ export function AddCharacterModal({
     }
   }
 
+  // GENERATE TEAM — AI-author N complementary teammates in one shot. Server-side
+  // avoidance (the endpoint seeds the LLM with the office roster) keeps roles
+  // distinct; we additionally dedupe client-side to surface a note if the model
+  // repeats an existing name anyway.
+  const generateTeam = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setStatus('')
+    try {
+      const list = (await window.api.officeOffices()) as Array<{ slug: string; id: number }>
+      const off = Array.isArray(list) ? list.find((o) => o.slug === officeSlug) : undefined
+      if (!off) {
+        setStatus('Could not resolve this office to generate a team.')
+        return
+      }
+      const count = Math.max(1, Math.min(12, teamCount || 1))
+      const r = (await window.api.officeGenerateTeam(off.id, teamPrompt.trim(), count)) as {
+        ok?: boolean
+        agents?: Array<{ id?: string; slug?: string; name?: string; role?: string }>
+        error?: string
+      }
+      if (r?.error || !r?.ok) {
+        setStatus(r?.error || 'Could not generate the team.')
+        return
+      }
+      const created = Array.isArray(r.agents) ? r.agents : []
+      // Client-side dedupe check (safety net over the server's avoid-list): count how
+      // many generated names collide with the existing roster, case-insensitively.
+      const existing = new Set(existingNames.map((n) => n.trim().toLowerCase()).filter(Boolean))
+      const dupes = created.filter((a) => existing.has(String(a?.name ?? '').trim().toLowerCase())).length
+      onTeamGenerated?.(created.length)
+      void officeService.refresh()
+      const note = dupes > 0 ? ` (${dupes} matched an existing role)` : ''
+      actions.toast(`Generated ${created.length} character${created.length === 1 ? '' : 's'}${note}`)
+      onClose()
+    } catch (e) {
+      setStatus(String((e as Error)?.message ?? e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const accent = providerAccent(family)
 
   return (
@@ -163,18 +230,52 @@ export function AddCharacterModal({
       onClose={onClose}
       width={468}
       title={<>Add a character <span style={{ color: 'var(--tx-5)', fontWeight: 400 }}>· {officeName}</span></>}
-      subtitle="one new character — pick its engine and face"
+      subtitle={mode === 'one' ? 'one new character — pick its engine and face' : 'AI-author a complementary team — no duplicate roles'}
       subtitleMono
       footer={
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
           {status && <span style={{ fontSize: 'var(--fs-meta)', color: status.startsWith('Saved') ? 'var(--st-running)' : 'var(--st-error)' }}>{status}</span>}
           <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-          <Button variant="primary" onClick={() => void create()} disabled={busy || !name.trim()}>
-            {busy ? 'Adding…' : 'Add character'}
-          </Button>
+          {mode === 'one' ? (
+            <Button variant="primary" onClick={() => void create()} disabled={busy || !name.trim()}>
+              {busy ? 'Adding…' : 'Add character'}
+            </Button>
+          ) : (
+            <Button variant="primary" onClick={() => void generateTeam()} disabled={busy}>
+              {busy ? 'Generating…' : 'Generate team'}
+            </Button>
+          )}
         </div>
       }
     >
+      {/* MODE TOGGLE — "Add one" hand-configures a single character; "Generate team"
+          AI-authors a whole complementary roster. */}
+      <div role="tablist" aria-label="Add mode" style={{ display: 'flex', gap: 6, padding: 3, marginBottom: 16, background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-card)' }}>
+        {([['one', 'Add one'], ['team', 'Generate team']] as const).map(([m, lbl]) => {
+          const on = mode === m
+          return (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => { if (!busy) { setMode(m); setStatus('') } }}
+              disabled={busy}
+              style={{
+                flex: 1, padding: '7px 10px', borderRadius: 'calc(var(--r-card) - 2px)', cursor: busy ? 'default' : 'pointer',
+                background: on ? 'var(--bg-panel)' : 'transparent',
+                border: `1px solid ${on ? 'var(--accent)' : 'transparent'}`,
+                color: on ? 'var(--tx-1)' : 'var(--tx-4)',
+                fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-body)', fontWeight: 600, outline: 'none'
+              }}
+            >
+              {lbl}
+            </button>
+          )
+        })}
+      </div>
+
+      {mode === 'one' && (<>
       {/* NAME + FACE — the face preview sits beside the name so the identity reads at a glance. */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 16 }}>
         <div
@@ -280,6 +381,46 @@ export function AddCharacterModal({
           ))}
         </div>
       </div>
+      </>)}
+
+      {mode === 'team' && (
+        <div>
+          {/* DESCRIPTION — what the team should do. Optional; the office name seeds a
+              default server-side when left blank. */}
+          <div style={{ marginBottom: 16 }}>
+            <span style={label}>What should this team do?</span>
+            <textarea
+              value={teamPrompt}
+              onChange={(e) => setTeamPrompt(e.target.value.slice(0, 600))}
+              placeholder="e.g. ship and support a mobile game — design, engineering, QA, community…"
+              aria-label="Team description"
+              rows={3}
+              maxLength={600}
+              style={{ ...inputStyle, resize: 'vertical', minHeight: 66, fontFamily: 'var(--font-sans)' }}
+            />
+            <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 6 }}>
+              New roles avoid your {existingNames.length} existing character{existingNames.length === 1 ? '' : 's'} — no duplicate roles.
+            </div>
+          </div>
+
+          {/* COUNT — how many teammates to author (1–12). */}
+          <div style={{ marginBottom: 4 }}>
+            <span style={label}>How many teammates?</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="number"
+                min={1}
+                max={12}
+                value={teamCount}
+                onChange={(e) => setTeamCount(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+                aria-label="Number of teammates to generate"
+                style={{ ...inputStyle, width: 90 }}
+              />
+              <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>complementary AI workers</span>
+            </div>
+          </div>
+        </div>
+      )}
     </Modal>
   )
 }
