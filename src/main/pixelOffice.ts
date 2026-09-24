@@ -1182,9 +1182,18 @@ export class PixelOfficeClient {
         : Array.isArray(ags) ? ags : []
       if (!roster.length) return { error: 'This office has no characters to spawn.' }
 
-      // BLOCK if ANY character is online (same online test listAgents uses).
+      // A non-empty `overrides` list is an explicit SELECTION of which characters to
+      // spawn — the renderer passes only the offline/pending ones for a partial
+      // "Connect N more". Restrict the roster to that selection so we never re-spawn
+      // an already-connected character. Empty/absent list = the whole office.
+      const selection = new Set((overrides ?? []).map((o) => String(o?.agentId)).filter(Boolean))
+      const selected = selection.size ? roster.filter((a) => selection.has(String(a.id))) : roster
+      if (!selected.length) return { error: 'None of the selected characters are in this office.' }
+
+      // BLOCK if any SELECTED character is already online (same online test listAgents
+      // uses) — the renderer filters to offline, so this now only trips on a race.
       // Checked BEFORE any workspace is written so a blocked call has no side effects.
-      const online = roster.filter((a) => !!(a.isConnected ?? a.online))
+      const online = selected.filter((a) => !!(a.isConnected ?? a.online))
                            .map((a) => String(a.name ?? a.slug ?? a.id))
       if (online.length) {
         return { error: `Can't spawn — ${online.length} character(s) already online: ${online.join(', ')}.`, online }
@@ -1199,7 +1208,7 @@ export class PixelOfficeClient {
 
       const root = join(homedir(), '.autodev-app', 'offices')
       const out: Array<{ agentId: string; agentSlug: string; name: string; path: string; provider: string; officeSlug: string }> = []
-      for (const a of roster) {
+      for (const a of selected) {
         const agentId = String(a.id)
         const agentSlug = String(a.slug || a.id)
         const name = String(a.name ?? agentSlug)

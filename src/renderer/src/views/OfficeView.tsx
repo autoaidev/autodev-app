@@ -318,10 +318,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // Spawn the WHOLE office as tracked loops (block-if-any-online); the registry opens
   // read-only log panes for the returned loops.
   const spawnOffice = useCallback(async (g: OfficeGroup) => {
-    if (g.onlineCount > 0 || spawningOffice) return
+    if (spawningOffice) return
+    // Connect ONLY the offline/unconnected characters — clicking this when some are
+    // already live starts just the REST ("Connect N more"), and re-clicking after
+    // adding a character dynamically starts the newly-added ones. No-op when the
+    // whole office is already online.
+    const pending = g.agents.filter((a) => !a.online)
+    if (pending.length === 0) return
     setActionErr(''); setSpawningOffice(g.slug)
     try {
-      const r = await window.api.officeSpawnOffice(g.slug, g.agents.map((a) => ({ agentId: a.id, provider: a.provider || '' })))
+      const r = await window.api.officeSpawnOffice(g.slug, pending.map((a) => ({ agentId: a.id, provider: a.provider || '' })))
       if ('error' in r) {
         const online = (r as { online?: string[] }).online
         const who = online && online.length ? ` (online: ${online.join(', ')})` : ''
@@ -771,13 +777,19 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   {steerToast === 'delivered' && <Icon name="bolt" size={11} />}{steerToast}
                 </span>
               )}
-              {running ? (
+              {/* Show buttons by STATE, not either/or: Stop all whenever the office
+                  has running/online loops; Connect whenever any character is still
+                  offline (labelled with the remaining count when partial). So: none
+                  online → just "Connect all"; some online → BOTH; all online → just
+                  "Stop all". */}
+              {running && (
                 <Button variant="secondary" size="sm" danger disabled={stoppingOffice === selectedGroup.slug} onClick={() => stopOffice(selectedGroup)}>
                   {stoppingOffice === selectedGroup.slug ? 'Stopping…' : 'Stop all'}
                 </Button>
-              ) : (
-                <Button variant="primary" size="sm" disabled={spawningOffice === selectedGroup.slug || online > 0} onClick={() => spawnOffice(selectedGroup)}>
-                  {spawningOffice === selectedGroup.slug ? 'Connecting…' : 'Connect all'}
+              )}
+              {online < total && (
+                <Button variant="primary" size="sm" disabled={spawningOffice === selectedGroup.slug} onClick={() => spawnOffice(selectedGroup)}>
+                  {spawningOffice === selectedGroup.slug ? 'Connecting…' : (online > 0 ? `Connect ${total - online} more` : 'Connect all')}
                 </Button>
               )}
               <Button variant="secondary" size="sm" onClick={openBrowser}>
