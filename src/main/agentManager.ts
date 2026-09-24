@@ -165,6 +165,23 @@ export interface AgentState {
   officeAvatarUrl?: string
   /** The office character's identity color (e.g. '#00d4ff'), from the presence poll. */
   officeColor?: string
+  /** This tracked row is an office character being OPERATED locally — an
+   *  interactive "Connect & operate" PTY running in an app-owned office scratch
+   *  dir (`~/.autodev-app/offices/…`), NOT a normal loop workspace. The Agents tab
+   *  guards the destructive folder-delete Remove for these and maps stop to
+   *  closing the Operate session instead of spawning/killing a loop. Ephemeral:
+   *  the row is registered when operate() runs and de-registered when the PTY exits. */
+  officeOperate?: boolean
+}
+
+/** In-memory identity for a locally-operated office character (Change 1). Stored
+ *  only while its Operate PTY is live — never persisted to the agents registry. */
+interface OperateMeta {
+  name?: string
+  provider?: string
+  officeSlug?: string
+  officeAgentSlug?: string
+  officeAgentId?: string
 }
 
 // Per-vendor `.autodev/settings.json` model key (mirrors the renderer's MODEL_KEY).
@@ -207,7 +224,16 @@ export class AgentManager extends EventEmitter {
    * e.g. an mcp-operate bridge or a loop on a remote VM — instead of falsely
    * painting it "Stopped". Empty when no office is connected (⇒ purely local truth).
    */
-  private _officeOnline = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string }>()
+  private _officeOnline = new Map<string, { online: boolean; status?: string; officeSlug?: string; agentId?: string; avatarUrl?: string; color?: string }>()
+  /**
+   * Locally-operated office characters (Change 1), keyed by their office scratch
+   * dir. Present ⇒ list()/readState() surface the character as a tracked, running
+   * Agents-tab row for the life of its Operate PTY. In-memory ONLY: never written
+   * to the agents registry (see _save), so it can't outlive the app that owns the
+   * PTY — the scratch dir is ephemeral and its loop lifecycle is the PTY, not
+   * `autodev start`.
+   */
+  private _operating = new Map<string, OperateMeta>()
   private readonly _registryFile = join(app.getPath('userData'), 'agents.json')
 
   /**
@@ -247,7 +273,11 @@ export class AgentManager extends EventEmitter {
   private _save(): void {
     try {
       mkdirSync(dirname(this._registryFile), { recursive: true })
-      writeFileSync(this._registryFile, JSON.stringify({ paths: this._paths }, null, 2), 'utf8')
+      // Never persist locally-operated office characters: their tracked row is
+      // ephemeral (bound to a live Operate PTY that dies with the app), so a
+      // persisted entry would resurface on next launch as a stale, un-backed row.
+      const persist = this._paths.filter((p) => !this._operating.has(p))
+      writeFileSync(this._registryFile, JSON.stringify({ paths: persist }, null, 2), 'utf8')
     } catch { /* ignore */ }
   }
 
@@ -278,8 +308,53 @@ export class AgentManager extends EventEmitter {
     return { exists: true, provider: s.provider, sessionName: s.sessionName }
   }
 
+  // --- office-operate tracking (Change 1) ----------------------------------
+  /** The offices scratch ROOT (`~/.autodev-app/offices`) — every locally-operated
+   *  office character's scratch dir lives under here. */
+  private _officesRoot(): string { return join(homedir(), '.autodev-app', 'offices') }
+
+  /** True when `path` is currently tracked as a locally-operated office character. */
+  isOperating(path: string): boolean { return this._operating.has(path) }
+
+  /**
+   * Register a locally-operated office character as a tracked Agents-tab row
+   * (Change 1). Called when "Connect & operate" prepares a scratch dir and is
+   * about to launch its interactive PTY, so an operating character shows in the
+   * fleet (Agents N → N+1) instead of being invisible. Idempotent — re-operating
+   * the same character (same scratch dir) refreshes its identity, never dupes.
+   * Reuses the SAME registry/list/watch machinery as add(), but does not require a
+   * `.autodev` workspace on disk (the operate scratch dir has only `.mcp.json`) and
+   * is not persisted (see _save). Returns the fresh state for an immediate push.
+   */
+  registerOperate(path: string, meta: OperateMeta): AgentState {
+    const p = String(path ?? '')
+    this._operating.set(p, { ...meta })
+    if (!this._paths.includes(p)) this._paths.push(p)
+    this._save()
+    this._watch(p)
+    this.emit('changed')
+    return this.readState(p)
+  }
+
+  /**
+   * De-register a locally-operated office character (Change 1) — called when its
+   * Operate PTY exits (or the session is closed). Drops the tracked row so the
+   * fleet reflects that it stopped operating (Agents N → N−1). No-op if not
+   * tracked as an operate entry.
+   */
+  endOperate(path: string): void {
+    const p = String(path ?? '')
+    if (!this._operating.has(p)) return
+    this._operating.delete(p)
+    this._paths = this._paths.filter((x) => x !== p)
+    this._unwatch(p)
+    this._save()
+    this.emit('changed')
+  }
+
   remove(path: string): void {
     this.stop(path)
+    this._operating.delete(path)
     this._paths = this._paths.filter((p) => p !== path)
     this._unwatch(path)
     this._save()
@@ -301,6 +376,15 @@ export class AgentManager extends EventEmitter {
     const forbidden = new Set([resolve('/'), resolve(homedir())])
     if (resolved === '/' || forbidden.has(resolved) || resolved.split(sep).filter(Boolean).length < 2) {
       return { error: 'Refusing to delete a filesystem or home root.' }
+    }
+    // SAFETY (Change 1): never folder-delete a locally-operated office character's
+    // scratch dir — that would nuke the app-owned office scratch tree out from
+    // under a live Operate session. The Agents tab hides Remove for these, but
+    // guard here too so no caller can wipe it. (Close the Operate session instead;
+    // office loop scratch dirs spawned by spawnOffice are NOT in _operating, so
+    // office:stopOffice's removeFolder cleanup still works.)
+    if (this._operating.has(p)) {
+      return { error: 'This is an office character being operated — close its Operate session instead of deleting the folder.' }
     }
     const registered = this._paths.includes(p)
     const looksLikeWorkspace = existsSync(join(p, '.autodev'))
@@ -452,7 +536,48 @@ export class AgentManager extends EventEmitter {
   }
 
   // --- state reading -------------------------------------------------------
+  /**
+   * State for a locally-operated office character (Change 1). Its running truth is
+   * the Operate PTY (owned by the renderer's term registry, torn down via
+   * endOperate on exit), NOT an `autodev start` loop — so it is always `running`
+   * while tracked and flagged `external` (not our spawned child) + `officeOperate`.
+   * Identity comes from the operate meta; live office presence (matched by the
+   * character's slug/id) supplies the avatar/color/activity when it is online.
+   */
+  private _readOperateState(path: string, op: OperateMeta): AgentState {
+    const presence =
+      (op.officeAgentSlug ? this._officeOnline.get(String(op.officeAgentSlug).toLowerCase()) : undefined)
+      ?? (op.officeAgentId ? this._officeOnline.get(String(op.officeAgentId).toLowerCase()) : undefined)
+    const officeOnline = !!presence?.online
+    const todo = this._readTodoCounts(join(path, 'TODO.md'))
+    return {
+      path,
+      name: op.name || basename(path),
+      provider: op.provider,
+      running: true,
+      external: true,
+      online: officeOnline,
+      officeOperate: true,
+      // Reflect the office's own status while online; a connected-but-quiet operate
+      // pane reads as idle (it's live, just awaiting the operator) rather than a
+      // false "working".
+      activity: officeOnline ? this._officeActivity(presence?.status) : 'idle',
+      tasks: { total: todo.total, remaining: todo.remaining, done: todo.done },
+      currentTask: todo.currentTask,
+      officeAgentSlug: op.officeAgentSlug,
+      officeSlug: op.officeSlug ?? presence?.officeSlug,
+      officeAgentId: op.officeAgentId ?? presence?.agentId,
+      officeAvatarUrl: presence?.avatarUrl,
+      officeColor: presence?.color
+    }
+  }
+
   readState(path: string): AgentState {
+    // Locally-operated office characters (Change 1) are tracked in-memory, not on
+    // disk — short-circuit to their own reader before the loop/proc detection below
+    // (which assumes a real workspace + `autodev start` loop).
+    const op = this._operating.get(path)
+    if (op) return this._readOperateState(path, op)
     const settings = this._readJson(join(path, '.autodev', 'settings.json')) ?? {}
     const todo = this._readTodoCounts(join(path, 'TODO.md'))
     const ownProc = this._procs.has(path)
@@ -704,6 +829,11 @@ export class AgentManager extends EventEmitter {
 
   // --- loop control --------------------------------------------------------
   async start(path: string, provider?: string, isRetry = false): Promise<{ ok: true; alreadyRunning?: boolean } | { error: string }> {
+    // A locally-operated office character (Change 1) is driven by its Operate PTY,
+    // not an `autodev start` loop — never spawn a second loop in its scratch dir
+    // (that would fight the operate session for the same office slug). It is always
+    // "running" while tracked, so report alreadyRunning.
+    if (this._operating.has(path)) return { ok: true, alreadyRunning: true }
     // A fresh (manual / spawn-office) start clears the crash-retry budget and any
     // pending "user stopped this" marker; an auto-retry preserves the budget.
     this._intentionalStop.delete(path)
@@ -832,6 +962,11 @@ export class AgentManager extends EventEmitter {
   }
 
   stop(path: string): void {
+    // A locally-operated office character (Change 1) has no `autodev start` loop to
+    // stop — its lifecycle is the Operate PTY, killed by the office:operate/pty
+    // wiring in the main process (which calls endOperate on exit). Do NOT write a
+    // loop stop marker into the scratch dir or hunt for loop pids.
+    if (this._operating.has(path)) return
     // Mark as a deliberate stop so the exit handler doesn't auto-restart it, and
     // cancel any pending retry from an earlier crash.
     this._intentionalStop.add(path)

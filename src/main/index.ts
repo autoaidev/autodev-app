@@ -207,7 +207,15 @@ function createTray(): void {
 }
 sessions.on('data', (d) => broadcast('session:data', d))
 ptys.on('data', (d) => broadcast('pty:data', d))
-ptys.on('exit', (d) => broadcast('pty:exit', d))
+// Map an Operate PTY id → its office scratch cwd (Change 1). Populated in
+// pty:spawn for `op-*` ids so that when the PTY exits we can de-register the
+// tracked office-operate Agents-tab row for that character.
+const operatePtyCwd = new Map<string, string>()
+ptys.on('exit', (d) => {
+  broadcast('pty:exit', d)
+  const cwd = operatePtyCwd.get(d.id)
+  if (cwd) { operatePtyCwd.delete(d.id); manager.endOperate(cwd) }
+})
 
 // --- IPC -------------------------------------------------------------------
 // The installed app version (electron-builder stamps package.json → app.getVersion()).
@@ -221,7 +229,19 @@ ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); re
 ipcMain.handle('agents:removeFolder', (_e, path: string) => manager.removeFolder(path))
 ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
-ipcMain.handle('agent:stop', (_e, path: string) => { manager.stop(path); return true })
+ipcMain.handle('agent:stop', (_e, path: string) => {
+  // A locally-operated office character (Change 1) has no loop to stop — map Stop
+  // to closing its Operate PTY (owned by the renderer's term registry, keyed by
+  // id). Killing the PTY fires ptys 'exit' → manager.endOperate, which drops the
+  // row. If no PTY is tracked (edge), just drop the tracked entry.
+  if (manager.isOperating(path)) {
+    let killed = false
+    for (const [id, cwd] of operatePtyCwd) if (cwd === path) { ptys.kill(id); killed = true }
+    if (!killed) manager.endOperate(path)
+    return true
+  }
+  manager.stop(path); return true
+})
 // A native confirmation dialog driven from the main process. `window.confirm`
 // in the sandboxed renderer is unreliable (it can return false without ever
 // showing a dialog), which silently no-op'd destructive actions — so route them
@@ -332,7 +352,12 @@ ipcMain.handle('sessions:backlog', (_e, opts: { file?: string; provider?: string
 ipcMain.handle('sessions:open', (_e, file: string) => { sessions.open(file); return true })
 ipcMain.handle('sessions:close', (_e, file: string) => { sessions.close(file); return true })
 // --- Interactive PTY panes (spawn: run `claude` in a chosen folder) --------
-ipcMain.handle('pty:spawn', (_e, id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number; keepShell?: boolean }) => ptys.spawn(id, opts))
+ipcMain.handle('pty:spawn', (_e, id: string, opts: { cwd: string; command?: string; cols?: number; rows?: number; keepShell?: boolean }) => {
+  // Remember an Operate PTY's cwd so its exit de-registers the tracked office
+  // character (Change 1). Operate ids are `op-<officeSlug>-<agentId>[#gen]`.
+  if (id.startsWith('op-') && opts?.cwd) operatePtyCwd.set(id, opts.cwd)
+  return ptys.spawn(id, opts)
+})
 ipcMain.handle('pty:write', (_e, id: string, data: string) => { ptys.write(id, data); return true })
 ipcMain.handle('pty:resize', (_e, id: string, cols: number, rows: number) => { ptys.resize(id, cols, rows); return true })
 ipcMain.handle('pty:kill', (_e, id: string) => { ptys.kill(id); return true })
@@ -358,7 +383,25 @@ ipcMain.handle('settings:get', () => appSettings.getSettings())
 ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean }) => appSettings.updateSettings(patch ?? {}))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
-ipcMain.handle('office:operate', (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string) => office.operate(officeSlug, agentId, agentSlug, provider ?? ''))
+ipcMain.handle('office:operate', async (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => {
+  const r = await office.operate(officeSlug, agentId, agentSlug, provider ?? '')
+  // Register the operating character as a tracked Agents-tab row (Change 1) so it
+  // shows in the fleet while its Operate PTY runs. De-registered on PTY exit (see
+  // the ptys 'exit' handler). Idempotent by scratch dir — re-operating never dupes.
+  if ((r as { ok?: boolean; cwd?: string }).ok && (r as { cwd?: string }).cwd) {
+    const cwd = (r as { cwd: string }).cwd
+    try {
+      manager.registerOperate(cwd, {
+        name: name || agentSlug || agentId,
+        provider: provider || undefined,
+        officeSlug,
+        officeAgentSlug: agentSlug || agentId,
+        officeAgentId: agentId
+      })
+    } catch { /* tracking is best-effort — never fail the operate launch */ }
+  }
+  return r
+})
 // Spawn an ENTIRE office as TRACKED autodev-cli LOOPS (not interactive PTYs).
 // pixelOffice.spawnOffice does the office-side prep (BLOCK-IF-ANY-ONLINE, scratch
 // dir + presence/MCP bind + provider) and returns the prepared workspaces; here we

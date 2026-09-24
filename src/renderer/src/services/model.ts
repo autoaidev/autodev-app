@@ -64,6 +64,12 @@ export interface AgentState {
   officeAvatarUrl?: string
   /** The bound office character's identity color (e.g. '#00d4ff'). */
   officeColor?: string
+  /** This row is an office character being OPERATED locally (an interactive
+   *  "Connect & operate" PTY in an app-owned office scratch dir), not a normal loop
+   *  workspace. The Agents tab hides the destructive folder-delete Remove for these
+   *  (deleting the scratch dir would nuke a live Operate session) and maps Stop to
+   *  closing the Operate session. Set by the main-process readState. */
+  officeOperate?: boolean
 }
 
 /** Human, sentence-case label for each activity. */
@@ -463,6 +469,7 @@ export function agentEqual(a: AgentState, b: AgentState): boolean {
     a.officeSlug === b.officeSlug &&
     a.officeAgentId === b.officeAgentId &&
     a.officeAvatarUrl === b.officeAvatarUrl &&
-    a.officeColor === b.officeColor
+    a.officeColor === b.officeColor &&
+    a.officeOperate === b.officeOperate
   )
 }

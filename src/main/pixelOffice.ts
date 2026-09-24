@@ -12,6 +12,7 @@ import { humanizeFetchError } from './netError'
 // sides, so the cycle resolves before either is called.
 import { getOfficeBaseUrl, getCozempicAutoInit } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
+import { removeCozempicHooks } from './cozempicClean'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -1075,6 +1076,13 @@ export class PixelOfficeClient {
         return { error: 'Invalid office/agent identifier.' }
       }
       mkdirSync(dir, { recursive: true, mode: 0o700 })
+      // Strip any stale cozempic-installed SessionStart hook from the GLOBAL
+      // ~/.claude/settings.json (and this scratch dir's local settings) BEFORE the
+      // PTY launches. An operate-only grok/claude character has no loop/profile
+      // rebuild in front of it, so without this a leftover global hook keeps
+      // failing on Windows (`session_start hook (global/settings) failed … exit
+      // code 1`). Best-effort — a clean failure must never block the launch.
+      try { removeCozempicHooks(dir) } catch { /* never block operate on hook cleanup */ }
       writeMcpJson(dir, key, url)
       writeMcpTrust(dir) // auto-approve the office-MCP server so it actually starts
       markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir (claude)

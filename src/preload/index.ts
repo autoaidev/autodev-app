@@ -157,7 +157,7 @@ const api = {
     ipcRenderer.invoke('office:ping', baseUrl),
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
-  officeOperate: (officeSlug: string, agentId: string, agentSlug: string, provider?: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug, provider),
+  officeOperate: (officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug, provider, name),
   // Spawn an office as TRACKED loops. `overrides` sets a per-agent provider (the
   // office view's per-row dropdown); each returned `path` is the tracked workspace
   // to subscribe to via the `agent:log` stream.

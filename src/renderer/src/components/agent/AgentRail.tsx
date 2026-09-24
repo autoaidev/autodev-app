@@ -549,8 +549,12 @@ export function AgentRail({
       ? ([{ label: 'Watch live session', icon: 'clock', onClick: () => onAction('watch', a) }] as ContextMenuEntry[])
       : []),
     { label: 'Setup…', icon: 'gear', onClick: () => onAction('setup', a) },
-    { separator: true },
-    { label: 'Remove…', icon: 'trash', danger: true, onClick: () => onAction('remove', a) }
+    // Hide the destructive Remove for a locally-operated office character — its
+    // Remove would fold-delete the app-owned office scratch dir out from under a
+    // live Operate session (Change 1). Stop already maps to closing that session.
+    ...(a.officeOperate
+      ? []
+      : ([{ separator: true }, { label: 'Remove…', icon: 'trash', danger: true, onClick: () => onAction('remove', a) }] as ContextMenuEntry[]))
   ]
 
   return (

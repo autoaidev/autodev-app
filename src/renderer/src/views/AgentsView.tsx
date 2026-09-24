@@ -199,6 +199,13 @@ export function AgentsView(): React.JSX.Element {
           setConfigPath(p)
           break
         case 'remove': {
+          // Guard: never fold-delete an office character's scratch dir (Change 1).
+          // The menus hide Remove for these; this is defense-in-depth for any other
+          // caller. Close its Operate session instead.
+          if (agent.officeOperate) {
+            appActions.toast('That character is being operated — close its Operate session instead of removing it.', false)
+            break
+          }
           const ok = await window.api.confirmDialog(`Remove ${agent.name}?`, `Deletes the workspace folder:\n${p}`)
           if (ok) {
             // actions.remove does removeAgentFolder + ptyKill(agent-term:<path>) +
@@ -312,8 +319,13 @@ export function AgentsView(): React.JSX.Element {
       ? ([{ label: 'Watch live session', icon: 'clock', onClick: () => void onAction('watch', a) }] as ContextMenuEntry[])
       : []),
     { label: 'Setup…', icon: 'gear', onClick: () => void onAction('setup', a) },
-    { separator: true },
-    { label: 'Remove…', icon: 'trash', danger: true, onClick: () => void onAction('remove', a) }
+    // An office character being operated locally has no removable workspace — its
+    // Remove would fold-delete the app-owned office scratch dir out from under a
+    // live Operate session — so hide the destructive Remove for these (safe option:
+    // hide; Stop already maps to closing the Operate session). Normal agents keep it.
+    ...(a.officeOperate
+      ? []
+      : ([{ separator: true }, { label: 'Remove…', icon: 'trash', danger: true, onClick: () => void onAction('remove', a) }] as ContextMenuEntry[]))
   ]
 
   return (

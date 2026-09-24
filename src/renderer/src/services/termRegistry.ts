@@ -78,7 +78,8 @@ type Api = {
     officeSlug: string,
     agentId: string,
     agentSlug: string,
-    provider?: string
+    provider?: string,
+    name?: string
   ) => Promise<{ ok?: boolean; cwd?: string; mcpUrl?: string; command?: string; error?: string }>
   ptyKill: (id: string) => Promise<unknown>
 }
@@ -179,7 +180,10 @@ export async function operate(
     emit()
     return { ok: true, id: existing.id, reused: true }
   }
-  const r = await api().officeOperate(officeSlug, agent.id, agent.slug, agent.provider)
+  // Pass the character's display name through so the tracked Agents-tab row
+  // (registered main-side in the office:operate handler, Change 1) shows the real
+  // name ("Project manager") rather than its slug.
+  const r = await api().officeOperate(officeSlug, agent.id, agent.slug, agent.provider, agent.name)
   if (r?.error || !r?.cwd) return { error: r?.error || 'Could not prepare the operate workspace' }
   if (existing) {
     terms = terms.filter((t) => t.id !== existing.id)
