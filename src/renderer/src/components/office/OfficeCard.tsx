@@ -128,42 +128,52 @@ export function OfficeCard({
           0.3.48 both-buttons fix): a running office can still spawn its offline
           characters, so "Spawn" is disabled only by the spawning-busy state, never
           by online>0. onSpawn already filters to offline agents. */}
-      <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
+      {/* WRAP + ~50% flex basis so the buttons never overflow the narrow sidebar:
+          a lone button grows to fill the row, two split it 50/50, and a third
+          ("Open map" in Advanced) wraps to a second line instead of being clipped.
+          minWidth:0 lets each button's label shrink rather than push past the card. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={(e) => e.stopPropagation()}>
         {running && (
-          <Button
-            variant="secondary"
-            size="sm"
-            danger
-            block
-            disabled={busy === 'stopping'}
-            onClick={onStop}
-            title="Stop every tracked loop in this office"
-          >
-            {busy === 'stopping' ? 'Stopping…' : 'Stop office'}
-          </Button>
+          <div style={{ flex: '1 1 calc(50% - 3px)', minWidth: 0 }}>
+            <Button
+              variant="secondary"
+              size="sm"
+              danger
+              block
+              disabled={busy === 'stopping'}
+              onClick={onStop}
+              title="Stop every tracked loop in this office"
+            >
+              {busy === 'stopping' ? 'Stopping…' : 'Stop office'}
+            </Button>
+          </div>
         )}
         {online < total && (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            disabled={busy === 'spawning'}
-            onClick={onSpawn}
-            title={
-              online > 0
-                ? `Start the ${total - online} offline character${total - online === 1 ? '' : 's'} in this office as tracked loops`
-                : 'Start every character in this office as a tracked loop'
-            }
-          >
-            {busy === 'spawning' ? 'Spawning…' : online > 0 ? `Spawn ${total - online} more` : 'Spawn office'}
-          </Button>
+          <div style={{ flex: '1 1 calc(50% - 3px)', minWidth: 0 }}>
+            <Button
+              variant="primary"
+              size="sm"
+              block
+              disabled={busy === 'spawning'}
+              onClick={onSpawn}
+              title={
+                online > 0
+                  ? `Start the ${total - online} offline character${total - online === 1 ? '' : 's'} in this office as tracked loops`
+                  : 'Start every character in this office as a tracked loop'
+              }
+            >
+              {busy === 'spawning' ? 'Spawning…' : online > 0 ? `Spawn ${total - online} more` : 'Spawn office'}
+            </Button>
+          </div>
         )}
         {/* "Open map" — Advanced only; in Basic the office's detail header carries the
             equivalent "Open in browser", so the card stays to ONE primary action. */}
         {advanced && (
-          <Button variant="secondary" size="sm" block onClick={onOpenBrowser} title="Open this office in your browser">
-            Open map
-          </Button>
+          <div style={{ flex: '1 1 calc(50% - 3px)', minWidth: 0 }}>
+            <Button variant="secondary" size="sm" block onClick={onOpenBrowser} title="Open this office in your browser">
+              Open map
+            </Button>
+          </div>
         )}
       </div>
     </div>
