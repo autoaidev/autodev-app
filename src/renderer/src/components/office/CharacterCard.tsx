@@ -58,6 +58,31 @@ export interface CharacterCardProps {
   checked?: boolean
   /** Toggle the bulk selection for this character. */
   onToggleSelect?: () => void
+  /**
+   * The character is actively WORKING right now — the merged verdict from
+   * `characterWorking()` (immediate local hooks signal winning over the laggy
+   * office-presence poll). Drives the prominent animated "Working…" indicator so a
+   * task picked up from pixel-office is unmistakable and immediate, instead of the
+   * subtle grey subtitle + breathing dot. Undefined/false → the calm idle line. */
+  working?: boolean
+  /**
+   * A short "what it's doing" line (last office narration / current task) shown as
+   * the activity subtitle WHILE working. Falls back to "Working…" + elapsed when
+   * absent — never fabricated. */
+  activityText?: string
+  /** When this character started working (epoch ms), for the "Working… · 12s"
+   *  elapsed readout when no narration text is available. */
+  workingSince?: number
+}
+
+/** A single "N s / N m / N h" elapsed readout from an epoch-ms start. */
+function elapsedSince(since?: number): string {
+  if (!since) return ''
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  return `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
 export function CharacterCard({
@@ -73,7 +98,10 @@ export function CharacterCard({
   modelLabel,
   selectable,
   checked,
-  onToggleSelect
+  onToggleSelect,
+  working = false,
+  activityText,
+  workingSince
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
   // Basic softens the CTA to a plain "Connect" and hides the online "Open console"
@@ -83,17 +111,29 @@ export function CharacterCard({
   const tick = tickFor(agent)
   // Live status as a tint-pair StatusPill: offline → neutral OFFLINE, waiting on you
   // → warn NEEDS YOU, live → good LIVE. One consistent status language app-wide.
+  // Pill reinforces the state in the app's existing status language: a WORKING
+  // character reads WORKING (not the ambiguous LIVE), waiting → NEEDS YOU, online
+  // but quiet → LIVE, offline → OFFLINE. Same 'good' tint for LIVE/WORKING so the
+  // animated subtitle below — not a new colour — carries the "actively doing" cue.
   const status: { variant: StatusVariant; label: string } = !connected
     ? { variant: 'neutral', label: 'OFFLINE' }
     : tick === 'needs-you'
       ? { variant: 'warn', label: 'NEEDS YOU' }
-      : { variant: 'good', label: 'LIVE' }
-  // subtitle: amber attention line, else the raw status, else provider hint.
+      : working
+        ? { variant: 'good', label: 'WORKING' }
+        : { variant: 'good', label: 'LIVE' }
+  // The working activity line: a real narration if we have one, else "Working…"
+  // plus elapsed-since-started — never a fabricated task. Truncated to one line by
+  // the container's ellipsis.
+  const elapsed = elapsedSince(workingSince)
+  const workLine = (activityText && activityText.trim()) || (elapsed ? `Working… · ${elapsed}` : 'Working…')
+  // subtitle when NOT working: amber attention line, else the raw status, else a
+  // calm idle hint (no more speculative "working…" for a quiet online character).
   const subtitle = !connected
     ? 'not connected'
     : tick === 'needs-you'
       ? (agent.status || 'asked you a question')
-      : (agent.status || 'working…')
+      : (agent.status || 'idle')
 
   return (
     <div
@@ -229,26 +269,58 @@ export function CharacterCard({
         />
       </div>
 
-      {/* Offline subtitle is just "not connected" — redundant with the idle dot + the
-          Connect link, so Basic drops it (keeps the card to name + ring + Connect).
-          A connected character keeps its live status line; Advanced keeps both. */}
-      {(connected || advanced) && (
+      {/* ACTIVITY LINE. When WORKING, an unmistakable animated indicator: three
+          typing-style dots (the shared .ad-thinking motion, auto-stilled under
+          prefers-reduced-motion) + a clear "Working…" / narration line in running
+          green — visually distinct from the calm grey idle line, and never just a
+          recolor. When not working, the calm status line (idle / needs-you / raw
+          office status). Offline shows only "not connected" (Basic drops it). */}
+      {working ? (
         <div
+          title={workLine}
           style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 7,
             fontSize: 'var(--fs-desc)',
-            // Status LABEL color from the shared state map (R-E): connected+working →
-            // running green, waiting-on-you → amber, offline → dim. So an online,
-            // working character no longer reads the same grey as an idle one.
-            color: !connected
-              ? 'var(--tx-4)'
-              : stateColor(tick === 'needs-you' ? 'needs-auth' : 'working'),
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis'
+            color: stateColor('working'),
+            fontWeight: 600,
+            minWidth: 0
           }}
         >
-          {subtitle}
+          {/* three staggered dots — the "typing"/thinking indicator (reduced-motion
+              falls back to static dimmed dots, still clearly present). */}
+          <span className="ad-thinking" aria-hidden="true" style={{ flex: 'none', color: stateColor('working') }}>
+            <i /><i /><i />
+          </span>
+          <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {workLine}
+          </span>
+          {/* screen-reader-only truth (the dots are aria-hidden). */}
+          <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+            working
+          </span>
         </div>
+      ) : (
+        (connected || advanced) && (
+          <div
+            style={{
+              fontSize: 'var(--fs-desc)',
+              // Waiting-on-you → amber; online-but-quiet → calm grey (idle); offline
+              // → dim. A quiet online character no longer borrows the working green.
+              color: !connected
+                ? 'var(--tx-4)'
+                : tick === 'needs-you'
+                  ? stateColor('needs-auth')
+                  : 'var(--tx-4)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
+            }}
+          >
+            {subtitle}
+          </div>
+        )
       )}
 
       {/* LIFECYCLE controls — on their own footer row so they never overlap the

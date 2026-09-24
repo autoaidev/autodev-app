@@ -128,6 +128,33 @@ export function tickFor(a: OfficeAgent): TickState {
   return 'live'
 }
 
+/**
+ * Map an office character's free-text `status` to a working/idle verdict — the
+ * mirror of the main process's `_officeActivity` (agentManager). Anything the
+ * office reports as actively-doing (working / reading / active / thinking) reads
+ * as working; everything else (waiting, idle, blank, offline) is idle. This is the
+ * office-presence FALLBACK the card uses when there's no immediate local signal. */
+export function officeStatusWorking(status?: string): boolean {
+  const s = String(status ?? '').toLowerCase()
+  return s === 'working' || s === 'reading' || s === 'active' || s === 'thinking'
+}
+
+/**
+ * The card's final "is this character working RIGHT NOW?" verdict, merging the two
+ * signals with the immediate LOCAL one winning (requirement: local 'working' beats
+ * the laggy office-presence poll):
+ *   - offline, or waiting-on-a-human → never "working" (stays calm / NEEDS YOU).
+ *   - a locally-tracked agent → trust its Activity ('working' from fresh local
+ *     hooks); its explicit non-working verdict SUPPRESSES a stale office 'working'.
+ *   - no local signal (remote / mcp-operate char) → fall back to office status.
+ * `localActivity` is the matched AgentState.activity, or undefined when this office
+ * character maps to no locally-tracked workspace. */
+export function characterWorking(a: OfficeAgent, localActivity?: string): boolean {
+  if (!a.online || tickFor(a) === 'needs-you') return false
+  if (localActivity != null) return localActivity === 'working'
+  return officeStatusWorking(a.status)
+}
+
 /** True when an error means the office session is dead and re-login is required. */
 export function isAuthError(msg: string): boolean {
   return /expired|reconnect|not connected|unauthenticated|\b401\b|\b419\b/i.test(msg)

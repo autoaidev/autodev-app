@@ -32,6 +32,10 @@ export interface OfficeCardProps {
   onSpawn: () => void
   onStop: () => void
   onOpenBrowser: () => void
+  /** Office agent ids that are actively WORKING right now (merged local + office
+   *  signal from OfficeView). Their rail segment tick breathes in the running hue so
+   *  the rail — not just the open office — shows something is happening. */
+  workingIds?: ReadonlySet<string>
 }
 
 export function OfficeCard({
@@ -42,7 +46,8 @@ export function OfficeCard({
   onSelect,
   onSpawn,
   onStop,
-  onOpenBrowser
+  onOpenBrowser,
+  workingIds
 }: OfficeCardProps): React.JSX.Element {
   const total = group.agents.length
   const online = group.onlineCount
@@ -106,18 +111,25 @@ export function OfficeCard({
       {/* per-character segment ticks — Advanced only (the LIVE count conveys it) */}
       {advanced && (
         <div style={{ display: 'flex', gap: 3 }} aria-hidden>
-          {group.agents.map((a) => (
-            <span
-              key={a.id}
-              title={`${a.name} — ${tickFor(a)}`}
-              style={{
-                flex: 1,
-                height: 4,
-                borderRadius: 'var(--r-bar)',
-                background: tickColor(tickFor(a), a.id)
-              }}
-            />
-          ))}
+          {group.agents.map((a) => {
+            const working = !!workingIds?.has(a.id)
+            const state = tickFor(a)
+            return (
+              <span
+                key={a.id}
+                title={`${a.name} — ${working ? 'working' : state}`}
+                // A working seat breathes in the running hue (ad-live-dot, auto-stilled
+                // under prefers-reduced-motion); otherwise the plain state tick.
+                className={working ? 'ad-live-dot' : undefined}
+                style={{
+                  flex: 1,
+                  height: 4,
+                  borderRadius: 'var(--r-bar)',
+                  background: working ? 'var(--st-running)' : tickColor(state, a.id)
+                }}
+              />
+            )
+          })}
           {total === 0 && (
             <span style={{ flex: 1, height: 4, borderRadius: 'var(--r-bar)', background: 'var(--st-track)' }} />
           )}

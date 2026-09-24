@@ -6,15 +6,11 @@ import { join, basename, dirname, resolve, sep, delimiter as pathDelimiter } fro
 import { homedir } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
+import { classifyHookActivity, STALE_MS, type Activity } from './hookActivity'
 
-// A truthful agent status. Beyond the naive working/idle/stopped, an autonomous
-// run can be: STALLED (no hook activity for minutes — a hang, e.g. a dead grok
-// token or a wedged tool), CRASHED (StopFailure / non-zero exit — a real failure,
-// NOT a clean stop), NEEDS-AUTH (provider login expired, loop paused for re-auth),
-// or RATE-LIMITED (provider throttled, loop paused until the window clears). These
-// all used to paint as a healthy "working"/"idle"; the CLI already emits the
-// signals, we just have to read them.
-export type Activity = 'working' | 'idle' | 'stopped' | 'stalled' | 'needs-auth' | 'rate-limited' | 'crashed'
+// Activity is defined (and unit-tested) in the pure ./hookActivity module; re-export
+// it here so existing `import { Activity } from './agentManager'` sites keep working.
+export type { Activity }
 
 export interface McpServerStatus {
   name: string
@@ -192,16 +188,6 @@ const MODEL_SETTING_KEY: Record<string, string> = {
   grok: 'grokModel',
   dummy: 'dummyModel'
 }
-
-const WORKING_EVENTS = new Set(['SessionStart', 'PreToolUse', 'PostToolUse', 'UserPromptSubmit', 'SessionStatus', 'Notification'])
-// Clean turn/session boundaries — the agent finished this turn, not a failure.
-const CLEAN_IDLE_EVENTS = new Set(['SessionEnd', 'Stop', 'session.idle'])
-const CLEAN_IDLE_ETYPES = new Set(['session_end', 'loop_complete', 'all_tasks_done', 'session.idle'])
-// A run that FAILED (watchdog kill / crash) — distinct from a clean stop.
-const FAILURE_EVENTS = new Set(['StopFailure'])
-const WORKING_ETYPES = new Set(['notification', 'agent_message', 'tool_start', 'task_start', 'task_progress'])
-// A 'working' agent whose hooks file has been silent this long is hung/stalled.
-const STALE_MS = 4 * 60 * 1000
 
 /**
  * Manages a registry of agent workspaces: persists the list, reads each agent's
@@ -558,10 +544,14 @@ export class AgentManager extends EventEmitter {
       external: true,
       online: officeOnline,
       officeOperate: true,
-      // Reflect the office's own status while online; a connected-but-quiet operate
-      // pane reads as idle (it's live, just awaiting the operator) rather than a
-      // false "working".
-      activity: officeOnline ? this._officeActivity(presence?.status) : 'idle',
+      // A fresh LOCAL 'working' hook wins immediately (the operate PTY writes its
+      // own hooks-events.jsonl), so a task picked up in the operate pane lights up
+      // without waiting for the office poll; else reflect the office's own status;
+      // a connected-but-quiet pane reads as idle (live, awaiting the operator)
+      // rather than a false "working".
+      activity: this._localHookActivity(path) === 'working'
+        ? 'working'
+        : officeOnline ? this._officeActivity(presence?.status) : 'idle',
       tasks: { total: todo.total, remaining: todo.remaining, done: todo.done },
       currentTask: todo.currentTask,
       officeAgentSlug: op.officeAgentSlug,
@@ -618,20 +608,28 @@ export class AgentManager extends EventEmitter {
     } else if (externalPid !== null) {
       // An external loop (CLI or another manager) owns this workspace and its pid
       // is ALIVE — so a 'crashed'/'stalled' left in the hooks file by a previous
-      // (our own) loop is STALE and must not show as the current state. Honor only
-      // a live auth/rate pause; otherwise reflect the office's own status, falling
-      // back to the hooks' working/idle signal when the office isn't visible.
+      // (our own) loop is STALE and must not show as the current state. Honor a
+      // live auth/rate pause; then let the LOCAL hooks' fresh 'working' WIN (it's
+      // the immediate ~1s signal, ahead of the 8s office presence poll), falling
+      // back to the office's own status, then to idle when neither says working.
       const hookAct = this._activityFromHooks(path)
       if (hookAct === 'needs-auth') { activity = 'needs-auth'; error = 'Provider login expired — re-authenticate to resume.' }
       else if (hookAct === 'rate-limited') { activity = 'rate-limited'; error = 'Rate-limited by the provider — auto-resumes when the window clears.' }
+      else if (hookAct === 'working') activity = 'working'
       else if (officeOnline) activity = this._officeActivity(presence?.status)
-      else activity = hookAct === 'working' ? 'working' : 'idle'
+      else activity = 'idle'
     } else if (officeOnline) {
       // Live in the office (presence WS open) but no local loop we can detect —
-      // reflect the office's own status rather than a false "Stopped". The office
-      // reports working/reading/active while the character is busy, waiting when it
-      // needs a human, else it's idle-polling.
-      activity = this._officeActivity(presence?.status)
+      // reflect the office's own status rather than a false "Stopped". BUT if this
+      // character does have a local hooks file (a registered operate agent, or a
+      // loop this app can't see in /proc), let its FRESH local 'working' / pause
+      // signal win immediately — the office presence poll is up to 8s behind. A
+      // remote / mcp-operate character has no local hooks (null) → office status.
+      const local = this._localHookActivity(path)
+      if (local === 'needs-auth') { activity = 'needs-auth'; error = 'Provider login expired — re-authenticate to resume.' }
+      else if (local === 'rate-limited') { activity = 'rate-limited'; error = 'Rate-limited by the provider — auto-resumes when the window clears.' }
+      else if (local === 'working') activity = 'working'
+      else activity = this._officeActivity(presence?.status)
     } else {
       exitCode = this._lastExit.get(path)
       if (typeof exitCode === 'number' && exitCode !== 0) {
@@ -695,21 +693,28 @@ export class AgentManager extends EventEmitter {
     } catch { return { total: 0, remaining: 0, done: 0 } }
   }
 
-  private _activityFromHooks(path: string): Activity {
+  /**
+   * Read the tail of a workspace's hooks-events.jsonl and classify the agent's
+   * LOCAL activity (via the pure classifyHookActivity). Returns null when there is
+   * NO local hooks file — the caller then falls back to office presence, so a
+   * remote / mcp-operate character (which has no local hooks) is never forced to a
+   * bogus 'working'. This is the immediate, ~1s local signal that a task picked up
+   * from pixel-office reflects in the app without waiting for the presence poll.
+   */
+  private _localHookActivity(path: string): Activity | null {
     try {
       const file = join(path, '.autodev', 'hooks-events.jsonl')
-      if (!existsSync(file)) return 'working'
+      if (!existsSync(file)) return null
       // The jsonl is appended on every hook event, so its mtime is the last sign
-      // of life. A 'working' verdict below is downgraded to 'stalled' when it's
-      // gone quiet — catches hangs (dead token, wedged tool) the CLI can't self-report.
-      const mtimeMs = statSync(file).mtimeMs
-      const stale = () => Date.now() - mtimeMs > STALE_MS
+      // of life — classifyHookActivity uses it to decay a quiet 'working' to idle
+      // (turn ended) or, after minutes, to 'stalled' (a hang).
+      const st = statSync(file)
       // hooks-events.jsonl is append-only and grows for the life of an autonomous
       // run; readState() reads it for every agent on the 5s poll + each watch
       // tick. Read only the last ~64KB (the newest IDLE/WORKING event is always
       // near the end) so the cost is constant regardless of file size.
       const TAIL = 64 * 1024
-      const size = statSync(file).size
+      const size = st.size
       let text: string
       if (size > TAIL) {
         const fd = openSync(file, 'r')
@@ -718,24 +723,18 @@ export class AgentManager extends EventEmitter {
       } else {
         text = readFileSync(file, 'utf8')
       }
-      const lines = text.trim().split('\n')
-      for (let i = lines.length - 1; i >= 0; i--) {
-        try {
-          const ev = JSON.parse(lines[i])
-          const name = ev.hook_event_name || ev.hook || ev.payload?.type || ev.type
-          const et = ev.event_type || ev.event
-          // Pause states first: a loop paused for auth/rate-limit emits these as
-          // its LAST event (no further hooks until resume), so scanning newest-first
-          // surfaces them. The next task_start on resume supersedes them.
-          if (name === 'reauth_required' || et === 'reauth_required') return 'needs-auth'
-          if (name === 'rate_limit' || et === 'rate_limit' || name === 'rate_limited' || et === 'rate_limited') return 'rate-limited'
-          if (FAILURE_EVENTS.has(name) || et === 'stop_failure') return 'crashed'
-          if (CLEAN_IDLE_EVENTS.has(name) || CLEAN_IDLE_ETYPES.has(et)) return 'idle'
-          if (WORKING_EVENTS.has(name) || WORKING_ETYPES.has(et)) return stale() ? 'stalled' : 'working'
-        } catch { /* skip */ }
-      }
-      return stale() ? 'stalled' : 'working'
-    } catch { return 'working' }
+      return classifyHookActivity(text, Date.now(), st.mtimeMs)
+    } catch { return null }
+  }
+
+  /**
+   * Local activity for a workspace we KNOW has a live loop (our own child or a
+   * matched external `autodev start`): a missing hooks file means the loop just
+   * started and hasn't emitted a hook yet, so read that as 'working' rather than
+   * null. Otherwise the pure classifier's verdict.
+   */
+  private _activityFromHooks(path: string): Activity {
+    return this._localHookActivity(path) ?? 'working'
   }
 
   /**

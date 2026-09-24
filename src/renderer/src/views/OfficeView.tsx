@@ -15,14 +15,15 @@ import {
   isAuthError,
   OfficeSort,
   OFFICE_SORTS,
-  sortOffices
+  sortOffices,
+  characterWorking
 } from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
 import { useAppActions } from '../services/appActions'
 import { useAdvancedMode } from '../services/advancedMode'
 import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
-import { providerFamily } from '@renderer/services/model'
+import { providerFamily, type AgentState } from '@renderer/services/model'
 
 /**
  * OfficeView — SCREEN 2c. One stream at a time (not 3 scrolling columns).
@@ -130,6 +131,86 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     const live = new Set(allTerms.filter((t) => t.kind === 'log' && t.path).map((t) => t.path as string))
     for (const p of logsRef.current.keys()) if (!live.has(p)) logsRef.current.delete(p)
   }, [allTerms, office.agents])
+
+  // ── IMMEDIATE local working signal ───────────────────────────────────────
+  // The office character grid is fed by the 8s office-presence poll (office.agents),
+  // so a task an agent JUST picked up doesn't show until the next poll. Merge in the
+  // app's LOCAL AgentState.activity — driven from each tracked workspace's
+  // hooks-events.jsonl and pushed via `agent:updated` within ~1s — so the card flips
+  // to a prominent "Working…" the instant the agent starts, not up to 8s later.
+  // Keyed by the office endpoint slug AND the office agent id (either can match an
+  // office character). Only locally-tracked agents (loop / operate) appear here; a
+  // purely-remote character is absent → the card falls back to office status.
+  const localAgentsRef = useRef<AgentState[]>([])
+  const workingSinceRef = useRef<Map<string, number>>(new Map())
+  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number }>>(new Map())
+  const rebuildLocal = useCallback(() => {
+    const now = Date.now()
+    const next = new Map<string, { activity: string; text?: string; since?: number }>()
+    for (const a of localAgentsRef.current) {
+      // Track when each agent entered 'working' so the card can show elapsed when no
+      // narration is available; clear it the moment it stops working.
+      if (a.activity === 'working') { if (!workingSinceRef.current.has(a.path)) workingSinceRef.current.set(a.path, now) }
+      else workingSinceRef.current.delete(a.path)
+      const entry = {
+        activity: a.activity,
+        text: (a.currentTask || '').trim() || undefined,
+        since: workingSinceRef.current.get(a.path)
+      }
+      const k1 = a.officeAgentSlug?.toLowerCase()
+      const k2 = a.officeAgentId?.toLowerCase()
+      if (k1) next.set(k1, entry)
+      if (k2) next.set(k2, entry)
+    }
+    setLocalByKey(next)
+  }, [])
+  useEffect(() => {
+    let alive = true
+    const loadAll = async (): Promise<void> => {
+      try {
+        const list = (await window.api.listAgents()) as AgentState[]
+        if (!alive) return
+        localAgentsRef.current = Array.isArray(list) ? list : []
+        rebuildLocal()
+      } catch { /* not fatal — the card falls back to office presence */ }
+    }
+    void loadAll()
+    // A single agent transitioned (fast, ~1s): patch it in place and rebuild.
+    const offUpdated = window.api.onAgentUpdated((s: AgentState) => {
+      if (!s?.path) return
+      const arr = localAgentsRef.current.slice()
+      const i = arr.findIndex((x) => x.path === s.path)
+      if (i >= 0) arr[i] = s
+      else arr.push(s)
+      localAgentsRef.current = arr
+      rebuildLocal()
+    })
+    // The tracked set changed (added / removed / office presence merge): full refetch.
+    const offChanged = window.api.onAgentsChanged(() => void loadAll())
+    return () => { alive = false; offUpdated?.(); offChanged?.() }
+  }, [rebuildLocal])
+
+  /** Merge the office character with its immediate local signal → the card's
+   *  working verdict + activity line + working-since. */
+  const workingFor = useCallback((a: OfficeAgent): { working: boolean; text?: string; since?: number } => {
+    const local = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
+    const working = characterWorking(a, local?.activity)
+    // Prefer the office's own live narration (status) as the "what it's doing" line;
+    // else the local current task. Never fabricated — undefined falls back to "Working…".
+    const text = working ? ((a.status && a.status.trim()) || local?.text) : undefined
+    return { working, text, since: local?.since }
+  }, [localByKey])
+
+  // Office-agent ids that are working right now, for the rail's breathing segment
+  // ticks. Ids are globally unique so one set serves every OfficeCard.
+  const workingAgentIds = useMemo(() => {
+    const s = new Set<string>()
+    for (const a of office.agents) {
+      const local = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
+      if (characterWorking(a, local?.activity)) s.add(a.id)
+    }
+    return s
+  }, [office.agents, localByKey])
 
   // Mirror the office tab's foreground state into the service so it pauses/resumes the
   // shared office-list poll (it only ticks while connected AND visible).
@@ -765,6 +846,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               onSpawn={() => spawnOffice(g)}
               onStop={() => stopOffice(g)}
               onOpenBrowser={openBrowser}
+              workingIds={workingAgentIds}
             />
           ))}
         </div>
@@ -914,13 +996,18 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 overflow: 'auto'
               }}
             >
-              {selectedGroup.agents.map((a) => (
+              {selectedGroup.agents.map((a) => {
+                const work = workingFor(a)
+                return (
                 <CharacterCard
                   key={a.id}
                   agent={a}
                   selected={a.id === focusedChar?.id}
                   busy={operatingId === a.officeSlug + a.id}
                   running={!!liveOpTermId(a.officeSlug, a.id)}
+                  working={work.working}
+                  activityText={work.text}
+                  workingSince={work.since}
                   // Card ↔ console-tab sync: selecting a card also switches the
                   // active console tab to this character IF one is already open
                   // (matched by the term's agentId === card id). If none is open we
@@ -940,7 +1027,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   checked={bulkSelected.has(a.id)}
                   onToggleSelect={() => toggleBulk(a.id)}
                 />
-              ))}
+                )
+              })}
               {/* create-character tile — opens the single-character Add modal (name +
                   engine/model + face), distinct from the "Generate team" wizard. */}
               <NewCharacterTile officeName={selectedGroup.name} onClick={() => setShowAddChar(true)} />
