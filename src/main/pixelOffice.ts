@@ -11,6 +11,7 @@ import { humanizeFetchError } from './netError'
 // is only ever used inside function bodies (never at module top level) on both
 // sides, so the cycle resolves before either is called.
 import { getOfficeBaseUrl, getCozempicAutoInit } from './appSettings'
+import { markGrokFolderTrusted } from './grokTrust'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -335,28 +336,11 @@ function markFolderTrusted(cwd: string): void {
   // launch simply shows the folder-trust prompt once.
 }
 
-/**
- * Pre-trust an app-owned operate/loop dir in ~/.grok/trusted_folders.toml so a
- * spawned `grok` skips its "Do you trust the contents of this directory?" gate — the
- * grok twin of markFolderTrusted (claude). Mirrors the CLI's ensureGrokDirTrusted
- * (grokTuiProvider.ts) so the interactive Operate launches straight into grok instead
- * of blocking on the trust prompt. Idempotent — skips if the exact folder is present.
- */
-function markGrokFolderTrusted(dir: string): void {
-  try {
-    const grokDir = join(homedir(), '.grok')
-    const tf = join(grokDir, 'trusted_folders.toml')
-    const abs = resolve(dir)
-    let text = ''
-    try { text = readFileSync(tf, 'utf8') } catch { /* no file yet */ }
-    const header = `[folders."${abs}"]`
-    if (text.includes(header)) return
-    const nowSec = Math.floor(Date.now() / 1000)
-    const entry = `${text.endsWith('\n') || text === '' ? '' : '\n'}\n${header}\ntrusted = true\ndecided_at = ${nowSec}\n`
-    mkdirSync(grokDir, { recursive: true })
-    appendFileSync(tf, entry, 'utf8')
-  } catch { /* best effort — grok's own trust prompt is the backstop */ }
-}
+// markGrokFolderTrusted lives in ./grokTrust (electron-free, unit-tested). It
+// TOML-escapes the double-quoted `[folders."<path>"]` key — critical on Windows,
+// where a raw `C:\Users\…` path would inject invalid TOML escapes (\U,\u,\a,…)
+// and make grok's whole trust store unparseable — and repairs a store already
+// corrupted by the old raw-path write.
 
 function writeScopedMcpTrust(dir: string, server = 'pixel-office'): void {
   try {
