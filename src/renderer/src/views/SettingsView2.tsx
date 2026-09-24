@@ -167,6 +167,15 @@ export function SettingsView2(): JSX.Element {
   const [cozempicSaved, setCozempicSaved] = useState(false)
   const cozempicTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Desktop notifications (app preference) ---------------------------------
+  // Stored in app-settings.json. Default false. When on, the main process shows
+  // OS notifications ONLY for agent exceptions (needs re-auth / crashed /
+  // rate-limited); routine progress stays in-app. `desktopNotifSaved` briefly
+  // flags the just-persisted write for feedback.
+  const [desktopNotif, setDesktopNotif] = useState(false)
+  const [desktopNotifSaved, setDesktopNotifSaved] = useState(false)
+  const desktopNotifTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Per-provider default models (#8) — an app preference that seeds new agents.
   // `defaultModels[vendor]` = '' means "provider default". `savedVendor` briefly
   // flags the row that just persisted so a select-to-save gives real feedback.
@@ -212,17 +221,19 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
       setDefaultBase(v)
       setCozempic(cfg.cozempicAutoInit === true)
+      setDesktopNotif(cfg.desktopNotifications === true)
       setLoaded(true)
     })()
     return () => {
       if (pulseTimer.current) clearTimeout(pulseTimer.current)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
+      if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
     }
   }, [])
 
@@ -234,6 +245,19 @@ export function SettingsView2(): JSX.Element {
       setCozempicSaved(true)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
       cozempicTimer.current = setTimeout(() => setCozempicSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
+    }
+  }, [])
+
+  // Toggle the Desktop notifications preference — optimistic, then persist + flash Saved.
+  const toggleDesktopNotif = useCallback(async (next: boolean) => {
+    setDesktopNotif(next) // optimistic; a failed write is corrected on next open
+    try {
+      await window.api.setSettings({ desktopNotifications: next })
+      setDesktopNotifSaved(true)
+      if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
+      desktopNotifTimer.current = setTimeout(() => setDesktopNotifSaved(false), 1600)
     } catch {
       /* leave the optimistic value; the next open re-reads truth */
     }
@@ -701,6 +725,75 @@ export function SettingsView2(): JSX.Element {
                         height: 14,
                         borderRadius: '50%',
                         background: cozempic ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Desktop notifications — off by default. When on, the main process
+                only toasts for agent exceptions (needs re-auth / crashed /
+                rate-limited); routine progress stays in-app. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Desktop notifications
+                  {desktopNotifSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  Off by default. When on, show OS notifications only for agent
+                  exceptions (needs re-auth, crashed, rate-limited). Routine progress
+                  stays in-app.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={desktopNotif}
+                  aria-label="Desktop notifications"
+                  disabled={!loaded}
+                  onClick={() => void toggleDesktopNotif(!desktopNotif)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: loaded ? 'pointer' : 'default'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: desktopNotif ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {desktopNotif ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: desktopNotif ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${desktopNotif ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: desktopNotif ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: desktopNotif ? 'var(--tx-onaccent)' : 'var(--tx-4)',
                         transition: 'left .12s ease'
                       }}
                     />

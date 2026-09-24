@@ -20,6 +20,9 @@ type ModelCatalog = ModelCatalogEntry[]
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+// True once the app has begun quitting — gates OS notifications so shutdown never
+// emits a burst of toasts.
+let quitting = false
 let isQuitting = false
 const manager = new AgentManager()
 const sessions = new SessionManager()
@@ -154,16 +157,33 @@ manager.on('log', (l) => broadcast('agent:log', l))
 const _lastActivity = new Map<string, string>()
 manager.on('agentUpdated', (s: any) => {
   if (!s?.path || !Notification.isSupported()) return
+  // Desktop notifications are OFF by default — the user opts in via Settings.
+  // (They were noisy/false-positive; live progress is shown in-app instead.)
+  if (!appSettings.getDesktopNotifications()) return
+  // Never fire OS toasts while the app is shutting down (exiting to the tray used
+  // to unleash a stream of them).
+  if (quitting) return
   const prev = _lastActivity.get(s.path)
   _lastActivity.set(s.path, s.activity)
   if (prev === undefined || prev === s.activity) return
+  // NOTIFICATION POLICY (user directive): desktop toasts fire ONLY for EXCEPTIONS
+  // that actually need the user — needs-auth / crashed / stalled / rate-limited.
+  // The routine "✓ finished — now idle" toast was REMOVED: it added no signal and,
+  // with an idle-polling agent flapping working↔idle, spammed the desktop. Live
+  // progress is shown IN-APP (the working state + the events view), not as OS
+  // toasts. (Important user-decision/choice events are surfaced in-app; add them
+  // here only if a dedicated 'needs-you' signal is wired.)
   let title: string | null = null
-  let body = s.error || s.name
+  const body = s.error || s.name
+  // Only DEFINITE provider exceptions toast: needs-auth / crashed / rate-limited
+  // come from explicit hooks (reauth_required / StopFailure / rate_limit), so they
+  // are real. 'stalled' is a SILENCE-BASED HEURISTIC — a quiet-but-fine agent
+  // (headless grok on a long tool, waiting) trips it, so it must NOT toast (it
+  // wrongly said "the agent may be hung"). Stalled stays an in-app status the user
+  // verifies against the events log; no desktop notification.
   if (s.activity === 'needs-auth') title = `🔑 ${s.name} needs re-authentication`
   else if (s.activity === 'crashed') title = `⚠ ${s.name} crashed`
-  else if (s.activity === 'stalled') title = `⚠ ${s.name} stalled`
   else if (s.activity === 'rate-limited') title = `⏳ ${s.name} rate-limited`
-  else if (s.activity === 'idle' && prev === 'working') { title = `✓ ${s.name} finished`; body = `${s.tasks?.done ?? 0} tasks done — now idle` }
   if (!title) return
   const n = new Notification({ title, body })
   n.on('click', () => { mainWindow?.show(); mainWindow?.focus(); broadcast('agent:focus', s.path) })
@@ -380,7 +400,7 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean }) => appSettings.updateSettings(patch ?? {}))
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', async (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => {
@@ -513,4 +533,4 @@ app.whenReady().then(() => {
 // Only truly quit when no agents are running (else the window-close guard has
 // hidden us to the tray and the loops keep going).
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && manager.runningCount() === 0) app.quit() })
-app.on('before-quit', () => { manager.disposeAll(); sessions.closeAll(); ptys.killAll() })
+app.on('before-quit', () => { quitting = true; manager.disposeAll(); sessions.closeAll(); ptys.killAll() })

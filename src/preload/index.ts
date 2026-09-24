@@ -196,8 +196,8 @@ const api = {
   ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> =>
     ipcRenderer.invoke('office:updateCharacter', agentId, patch),
   // App preferences (non-secret; persisted in userData/app-settings.json)
-  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean }> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
+  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
 }
 

@@ -27,6 +27,12 @@ export const CLEAN_IDLE_ETYPES = new Set(['session_end', 'loop_complete', 'all_t
 // A run that FAILED (watchdog kill / crash) — distinct from a clean stop.
 export const FAILURE_EVENTS = new Set(['StopFailure'])
 export const WORKING_ETYPES = new Set(['notification', 'agent_message', 'tool_start', 'task_start', 'task_progress'])
+// Pure IDLE-POLL office-MCP tools: an agent with no work calls these on a timer to
+// wait for the next task. They are the ONLY tool hooks that do NOT count as work.
+// Matched by tool-name suffix so it catches `mcp__pixel-office__wait_for_events`
+// etc. Everything else (send_message, post_message, write_file, manage_agent_todos,
+// native Edit/Bash/Read) is real work and drives 'working'.
+export const POLL_TOOL_RE = /(?:get_tasks|wait_for_events|get_events|list_tasks)$/
 
 // A 'working' agent whose hooks file has been silent this long is hung/stalled.
 export const STALE_MS = 4 * 60 * 1000
@@ -59,6 +65,8 @@ export function classifyHookActivity(tailText: string, nowMs: number, mtimeMs: n
   // the idle window so a real multi-minute silence reads as the louder 'stalled'.
   const workingVerdict: Activity = ageMs > STALE_MS ? 'stalled' : ageMs > HOOK_IDLE_MS ? 'idle' : 'working'
   const lines = tailText.trim().split('\n')
+  // Track whether the only recent activity was pure idle-POLLING (see below).
+  let sawMcpPoll = false
   for (let i = lines.length - 1; i >= 0; i--) {
     const raw = lines[i]
     if (!raw) continue
@@ -70,7 +78,23 @@ export function classifyHookActivity(tailText: string, nowMs: number, mtimeMs: n
     if (name === 'rate_limit' || et === 'rate_limit' || name === 'rate_limited' || et === 'rate_limited') return 'rate-limited'
     if (FAILURE_EVENTS.has(name) || et === 'stop_failure') return 'crashed'
     if (CLEAN_IDLE_EVENTS.has(name) || CLEAN_IDLE_ETYPES.has(et)) return 'idle'
-    if (WORKING_EVENTS.has(name) || WORKING_ETYPES.has(et)) return workingVerdict
+    if (WORKING_EVENTS.has(name) || WORKING_ETYPES.has(et)) {
+      // Only pure IDLE-POLLING is not work: an agent with nothing to do calls the
+      // office-MCP wait/poll endpoints (get_tasks / wait_for_events) on a timer,
+      // each emitting a Pre/PostToolUse hook — counting those as 'working' made an
+      // idle agent FLAP working↔idle (and spam toasts). Skip ONLY those poll tools.
+      // CRUCIAL: every OTHER tool is real work and MUST drive 'working' — native
+      // tools (Edit/Bash/Read) AND office-MCP WORK tools (send_message, post_message,
+      // write_file, manage_agent_todos, …). A coordinating PM doing A2A via
+      // send_message was wrongly read as stalled when we skipped all `mcp__*`.
+      const tool = ev.tool_name || ev.payload?.tool_name || ev.tool || ''
+      if ((name === 'PreToolUse' || name === 'PostToolUse') && typeof tool === 'string' && POLL_TOOL_RE.test(tool)) { sawMcpPoll = true; continue }
+      return workingVerdict
+    }
   }
+  // No decisive NATIVE event in the tail. If the only recent activity was office-MCP
+  // polling, the agent is idle-polling — decay to idle (stalled if long-silent),
+  // never 'working'. With no activity at all, fall back to freshness as before.
+  if (sawMcpPoll) return ageMs > STALE_MS ? 'stalled' : 'idle'
   return workingVerdict
 }
