@@ -1,11 +1,11 @@
-version: 0.3.56
+version: 0.3.57
 files:
-  - url: AutoDev-0.3.56-arm64-mac.zip
-    sha512: POXPMpMDz1zFsnFgebb5TgC0tpNjbq6ldbhYr3AIv2MjCtSUUrQx/nkb6gtK/UetAAYnfeg5n2HiSMHypeaCvg==
-    size: 114610305
-  - url: AutoDev-0.3.56-x64-mac.zip
-    sha512: vRDzPeQq4btpTNtxQj5CzZ3qK5E/ceebK7qAuYNE3ZoX7WpkB2woeWNgXHRjS9ftdE97xaa6pqiSIZiT4rJMDQ==
-    size: 120665319
-path: AutoDev-0.3.56-arm64-mac.zip
-sha512: POXPMpMDz1zFsnFgebb5TgC0tpNjbq6ldbhYr3AIv2MjCtSUUrQx/nkb6gtK/UetAAYnfeg5n2HiSMHypeaCvg==
-releaseDate: '2026-09-24T16:53:45.255Z'
+  - url: AutoDev-0.3.57-arm64-mac.zip
+    sha512: nwqK98pEiTqn4B6jKa6AsLZGyygrrLILuRinua1ebZq2dy6/EbEaB1gSQGQEN/F7KnIXqhWTfrJlu7TkX8renQ==
+    size: 114619240
+  - url: AutoDev-0.3.57-x64-mac.zip
+    sha512: hn+0wOphwwCNJVX7TeTNQpDmQ8DaHyTQOGzouov2M+KE3DfNInGZLQqvpsEqIvNUZQ1E0RU60CpmUn9l/+c/yA==
+    size: 120674254
+path: AutoDev-0.3.57-arm64-mac.zip
+sha512: nwqK98pEiTqn4B6jKa6AsLZGyygrrLILuRinua1ebZq2dy6/EbEaB1gSQGQEN/F7KnIXqhWTfrJlu7TkX8renQ==
+releaseDate: '2026-09-24T17:25:33.757Z'

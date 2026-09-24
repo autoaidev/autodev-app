@@ -7,6 +7,7 @@ import { CharacterSettingsModal } from '../components/office/CharacterSettingsMo
 import { AddCharacterModal } from '../components/office/AddCharacterModal'
 import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
 import { AgentStream } from '../components/office/AgentStream'
+import { EventsPanel } from '../components/office/EventsPanel'
 import { OfficeRoom } from '../components/office/OfficeRoom'
 import { SignInForm } from '../components/office/SignInForm'
 import {
@@ -1058,6 +1059,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   <div style={{ margin: 'auto', color: 'var(--tx-4)', fontSize: 'var(--fs-meta)' }}>No character selected.</div>
                 ))}
               </div>
+
+              {/* Live server-side event stream for the focused character — tool
+                  calls / narration / status straight from the office's authoritative
+                  hook_events (the same feed the web "Events" tab shows). Lets the user
+                  WATCH a working agent's real activity instead of trusting the badge. */}
+              {officeTab === 'team' && (
+                <EventsPanel agent={focusedChar ?? null} active={visible && officeTab === 'team'} />
+              )}
 
               {officeTab === 'room' && (
                 <OfficeRoom

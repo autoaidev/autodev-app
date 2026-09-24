@@ -1,6 +1,6 @@
 {
   "name": "autodev-app",
-  "version": "0.3.56",
+  "version": "0.3.57",
   "//": "private: this dir builds the DESKTOP APP, it is not the npm package. Publishing it would ship a package with no out/ (gitignored, so `main` points at nothing), no bin, and electron only as a devDependency — it installs fine and does nothing. The published `autodev-app` package is npm/ — a launcher that fetches the release artifact.",
   "private": true,
   "autodevCliMinVersion": "1.4.31",
@@ -40,7 +40,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "autodev-cli": "1.4.171",
+    "autodev-cli": "1.4.172",
     "c8": "^10.1.3",
     "electron": "^31.3.0",
     "electron-builder": "^24.13.3",

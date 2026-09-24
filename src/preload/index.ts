@@ -180,6 +180,7 @@ const api = {
   officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
+  officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string }> } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit),
   officeCreateCharacter: (officeId: number, name: string, opts?: { avatarIndex?: number; color?: string; emoji?: string }) => ipcRenderer.invoke('office:createCharacter', officeId, name, opts),
   officeOffices: () => ipcRenderer.invoke('office:offices'),
   officeSetupUrl: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:setupUrl', officeSlug, agentId),

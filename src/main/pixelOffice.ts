@@ -103,6 +103,22 @@ export interface OfficeMessage {
   /** Epoch ms — the feed is sorted ascending (newest at the bottom). */
   at: number
 }
+/** One compact row of an office character's SERVER-SIDE hook_events stream — the
+ *  authoritative activity feed the pixel-office web "Events" tab renders (tool
+ *  calls, narration, status, task start/complete). Read-only; newest-first. */
+export interface OfficeEvent {
+  id: string
+  /** Epoch ms (parsed from the row's ISO `createdAt`). */
+  at: number
+  /** The normalized event name, e.g. 'tool_start' | 'tool_end' | 'notification'
+   *  | 'agent_message' | 'task_start' | 'task_complete'. */
+  evt: string
+  /** The tool this event is about, when any (e.g. 'Bash', 'Edit'). */
+  tool?: string
+  /** A short human summary line — prose message when present, else a tool/status label. */
+  text: string
+}
+
 /** One usage/limit window for a provider credential, flattened from the
  *  deployer's cached `meta.usage.windows` (see KeyUsage). The renderer draws each
  *  as a progress bar. */
@@ -985,6 +1001,80 @@ export class PixelOfficeClient {
         deduped.push(row)
       }
       return { ok: true, agentId, agentName, messages: deduped }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
+   * Resolve a local agent ref (its office-agent id OR endpoint slug) to the
+   * numeric office id + agent id + display name, scanning the user's offices
+   * (hinted `officeSlug` first). Shared by the agent-events reader; mirrors the
+   * resolution `messages()` does inline. Rethrows a session-expiry so the caller
+   * surfaces it; returns null when the agent is in none of the user's offices.
+   */
+  private async _resolveAgentRef(officeSlug: string, agentRef: string): Promise<{ officeId: number; agentId: string; agentName: string } | null> {
+    const ref = String(agentRef ?? '').toLowerCase()
+    if (!ref) return null
+    const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
+    if (!offices.length) return null
+    const ordered = officeSlug
+      ? [...offices].sort((a: any, b: any) =>
+          (String(b.slug).toLowerCase() === officeSlug.toLowerCase() ? 1 : 0) -
+          (String(a.slug).toLowerCase() === officeSlug.toLowerCase() ? 1 : 0))
+      : offices
+    for (const o of ordered) {
+      try {
+        const ags = await this.getJson(`/api/offices/${encodeURIComponent(o.slug)}/agents`)
+        const arr: any[] = Array.isArray(ags?.data) ? ags.data
+          : Array.isArray(ags?.data?.agents) ? ags.data.agents
+          : Array.isArray(ags?.agents) ? ags.agents
+          : Array.isArray(ags) ? ags : []
+        const a = arr.find((x) => String(x.id).toLowerCase() === ref || String(x.slug).toLowerCase() === ref)
+        if (a) return { officeId: o.id, agentId: String(a.id), agentName: String(a.name ?? a.slug ?? 'Agent') }
+      } catch (e) {
+        if ((e as Error)?.message?.includes('expired')) throw e
+        /* skip an office we couldn't list — keep scanning */
+      }
+    }
+    return null
+  }
+
+  /**
+   * Fetch the focused office character's recent SERVER-SIDE hook events — the same
+   * authoritative feed the web "Events" tab renders (`GET /api/hooks/events`
+   * filtered by `office_id` + `agent_id`, newest-first). Unlike the local
+   * `.autodev/hooks-events.jsonl`, this is written by the OFFICE regardless of
+   * provider (grok-tui headless loops don't reliably write the local file), so the
+   * app can SHOW what a working agent is actually doing instead of trusting a
+   * heuristic badge. Read-only + resilient: resolves the agent like messages()
+   * does, returns a compact newest-first list.
+   */
+  async agentEvents(officeSlug: string, agentRef: string, limit = 50): Promise<{ ok: true; agentId: string; agentName: string; events: OfficeEvent[] } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    if (!String(agentRef ?? '').trim()) return { error: 'This agent is not linked to an office.' }
+    try {
+      const matched = await this._resolveAgentRef(officeSlug, agentRef)
+      if (!matched) return { error: 'This agent could not be found in any of your offices.' }
+      const { officeId, agentId, agentName } = matched
+      const lim = Math.max(1, Math.min(200, Math.trunc(Number(limit)) || 50))
+      const raw = await this.getJson(
+        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&agent_id=${encodeURIComponent(agentId)}&limit=${lim}&order=desc`
+      ).catch(() => ({ data: [] }))
+      const rows: any[] = Array.isArray(raw?.data) ? raw.data : []
+      const events: OfficeEvent[] = []
+      for (const ev of rows) {
+        const evt = String(ev.eventType ?? '').trim()
+        if (!evt) continue
+        const tool = String(ev.toolName ?? '').trim() || undefined
+        const msg = String(ev.message ?? ev.reasoning ?? '').replace(/\s+/g, ' ').trim()
+        // Prose message wins as the label; else a compact tool/status descriptor.
+        const text = (msg || (tool ? `${evt} · ${tool}` : evt)).slice(0, 400)
+        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text })
+      }
+      // The server returns newest-first (order=desc); enforce it defensively.
+      events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
+      return { ok: true, agentId, agentName, events }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
     }

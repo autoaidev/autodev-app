@@ -600,6 +600,17 @@ export class AgentManager extends EventEmitter {
         // task" — a quiet hooks file just means it finished and is idle-polling.
         // Only warn "stalled/hung" when there's actually work in flight.
         if (activity === 'stalled' && todo.remaining === 0) activity = 'idle'
+        // grok-tui (headless) loops don't reliably write the local hooks file, so
+        // a quiet local read goes stale-'idle'/'stalled' even while the loop is
+        // actively resuming + outputting. The office presence status is REPORTED
+        // BY THE LOOP over MCP and is authoritative that it's working — union it in
+        // so a live office-'working' is never overridden by a silent local hooks
+        // file. Definite local signals (needs-auth / rate-limited / crashed) below
+        // still win because they aren't 'idle'/'stalled'.
+        if ((activity === 'idle' || activity === 'stalled') && officeOnline && this._officeActivity(presence?.status) === 'working') {
+          activity = 'working'
+          error = undefined
+        }
         if (activity === 'crashed') error = 'The run reported a failure (StopFailure) — likely a crash or watchdog timeout.'
         else if (activity === 'stalled') error = 'No activity for several minutes — the agent may be hung (e.g. a dead token or a wedged tool).'
         else if (activity === 'needs-auth') error = 'Provider login expired — re-authenticate to resume.'

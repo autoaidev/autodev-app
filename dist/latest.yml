@@ -1,8 +1,8 @@
-version: 0.3.56
+version: 0.3.57
 files:
-  - url: AutoDev-0.3.56-setup.exe
-    sha512: iSI7+twOlYtl2oJ37px2FJsQjj3zHDHKnv1KUQROMzkQIpNw0duyTFtZPTrIWJrT2H72gUg/aH+aysc9TYQG3w==
-    size: 97624832
-path: AutoDev-0.3.56-setup.exe
-sha512: iSI7+twOlYtl2oJ37px2FJsQjj3zHDHKnv1KUQROMzkQIpNw0duyTFtZPTrIWJrT2H72gUg/aH+aysc9TYQG3w==
-releaseDate: '2026-09-24T16:52:06.839Z'
+  - url: AutoDev-0.3.57-setup.exe
+    sha512: q45ZjmbtM9bIu02adMkNGAWmFGZ8gbRkHtgzQ1waYeFMDq89l4fH1A6t3ZPz1p2ep/wxw9KrIT7d5WN8iev1wg==
+    size: 97632293
+path: AutoDev-0.3.57-setup.exe
+sha512: q45ZjmbtM9bIu02adMkNGAWmFGZ8gbRkHtgzQ1waYeFMDq89l4fH1A6t3ZPz1p2ep/wxw9KrIT7d5WN8iev1wg==
+releaseDate: '2026-09-24T17:23:53.014Z'
