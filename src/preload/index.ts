@@ -170,6 +170,11 @@ const api = {
   > => ipcRenderer.invoke('office:spawnOffice', officeSlug, overrides),
   officeStopOffice: (officeSlug: string): Promise<{ ok: true; stopped: number } | { error: string }> =>
     ipcRenderer.invoke('office:stopOffice', officeSlug),
+  // Destructive counterpart to stopOffice: stop THEN delete every local scratch
+  // workspace under this office (does not delete the office in the pixel-office
+  // backend). Surfaced as an explicit "Remove office" action behind a confirm.
+  officeRemoveOffice: (officeSlug: string): Promise<{ ok: true; removed: number } | { error: string }> =>
+    ipcRenderer.invoke('office:removeOffice', officeSlug),
   // Per-account provider key usage/limits from the connected office's deployer
   // vault (Claude 5h+weekly, OpenRouter credit, Copilot). Fails soft to [].
   officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),

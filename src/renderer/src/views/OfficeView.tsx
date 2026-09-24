@@ -82,6 +82,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   const [operatingId, setOperatingId] = useState('')
   const [spawningOffice, setSpawningOffice] = useState('')
   const [stoppingOffice, setStoppingOffice] = useState('')
+  // Destructive "Remove office" busy flag — kept separate from stoppingOffice so a
+  // remove-in-flight never wedges the Stop-all button (and vice-versa).
+  const [removingOffice, setRemovingOffice] = useState('')
   const [spawnedOffices, setSpawnedOffices] = useState<Set<string>>(new Set())
   // Errors surfaced by an explicit action (operate/spawn/stop/create). The list/auth
   // keep-alive notices come from officeService (`listError`) and the reap notice from
@@ -372,6 +375,38 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     } finally { setStoppingOffice('') }
   }, [stoppingOffice, handleAuthExpiry])
 
+  // Destructive counterpart to stopOffice: stop every character AND delete their
+  // local scratch workspaces for this office (the office itself stays in
+  // pixel-office — only the local working folders under ~/.autodev-app go). Guarded
+  // by the app's native confirm (window.confirm is a no-op in the sandbox). Own busy
+  // flag so it never wedges — or is wedged by — Stop-all.
+  const removeOffice = useCallback(async (g: OfficeGroup) => {
+    if (removingOffice) return
+    const ok = await window.api.confirmDialog(
+      `Remove office “${g.name}” locally?`,
+      `Stops every character in this office and DELETES their local scratch workspaces on this machine.\n\n` +
+        `The office itself stays in pixel-office — only the local working folders are removed. This cannot be undone.`
+    )
+    if (!ok) return
+    setActionErr(''); setRemovingOffice(g.slug)
+    try {
+      const r = await window.api.officeRemoveOffice(g.slug)
+      if ('error' in r) {
+        if (isAuthError(r.error)) handleAuthExpiry()
+        else setActionErr(r.error)
+        return
+      }
+      setSpawnedOffices((prev) => { const n = new Set(prev); n.delete(g.slug); return n })
+      termRegistry.closeLogsForOffice(g.slug)
+      actions.toast(`Removed ${r.removed} workspace${r.removed === 1 ? '' : 's'}`)
+      void officeService.refresh()
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e)
+      if (isAuthError(msg)) handleAuthExpiry()
+      else setActionErr(msg)
+    } finally { setRemovingOffice('') }
+  }, [removingOffice, handleAuthExpiry, actions])
+
   // Reconnect a whole office in place — stop its loops, then connect-all again — so a
   // just-saved model (bulk Set-model) takes hold now. Office loops are office-scoped
   // (there is no per-character reconnect), so this is the honest "apply now" for the
@@ -565,7 +600,14 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           onlineAgentIds={onlineAgentIds}
           getLog={getLog}
           subscribeLog={subscribeLog}
-          onSelect={termRegistry.setActiveTerm}
+          onSelect={(id) => {
+            // Console-tab ↔ card sync: activating a tab also highlights the
+            // matching character card (by the term's agentId), so the selected
+            // card and active console stay in lockstep in both directions.
+            termRegistry.setActiveTerm(id)
+            const t = ots.find((x) => x.id === id)
+            if (t) setFocusedId(t.agentId)
+          }}
           onClose={termRegistry.close}
           onExit={onTermExit}
         />
@@ -795,6 +837,22 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               <Button variant="secondary" size="sm" onClick={openBrowser}>
                 <Icon name="external" size={11} /> Open in browser
               </Button>
+              {/* Destructive local cleanup — stops every character AND deletes their
+                  local scratch workspaces for this office. De-emphasised (ghost +
+                  danger) and gated to Advanced, matching how the other destructive /
+                  power controls in this view are gated. */}
+              {advanced && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  danger
+                  disabled={removingOffice === selectedGroup.slug}
+                  onClick={() => removeOffice(selectedGroup)}
+                  title="Stop all characters and delete their local scratch workspaces for this office"
+                >
+                  <Icon name="trash" size={11} /> {removingOffice === selectedGroup.slug ? 'Removing…' : 'Remove office'}
+                </Button>
+              )}
             </div>
 
             {/* team management toolbar — bulk-select + the two single-office actions
@@ -863,7 +921,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   selected={a.id === focusedChar?.id}
                   busy={operatingId === a.officeSlug + a.id}
                   running={!!liveOpTermId(a.officeSlug, a.id)}
-                  onSelect={() => setFocusedId(a.id)}
+                  // Card ↔ console-tab sync: selecting a card also switches the
+                  // active console tab to this character IF one is already open
+                  // (matched by the term's agentId === card id). If none is open we
+                  // don't force-open one — the card still becomes selected via
+                  // focusedId, which drives its selected ring.
+                  onSelect={() => {
+                    setFocusedId(a.id)
+                    const t = termRegistry.listForOffice(a.officeSlug).find((x) => x.agentId === a.id)
+                    if (t) termRegistry.setActiveTerm(t.id)
+                  }}
                   onOperate={() => operate(a)}
                   onStop={() => stopCharacter(a)}
                   onRestart={() => restartCharacter(a)}

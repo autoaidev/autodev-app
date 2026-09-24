@@ -421,18 +421,60 @@ ipcMain.handle('office:spawnOffice', async (_e, officeSlug: string, overrides?: 
   void refreshOfficePresence()
   return { ok: true as const, agents: prep.agents }
 })
-// Stop an entire office: stop + untrack + delete the scratch dir of every tracked
-// loop bound to that office (its workspaces all live under the office scratch root).
-// Uses removeFolder so the office-key-bearing scratch dirs don't linger after stop.
+// Stop an entire office: STOP every tracked agent bound to that office (its
+// workspaces all live under the office scratch root) WITHOUT deleting anything.
+// Stop must be non-destructive — the scratch dirs (and their work/session) are
+// preserved so the office can be re-spawned/resumed. Destructive cleanup lives in
+// `office:removeOffice`. Loops → manager.stop (kills the loop + marks stay-stopped
+// so the `autodev office` supervisor won't respawn it, folder KEPT); operate
+// characters → kill the Operate PTY (removeFolder hard-refuses operate paths, and
+// stop must catch characters operated AFTER the initial spawn, else "Stop office
+// didn't stop all").
 ipcMain.handle('office:stopOffice', async (_e, officeSlug: string) => {
   const root = office.officeLoopRoot(officeSlug)
   if (!root) return { error: 'Invalid office identifier.' }
   const paths = manager.list()
     .map((s) => s.path)
     .filter((p) => p === root || p.startsWith(root + sep))
-  for (const p of paths) manager.removeFolder(p)
+  for (const p of paths) {
+    if (manager.isOperating(p)) {
+      let killed = false
+      for (const [id, cwd] of operatePtyCwd) if (cwd === p) { ptys.kill(id); killed = true }
+      if (!killed) manager.endOperate(p)
+    } else {
+      manager.stop(p)
+    }
+  }
   void refreshOfficePresence()
   return { ok: true as const, stopped: paths.length }
+})
+// Remove an entire office locally: stop THEN delete the scratch dir of every
+// tracked workspace bound to the office (the destructive counterpart to
+// stopOffice, surfaced as an explicit "Remove office" action). Operate characters
+// are stopped via their PTY first (removeFolder refuses operate paths), then their
+// scratch dir is deprovisioned; loops go straight through removeFolder (stop +
+// delete). Does NOT delete the office itself in the pixel-office backend — only
+// the local scratch workspaces this app created under ~/.autodev-app/offices.
+ipcMain.handle('office:removeOffice', async (_e, officeSlug: string) => {
+  const root = office.officeLoopRoot(officeSlug)
+  if (!root) return { error: 'Invalid office identifier.' }
+  const paths = manager.list()
+    .map((s) => s.path)
+    .filter((p) => p === root || p.startsWith(root + sep))
+  let removed = 0
+  for (const p of paths) {
+    // Operate characters must have their PTY killed + be de-registered FIRST —
+    // removeFolder hard-refuses a path while it is still in _operating. After
+    // endOperate the scratch dir is deletable via its `.autodev` workspace marker.
+    if (manager.isOperating(p)) {
+      for (const [id, cwd] of operatePtyCwd) if (cwd === p) ptys.kill(id)
+      manager.endOperate(p)
+    }
+    const r = manager.removeFolder(p)
+    if ('ok' in r) removed++
+  }
+  void refreshOfficePresence()
+  return { ok: true as const, removed }
 })
 // Per-account provider key usage/limits (Claude sub 5h+weekly, OpenRouter credit,
 // Copilot) read from the connected office's deployer credential vault. Fails soft
