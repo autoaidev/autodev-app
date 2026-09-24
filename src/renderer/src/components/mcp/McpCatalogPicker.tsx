@@ -70,13 +70,18 @@ export function McpCatalogPicker({
   onPick,
   exclude,
   buttonLabel = 'Add server',
-  align = 'right'
+  align = 'right',
+  hideBuiltins = false
 }: {
   onPick: (pick: McpPick) => void
   /** server ids/names already present — shown greyed with an "added" tag. */
   exclude?: Set<string>
   buttonLabel?: string
   align?: 'left' | 'right'
+  /** Drop the whole Built-in group from the menu — used where the 4 core built-ins
+   *  are already always-on (Settings → Default MCP servers) so offering them as
+   *  "addable" would contradict that. Common/Creative/Custom stay pickable. */
+  hideBuiltins?: boolean
 }): React.JSX.Element {
   const { catalog } = useMcpCatalog()
   const [open, setOpen] = React.useState(false)
@@ -92,7 +97,10 @@ export function McpCatalogPicker({
   const [cHeaders, setCHeaders] = React.useState('')
   const [cSse, setCSse] = React.useState(false)
 
-  const groups = React.useMemo(() => groupCatalog(catalog), [catalog])
+  const groups = React.useMemo(
+    () => groupCatalog(catalog).filter((g) => !(hideBuiltins && g.kind === 'builtin')),
+    [catalog, hideBuiltins]
+  )
 
   const reset = (): void => {
     setMode('menu')

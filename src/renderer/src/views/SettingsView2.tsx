@@ -11,7 +11,7 @@ import { ModelSelect } from '@renderer/components/ModelSelect'
 import { ServerRow } from '@renderer/components/mcp/ServerRow'
 import { McpCatalogPicker } from '@renderer/components/mcp/McpCatalogPicker'
 import { summarize, type McpServerStatus } from '@renderer/components/mcp/mcpStatus'
-import { useDefaultMcp, saveDefaultMcp, type DefaultMcpEntry } from '@renderer/lib/mcp'
+import { useDefaultMcp, saveDefaultMcp, CORE_BUILTIN_MCP, CORE_BUILTIN_IDS, type DefaultMcpEntry } from '@renderer/lib/mcp'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { useTheme, type ThemePref } from '@renderer/services/theme'
 
@@ -196,6 +196,9 @@ export function SettingsView2(): JSX.Element {
   // applied by SEEDING at agent create. Existing agents are untouched — use
   // "Apply to folder/selection" (BulkMcpModal) for those.
   const { defaults: defaultMcp, reload: reloadDefaultMcp } = useDefaultMcp()
+  // The 4 core built-ins are ALWAYS-on (rendered in their own locked section); drop
+  // any that somehow sit in the persisted seed list so they never show twice.
+  const extraDefaultMcp = defaultMcp.filter((d) => !CORE_BUILTIN_IDS.has(d.name))
 
   // --- Live per-agent MCP connectivity (agentMcpStatus) -----------------------
   const [mcpSel, setMcpSel] = useState<string>('')
@@ -958,30 +961,64 @@ export function SettingsView2(): JSX.Element {
             }
             subtitle="Editable default MCP servers that seed new agents, and a live connectivity check for any agent. MCP is configured per agent (.mcp.json); defaults here are a create-time seed applied through the CLI."
           >
+            {/* Locked, always-on core built-ins — the CLI seeds + enables these 4 in
+                every agent regardless of the editable list, so the UI reflects that
+                truth: shown even when the seed list is empty, with no remove/disable. */}
             <div style={S.subHead}>
-              <span style={S.subHeadTitle}>Default MCP servers</span>
+              <span style={S.subHeadTitle}>Built-in servers</span>
+              <InfoTip label="Built-in servers" width={290}>
+                Memory, Playwright, Sequential Thinking and Computer Use are always seeded and
+                enabled in every agent. They can’t be disabled or removed.
+              </InfoTip>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {CORE_BUILTIN_MCP.map((b) => (
+                <div key={b.id} style={S.mcpCard}>
+                  <div style={S.mcpCardHead}>
+                    <span style={S.mcpName} title={b.id}>{b.label}</span>
+                    <span style={S.transportBadge}>stdio</span>
+                    <Pill variant="neutral" style={{ fontSize: 9 }}>Built-in · always on</Pill>
+                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled
+                        title="Built-in server — always added, can't be disabled"
+                      >
+                        Always on
+                      </Button>
+                    </div>
+                  </div>
+                  <code style={S.mcpDetail}>{b.detail}</code>
+                </div>
+              ))}
+            </div>
+
+            <div style={S.subHead}>
+              <span style={S.subHeadTitle}>Additional default MCP servers</span>
               <InfoTip label="Default MCP servers" width={290}>
-                These seed every NEW agent you create (single-agent Setup, Make-app teams, add-a-folder).
-                Existing agents are unaffected — use the rail/Fleet <strong>Set MCP…</strong> action to
-                apply them to agents you already have. Every write goes through the AutoDev CLI.
+                These seed every NEW agent you create (single-agent Setup, Make-app teams, add-a-folder)
+                <em> in addition to</em> the 4 built-ins above. Existing agents are unaffected — use the
+                rail/Fleet <strong>Set MCP…</strong> action to apply them to agents you already have.
+                Every write goes through the AutoDev CLI.
               </InfoTip>
               <div style={{ marginLeft: 'auto' }}>
                 <McpCatalogPicker
                   buttonLabel="Add server"
-                  exclude={new Set(defaultMcp.map((d) => d.name))}
+                  hideBuiltins
+                  exclude={new Set([...extraDefaultMcp.map((d) => d.name), ...CORE_BUILTIN_IDS])}
                   onPick={addDefaultMcp}
                 />
               </div>
             </div>
-            {defaultMcp.length === 0 ? (
+            {extraDefaultMcp.length === 0 ? (
               <div style={S.emptyNote}>
-                No default MCP servers yet. Add one with <strong>Add server</strong> above — it will be
-                seeded into every new agent. Leave this empty to create agents with no MCP servers
-                pre-wired.
+                Every agent always gets the 4 built-in servers above. Add more with{' '}
+                <strong>Add server</strong> to seed them into new agents too.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {defaultMcp.map((m) => {
+                {extraDefaultMcp.map((m) => {
                   const enabled = m.server?.enabled !== false
                   const remote = typeof m.server?.url === 'string' && m.server.url
                   const detail = remote

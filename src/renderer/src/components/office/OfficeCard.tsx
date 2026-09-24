@@ -124,9 +124,12 @@ export function OfficeCard({
         </div>
       )}
 
-      {/* footer half-buttons */}
+      {/* footer half-buttons — BOTH show by state (mirrors OfficeView's header, the
+          0.3.48 both-buttons fix): a running office can still spawn its offline
+          characters, so "Spawn" is disabled only by the spawning-busy state, never
+          by online>0. onSpawn already filters to offline agents. */}
       <div style={{ display: 'flex', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-        {running ? (
+        {running && (
           <Button
             variant="secondary"
             size="sm"
@@ -138,20 +141,21 @@ export function OfficeCard({
           >
             {busy === 'stopping' ? 'Stopping…' : 'Stop office'}
           </Button>
-        ) : (
+        )}
+        {online < total && (
           <Button
             variant="primary"
             size="sm"
             block
-            disabled={busy === 'spawning' || online > 0}
+            disabled={busy === 'spawning'}
             onClick={onSpawn}
             title={
               online > 0
-                ? 'Blocked — some characters are already online'
+                ? `Start the ${total - online} offline character${total - online === 1 ? '' : 's'} in this office as tracked loops`
                 : 'Start every character in this office as a tracked loop'
             }
           >
-            {busy === 'spawning' ? 'Spawning…' : 'Spawn office'}
+            {busy === 'spawning' ? 'Spawning…' : online > 0 ? `Spawn ${total - online} more` : 'Spawn office'}
           </Button>
         )}
         {/* "Open map" — Advanced only; in Basic the office's detail header carries the

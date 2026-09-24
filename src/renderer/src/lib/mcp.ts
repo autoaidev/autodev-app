@@ -57,6 +57,33 @@ export interface DefaultMcpEntry {
 
 export type McpKind = McpCatalogServer['kind']
 
+// ---------------------------------------------------------------------------
+// Core built-ins — the 4 non-disableable servers the CLI ALWAYS seeds + enables
+// in every agent (autodev-cli CORE_BUILTIN_NAMES / DEFAULT_MCP_SERVERS). The
+// Settings panel shows these as a locked, always-on section (no remove/disable),
+// and the Add-server picker never offers them (they're already always-on).
+// ---------------------------------------------------------------------------
+
+/** Identity + display for one always-on core built-in. `id` is the `.mcp.json` key
+ *  (== catalog id == CLI DEFAULT_MCP_SERVERS name). */
+export interface CoreBuiltin {
+  id: string
+  label: string
+  /** The stdio command line shown as the always-on card detail. */
+  detail: string
+}
+
+/** The 4 core built-ins, mirroring the CLI's DEFAULT_MCP_SERVERS + catalog labels. */
+export const CORE_BUILTIN_MCP: readonly CoreBuiltin[] = [
+  { id: 'memory', label: 'Memory', detail: 'npx -y @modelcontextprotocol/server-memory' },
+  { id: 'playwright', label: 'Playwright', detail: 'npx -y @playwright/mcp@latest' },
+  { id: 'sequential-thinking', label: 'Sequential Thinking', detail: 'npx -y @modelcontextprotocol/server-sequential-thinking' },
+  { id: 'computer-use-mcp', label: 'Computer Use', detail: 'npx -y computer-use-mcp' }
+]
+
+/** The core built-in ids/names, for excluding them from the user seed list + picker. */
+export const CORE_BUILTIN_IDS: ReadonlySet<string> = new Set(CORE_BUILTIN_MCP.map((b) => b.id))
+
 /** Human label + order for the three catalog groups (novice-legible sections). */
 export const MCP_KIND_META: Record<McpKind, { label: string; order: number }> = {
   builtin: { label: 'Built-in', order: 0 },

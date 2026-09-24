@@ -215,10 +215,51 @@ function providerCommand(provider?: string): string {
   return 'claude' // default
 }
 
-/** Write a `.mcp.json` owner-only (0600) — it carries a live office API key. */
+/**
+ * The 4 non-disableable core built-in MCP servers, mirroring the CLI's
+ * `DEFAULT_MCP_SERVERS` (autodev-cli src/mcpManager.ts) exactly. grok reads
+ * `.mcp.json` DIRECTLY (not the `.grok/config.toml` the loop fans servers into),
+ * so an office scratch dir that carries only `pixel-office` leaves grok without
+ * memory / sequential-thinking / playwright / computer-use — the reported bug.
+ * Seeding them here gives grok all four immediately.
+ */
+const BUILTIN_MCP_SERVERS: Record<string, { command: string; args: string[] }> = {
+  memory: { command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'] },
+  playwright: { command: 'npx', args: ['-y', '@playwright/mcp@latest'] },
+  'sequential-thinking': { command: 'npx', args: ['-y', '@modelcontextprotocol/server-sequential-thinking'] },
+  'computer-use-mcp': { command: 'npx', args: ['-y', 'computer-use-mcp'] }
+}
+
+/** One built-in `.mcp.json` entry in the CLI's exact shape (command/args +
+ *  alwaysLoad + `_meta.kind:'builtin'`) so an app write and a CLI sync don't
+ *  fight — matches replaceProjectBuiltinMcp's output in autodev-cli. */
+function builtinMcpEntry(name: string, spec: { command: string; args: string[] }): Record<string, unknown> {
+  return { command: spec.command, args: spec.args, alwaysLoad: true, _meta: { managedBy: 'autoaidev', name, kind: 'builtin' } }
+}
+
+/** Add every core built-in that isn't already present to a `.mcp.json` mcpServers
+ *  map. Add-only (idempotent): never clobbers a builtin the user/loop customized. */
+function seedBuiltinMcp(mcpServers: Record<string, any>): void {
+  for (const [name, spec] of Object.entries(BUILTIN_MCP_SERVERS)) {
+    if (!mcpServers[name]) mcpServers[name] = builtinMcpEntry(name, spec)
+  }
+}
+
+/**
+ * Write the office scratch dir's `.mcp.json` owner-only (0600) — it carries a live
+ * office API key. MERGE, not overwrite: refresh the `pixel-office` operate server
+ * AND seed the 4 core built-ins (memory/playwright/sequential-thinking/computer-use)
+ * so grok has them immediately, while preserving any servers already in the file.
+ * Idempotent — re-running operate never dupes and keeps user-added entries.
+ */
 function writeMcpJson(dir: string, key: string, url: string): void {
   const file = join(dir, '.mcp.json')
-  writeFileSync(file, JSON.stringify({ mcpServers: { 'pixel-office': officeMcpServer(key, url) } }, null, 2), { mode: 0o600 })
+  let root: Record<string, any> = {}
+  try { const p = JSON.parse(readFileSync(file, 'utf8')); if (p && typeof p === 'object') root = p } catch { /* none/invalid → start fresh */ }
+  if (!root.mcpServers || typeof root.mcpServers !== 'object') root.mcpServers = {}
+  root.mcpServers['pixel-office'] = officeMcpServer(key, url)
+  seedBuiltinMcp(root.mcpServers)
+  writeFileSync(file, JSON.stringify(root, null, 2), { mode: 0o600 })
   try { chmodSync(file, 0o600) } catch { /* best effort */ }
 }
 
