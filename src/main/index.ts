@@ -544,6 +544,20 @@ ipcMain.handle('app:consumeOpenFolder', () => {
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
 ipcMain.handle('office:operate', async (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => {
+  // MUTUAL EXCLUSION: operating a character and running its tracked LOOP both use
+  // the SAME scratch dir (~/.autodev-app/offices/<slug>/<agentSlug>). Running both
+  // launches TWO grok/claude processes in that one dir, fighting over the single
+  // office connection + provider session (task_already_running / "Grok stopped
+  // before this turn finished" / endless retry). So BEFORE launching the Operate
+  // PTY, STOP any tracked, non-operating LOOP at that exact dir — leaving only one.
+  // resolveOperateCwd derives the same dir operate() will use, so we can stop the
+  // loop up-front (stopping after operate() returns is too late — grok has launched).
+  try {
+    const cwd = office.resolveOperateCwd(officeSlug, agentSlug, agentId)
+    if (cwd && manager.list().some((s) => s.path === cwd) && !manager.isOperating(cwd)) {
+      manager.stop(cwd) // kills the loop + marks stay-stopped so the supervisor won't respawn it
+    }
+  } catch { /* pre-stop is best-effort — never block the operate launch */ }
   const r = await office.operate(officeSlug, agentId, agentSlug, provider ?? '')
   // Register the operating character as a tracked Agents-tab row (Change 1) so it
   // shows in the fleet while its Operate PTY runs. De-registered on PTY exit (see
@@ -573,6 +587,11 @@ ipcMain.handle('office:spawnOffice', async (_e, officeSlug: string, overrides?: 
   const prep = await office.spawnOffice(officeSlug, overrides)
   if ('error' in prep) return prep
   for (const a of prep.agents) {
+    // MUTUAL EXCLUSION (reverse of office:operate): if this character is currently
+    // being OPERATED (an interactive PTY runs in its scratch dir), do NOT also start
+    // a tracked loop there — two grok/claude processes in one dir fight over the
+    // single office connection + provider session. Skip it; the active Operate wins.
+    if (manager.isOperating(a.path)) continue
     const added = manager.add(a.path)
     if ((added as { error?: string })?.error) continue // bind should have written settings.json; skip if not a workspace
     await manager.start(a.path, a.provider)

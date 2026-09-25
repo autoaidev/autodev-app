@@ -1200,6 +1200,23 @@ export class PixelOfficeClient {
   }
 
   /**
+   * The scratch dir a "Connect & operate" launch for this character resolves to —
+   * IDENTICAL to the dir `operate()` computes and to the loop dir `spawnOffice()`
+   * writes (`~/.autodev-app/offices/<slug>/<agentSlug|agentId>`). Exposed so the
+   * `office:operate` handler can find + STOP a same-character LOOP running in this
+   * exact dir BEFORE launching the interactive grok/claude PTY — otherwise a loop
+   * and an operate session fight over the one office connection + grok session
+   * (task_already_running / "Grok stopped before this turn finished" / retry loop).
+   * Returns null when the sanitized dir would escape the offices sandbox root.
+   */
+  resolveOperateCwd(officeSlug: string, agentSlug: string, agentId: string): string | null {
+    const root = join(homedir(), '.autodev-app', 'offices')
+    const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug || agentId))
+    if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) return null
+    return dir
+  }
+
+  /**
    * The sanitized scratch ROOT for an office's spawned loops
    * (`~/.autodev-app/offices/<slug>`), or null when the slug would escape the
    * sandbox. index.ts uses it to find + stop every tracked loop bound to an
