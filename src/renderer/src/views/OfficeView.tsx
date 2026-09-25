@@ -403,6 +403,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     void officeService.refresh()
   }, [liveOpTermId, actions])
 
+  // Open a character's working folder (its office loop/operate cwd) in the OS file
+  // manager. Main resolves the SAME scratch dir spawn/operate uses and creates it if
+  // it doesn't exist yet, so the reveal never dead-ends; we surface a small inline
+  // toast either way (opened / created-then-opened / error).
+  const openCharFolder = useCallback(async (a: OfficeAgent) => {
+    const r = await window.api.officeOpenFolder(a.officeSlug, a.slug, a.id)
+    if ('error' in r) { setActionErr(r.error || `Couldn't open the folder for ${a.name}.`); return }
+    actions.toast(r.created ? `Created & opened folder for ${a.name}` : `Opened folder for ${a.name}`)
+  }, [actions])
+
   // Restart one character — stop its live Operate session, then connect & operate
   // again (operate mints a fresh PTY since close() removed the old term).
   const restartCharacter = useCallback(async (a: OfficeAgent) => {
@@ -1046,6 +1056,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onStop={() => stopCharacter(a)}
                   onRestart={() => restartCharacter(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
+                  onOpenFolder={() => void openCharFolder(a)}
                   modelLabel={modelNameFor(a)}
                   selectable={advanced}
                   checked={bulkSelected.has(a.id)}

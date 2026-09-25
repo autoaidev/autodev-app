@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -143,6 +143,28 @@ export function setCozempicAutoInit(on: boolean): boolean {
   return getCozempicAutoInit()
 }
 
+/**
+ * Optional loop-session reset interval. Default 0 = never reset = ALWAYS RESUME
+ * (one evolving session). A UI seed only — like `cozempicAutoInit`, the app writes
+ * the resolved value into each new agent's `.autodev/settings.json` at create time
+ * (`autodev config set resetSessionEveryNTurns <n>` / in-process merge for the
+ * app-only spawn path), which is where the CLI reads it at loop start. The CLI only
+ * resets when `resumeSession` is on AND the interval > 0; loop agents default
+ * `resumeSession` on, so 0 here means the loop keeps resuming forever. Nothing here
+ * mutates an existing agent. Coerced to a non-negative integer.
+ */
+export function getResetSessionEveryNTurns(): number {
+  const n = load().resetSessionEveryNTurns
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+}
+
+/** Persist the loop-session reset interval (non-negative int; 0 = always resume). */
+export function setResetSessionEveryNTurns(n: number): number {
+  const v = typeof n === 'number' && Number.isFinite(n) && n > 0 ? Math.floor(n) : 0
+  persist({ ...load(), resetSessionEveryNTurns: v })
+  return getResetSessionEveryNTurns()
+}
+
 /** The persisted theme preference (system | dark | light). Defaults 'system'. */
 export function getTheme(): ThemePref {
   const t = load().theme
@@ -191,8 +213,8 @@ export function setShellIntegration(on: boolean): boolean {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns() }
 }
 
 /**
@@ -240,8 +262,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -271,6 +293,9 @@ export function updateSettings(
       // generic settings writer free of platform side-effects.
       setShellIntegration(patch.shellIntegration === true)
     }
+    if ('resetSessionEveryNTurns' in patch) {
+      setResetSessionEveryNTurns(Number(patch.resetSessionEveryNTurns) || 0)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns() }
 }

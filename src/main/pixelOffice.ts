@@ -10,7 +10,7 @@ import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
 // is only ever used inside function bodies (never at module top level) on both
 // sides, so the cycle resolves before either is called.
-import { getOfficeBaseUrl, getCozempicAutoInit } from './appSettings'
+import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
 
@@ -1377,6 +1377,30 @@ export class PixelOfficeClient {
   }
 
   /**
+   * Seed the optional loop-session reset interval (Settings toggle) into a spawned
+   * loop's `<dir>/.autodev/settings.json` so the CLI reads `resetSessionEveryNTurns`
+   * at loop start. Default 0 = never reset = ALWAYS RESUME; the renderer create flows
+   * do this via `config set`, but this app-only spawn path materializes settings.json
+   * in-process, so the toggle would otherwise never reach it. MERGE-write (mirrors
+   * writeCozempicAutoInit); never writes `resumeSession` (loop default stays on, so 0
+   * keeps resuming forever). Best-effort.
+   */
+  private writeResetSessionEveryNTurns(dir: string): void {
+    try {
+      const want = getResetSessionEveryNTurns()
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if ((s.resetSessionEveryNTurns ?? 0) === want) return
+      s.resetSessionEveryNTurns = want
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
    * Prepare EVERY character in an office to run as a TRACKED autodev-cli LOOP.
    * BLOCKS (with no side effects) if ANY character is already online — returns
    * `{ error, online:[names] }` — so we never double-drive a live character.
@@ -1459,6 +1483,9 @@ export class PixelOfficeClient {
         // this via `config set`, but this app-only spawn path writes settings.json
         // entirely in-process, so the toggle would otherwise never reach it.
         this.writeCozempicAutoInit(dir)
+        // Seed the optional session-reset interval (Settings) so the CLI reads
+        // resetSessionEveryNTurns at loop start (default 0 = always resume).
+        this.writeResetSessionEveryNTurns(dir)
         // Pre-accept Claude Code's folder-trust dialog for this app-owned scratch
         // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
         // repos) so a loop / interactive claude here never blocks on the prompt.

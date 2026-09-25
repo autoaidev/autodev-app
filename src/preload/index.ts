@@ -158,6 +158,10 @@ const api = {
   officeLogout: () => ipcRenderer.invoke('office:logout'),
   officeAgents: () => ipcRenderer.invoke('office:agents'),
   officeOperate: (officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => ipcRenderer.invoke('office:operate', officeSlug, agentId, agentSlug, provider, name),
+  // Open a character's working folder (its office loop/operate cwd) in the OS file
+  // manager. Creates the scratch dir if it doesn't exist yet, so it never dead-ends.
+  officeOpenFolder: (officeSlug: string, agentSlug: string, agentId: string): Promise<{ ok: true; dir: string; created: boolean } | { error: string }> =>
+    ipcRenderer.invoke('office:openFolder', officeSlug, agentSlug, agentId),
   // Spawn an office as TRACKED loops. `overrides` sets a per-agent provider (the
   // office view's per-row dropdown); each returned `path` is the tracked workspace
   // to subscribe to via the `agent:log` stream.
@@ -198,8 +202,8 @@ const api = {
   ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> =>
     ipcRenderer.invoke('office:updateCharacter', agentId, patch),
   // App preferences (non-secret; persisted in userData/app-settings.json)
-  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean }> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
+  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   // Windows Explorer "Open as AutoDev agent" right-click integration. Status
   // reflects whether the entries are registered AND whether this build can register

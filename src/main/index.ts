@@ -18,7 +18,7 @@ import {
   parseOpenFolderArg,
   isWindows
 } from './shellIntegration'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync } from 'fs'
 
 /** One provider family's model catalog, as emitted by `autodev models --json`. */
 interface ModelCatalogEntry {
@@ -488,7 +488,7 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }) => appSettings.updateSettings(patch ?? {}))
 // --- Windows shell integration ("Open as AutoDev agent" right-click) ---------
 // Status the Settings toggle / tray checkbox reflect on load: whether the entries
 // are registered AND whether this build can register them (Windows + packaged).
@@ -515,6 +515,23 @@ ipcMain.handle('app:consumeOpenFolder', () => {
 })
 ipcMain.handle('office:logout', () => { office.logout(); return true })
 ipcMain.handle('office:agents', () => office.listAgents())
+// Open the character's working folder in the OS file manager. Resolves the SAME
+// scratch dir the office loop/operate uses (~/.autodev-app/offices/<slug>/<agentSlug>
+// via resolveOperateCwd) so "Open folder" always lands on the character's real cwd.
+// The folder may not exist yet (never spawned/operated) — create it (1-click default,
+// matching how operate/spawn materialize it on demand) so the reveal never dead-ends.
+ipcMain.handle('office:openFolder', async (_e, officeSlug: string, agentSlug: string, agentId: string) => {
+  const dir = office.resolveOperateCwd(officeSlug, agentSlug, agentId)
+  if (!dir) return { error: 'Invalid office or character identifier.' }
+  try {
+    const created = !existsSync(dir)
+    if (created) mkdirSync(dir, { recursive: true, mode: 0o700 })
+    // shell.openPath resolves to '' on success or a non-empty error string.
+    const err = await shell.openPath(dir)
+    if (err) return { error: err }
+    return { ok: true as const, dir, created }
+  } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+})
 ipcMain.handle('office:operate', async (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string, name?: string) => {
   // MUTUAL EXCLUSION: operating a character and running its tracked LOOP both use
   // the SAME scratch dir (~/.autodev-app/offices/<slug>/<agentSlug>). Running both

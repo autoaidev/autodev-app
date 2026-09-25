@@ -163,9 +163,14 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // #8 — seed the per-provider default model (Settings) onto the new workspace.
       const dm = defaultModelFor(defaults, existingProvider)
       if (dm) await window.api.runCli(['config', 'set', modelKeyFor(existingProvider), dm, path])
-      // Seed the Cozempic long-session guard (Settings) onto the new workspace —
-      // the CLI reads `cozempicAutoInit` here at loop start.
-      if ((await window.api.getSettings()).cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
+      // Seed the Cozempic long-session guard + optional session-reset interval
+      // (Settings) onto the new workspace — the CLI reads `cozempicAutoInit` and
+      // `resetSessionEveryNTurns` here at loop start (reset default 0 = always resume).
+      {
+        const s = await window.api.getSettings()
+        if (s.cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
+        if (s.resetSessionEveryNTurns > 0) await window.api.runCli(['config', 'set', 'resetSessionEveryNTurns', String(s.resetSessionEveryNTurns), path])
+      }
       const added = await window.api.addAgent(path) as { error?: string }
       if (added?.error) { setExistingErr(added.error); return }
       setSpawnedOk(true)
@@ -316,7 +321,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     // ── Default: one autodev workspace per agent. ──
     // Cozempic long-session guard (Settings) — seeded onto each new workspace so
     // the CLI reads `cozempicAutoInit` at loop start. Fetched once for the batch.
-    const seedCozempic = (await window.api.getSettings()).cozempicAutoInit === true
+    const seedSettings = await window.api.getSettings()
+    const seedCozempic = seedSettings.cozempicAutoInit === true
+    const seedResetTurns = seedSettings.resetSessionEveryNTurns > 0 ? seedSettings.resetSessionEveryNTurns : 0
     let ok = 0
     let started = 0
     let bound = 0
@@ -333,6 +340,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // way the Create dialog uses) so each spawned agent gets the Files tab.
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       if (seedCozempic) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
+      if (seedResetTurns > 0) await window.api.runCli(['config', 'set', 'resetSessionEveryNTurns', String(seedResetTurns), path])
       const added = await window.api.addAgent(path)
       const addErr = (added as { error?: string })?.error
       if (addErr) { fails.push(`${e.name}: ${addErr}`); continue }

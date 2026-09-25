@@ -49,6 +49,9 @@ export interface CharacterCardProps {
   onRestart?: () => void
   /** Open the SETTINGS editor for this character (provider / model / name). */
   onSettings?: () => void
+  /** Reveal the character's working folder (its office loop/operate cwd) in the OS
+   *  file manager. Absent → the folder button is hidden. */
+  onOpenFolder?: () => void
   /** The character's effective model as a friendly label (e.g. "Grok 4"), shown as a
    *  muted line so a set (or bulk-set) model is confirmable at a glance. Empty = hidden. */
   modelLabel?: string
@@ -95,6 +98,7 @@ export function CharacterCard({
   onStop,
   onRestart,
   onSettings,
+  onOpenFolder,
   modelLabel,
   selectable,
   checked,
@@ -219,6 +223,18 @@ export function CharacterCard({
         >
           {agent.name}
         </div>
+        {onOpenFolder && (
+          <IconButton
+            label="Open folder"
+            icon="folder"
+            size={22}
+            iconSize={12}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenFolder()
+            }}
+          />
+        )}
         {onSettings && (
           <IconButton
             label={`Settings for ${agent.name}`}

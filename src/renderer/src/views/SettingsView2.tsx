@@ -43,14 +43,14 @@ type SectionId =
   | 'storage'
   | 'about'
 
-// Full nav (Advanced). In Basic the MCP section is hidden — it's an expert,
-// per-agent (.mcp.json) concern — and returns the moment Advanced is on.
+// Full nav. The MCP servers section is always reachable from Settings (view / add /
+// remove / enable-disable custom servers; the 4 built-ins show as always-on).
 const NAV_ALL: { id: SectionId; label: string; advancedOnly?: boolean }[] = [
   { id: 'general', label: 'General' },
   { id: 'providers', label: 'Providers' },
   { id: 'default-models', label: 'Default models' },
   { id: 'pixel-office', label: 'Pixel Office' },
-  { id: 'mcp', label: 'MCP', advancedOnly: true },
+  { id: 'mcp', label: 'MCP servers' },
   { id: 'storage', label: 'Storage & logs' },
   { id: 'about', label: 'About' }
 ]
@@ -167,6 +167,18 @@ export function SettingsView2(): JSX.Element {
   const [cozempicSaved, setCozempicSaved] = useState(false)
   const cozempicTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Reset session every N turns (optional loop-session preference) ----------
+  // Stored in app-settings.json and seeded into each new agent's settings at create
+  // (`resetSessionEveryNTurns`), read by the CLI at loop start. Default 0 = OFF =
+  // ALWAYS RESUME (one evolving session). The CLI only resets when resumeSession is
+  // on (loop default) AND the interval > 0. `resetTurns` holds the persisted value;
+  // `resetDraft` is the live number-input text so a partial edit isn't clobbered.
+  const RESET_DEFAULT_TURNS = 20
+  const [resetTurns, setResetTurns] = useState(0)
+  const [resetDraft, setResetDraft] = useState('20')
+  const [resetSaved, setResetSaved] = useState(false)
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Desktop notifications (app preference) ---------------------------------
   // Stored in app-settings.json. Default false. When on, the main process shows
   // OS notifications ONLY for agent exceptions (needs re-auth / crashed /
@@ -234,13 +246,16 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
       setDefaultBase(v)
       setCozempic(cfg.cozempicAutoInit === true)
       setDesktopNotif(cfg.desktopNotifications === true)
+      const rn = typeof cfg.resetSessionEveryNTurns === 'number' && cfg.resetSessionEveryNTurns > 0 ? Math.floor(cfg.resetSessionEveryNTurns) : 0
+      setResetTurns(rn)
+      if (rn > 0) setResetDraft(String(rn))
       setLoaded(true)
     })()
     // Shell integration reflects the REAL HKCU registry state (not just the stored
@@ -255,6 +270,7 @@ export function SettingsView2(): JSX.Element {
     return () => {
       if (pulseTimer.current) clearTimeout(pulseTimer.current)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
+      if (resetTimer.current) clearTimeout(resetTimer.current)
       if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
       if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
       offShell()
@@ -269,6 +285,22 @@ export function SettingsView2(): JSX.Element {
       setCozempicSaved(true)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
       cozempicTimer.current = setTimeout(() => setCozempicSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
+    }
+  }, [])
+
+  // Persist the reset-session interval (optional). `next` 0 = OFF = always resume;
+  // >0 = reset every N turns. Optimistic, then persist + flash Saved.
+  const saveResetTurns = useCallback(async (next: number) => {
+    const v = Number.isFinite(next) && next > 0 ? Math.floor(next) : 0
+    setResetTurns(v)
+    if (v > 0) setResetDraft(String(v))
+    try {
+      await window.api.setSettings({ resetSessionEveryNTurns: v })
+      setResetSaved(true)
+      if (resetTimer.current) clearTimeout(resetTimer.current)
+      resetTimer.current = setTimeout(() => setResetSaved(false), 1600)
     } catch {
       /* leave the optimistic value; the next open re-reads truth */
     }
@@ -784,6 +816,93 @@ export function SettingsView2(): JSX.Element {
               </div>
             </div>
 
+            {/* Reset session every N turns — OPTIONAL, off by default. Off = the app's
+                default behavior: every loop agent keeps ONE evolving session forever
+                (always resume). On seeds new agents with `resetSessionEveryNTurns`, so
+                the CLI starts a fresh session every N turns (only while the loop is
+                resuming, which is the default). A UI seed only — existing agents are
+                unaffected. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Reset session every N turns (optional)
+                  {resetSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  Off by default — every agent keeps one evolving session (always resumes).
+                  Turn on to start a fresh session every N turns for agents you create after
+                  enabling. Existing agents are unaffected.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }}>
+                {resetTurns > 0 && (
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    aria-label="Number of turns before resetting the session"
+                    disabled={!loaded}
+                    value={resetDraft}
+                    onChange={(e) => setResetDraft(e.target.value)}
+                    onBlur={() => {
+                      const n = parseInt(resetDraft, 10)
+                      void saveResetTurns(Number.isFinite(n) && n > 0 ? n : RESET_DEFAULT_TURNS)
+                    }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                    style={{ ...S.input, width: 64, textAlign: 'center' }}
+                  />
+                )}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={resetTurns > 0}
+                  aria-label="Reset session every N turns"
+                  disabled={!loaded}
+                  onClick={() => {
+                    if (resetTurns > 0) void saveResetTurns(0)
+                    else {
+                      const n = parseInt(resetDraft, 10)
+                      void saveResetTurns(Number.isFinite(n) && n > 0 ? n : RESET_DEFAULT_TURNS)
+                    }
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'transparent', border: 'none', padding: 0, cursor: loaded ? 'pointer' : 'default' }}
+                >
+                  <span style={{ fontSize: 11.5, color: resetTurns > 0 ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {resetTurns > 0 ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: resetTurns > 0 ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${resetTurns > 0 ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: resetTurns > 0 ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: resetTurns > 0 ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Desktop notifications — off by default. When on, the main process
                 only toasts for agent exceptions (needs re-auth / crashed /
                 rate-limited); routine progress stays in-app. */}
@@ -1162,10 +1281,10 @@ export function SettingsView2(): JSX.Element {
             </div>
           </Section>
 
-          {/* ── MCP ────────────────────────────────────────────────────── */}
-          {/* Expert, per-agent (.mcp.json) surface — hidden in Basic, one click (the
-              Advanced switch above) away. */}
-          {advanced && (
+          {/* ── MCP servers ────────────────────────────────────────────── */}
+          {/* Always reachable from Settings: view/add/remove/enable-disable custom
+              MCP servers; the 4 built-ins (Memory, Playwright, Sequential Thinking,
+              Computer Use) are shown as always-on and can't be removed or disabled. */}
           <Section
             id="mcp"
             innerRef={setRef('mcp')}
@@ -1345,7 +1464,6 @@ export function SettingsView2(): JSX.Element {
               </>
             )}
           </Section>
-          )}
 
           {/* ── Storage & logs ─────────────────────────────────────────── */}
           <Section
