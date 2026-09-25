@@ -4,7 +4,8 @@ import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
-import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson } from './cli'
+import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson, nodeRunner } from './cli'
+import { spawn } from 'child_process'
 import type { McpCatalogServer, McpJsonEntry } from './agentManager'
 import * as appSettings from './appSettings'
 import { initAutoUpdate, checkForUpdatesManually } from './autoUpdate'
@@ -311,6 +312,35 @@ ptys.on('data', (d) => broadcast('pty:data', d))
 // pty:spawn for `op-*` ids so that when the PTY exits we can de-register the
 // tracked office-operate Agents-tab row for that character.
 const operatePtyCwd = new Map<string, string>()
+
+/**
+ * Reap a PTY child's WHOLE process tree via the bundled CLI's cross-platform
+ * `kill-tree <pid>` (taskkill /T /F on win32). Killing the app-spawned Operate PTY
+ * alone leaves an interactive grok's child tree alive on Windows; this cleans it
+ * up. Best-effort ONLY: fire-and-forget, never throws, never blocks the stop flow,
+ * and no-ops when the pid is missing/invalid or the CLI can't be resolved. Capture
+ * the pid via ptys.pidOf(id) BEFORE ptys.kill(id) (which drops the entry).
+ */
+function killTree(pid: number | undefined): void {
+  try {
+    if (!pid || pid <= 1) return
+    const cliJs = resolveCliJs()
+    if (!cliJs) return
+    const { cmd, baseEnv } = nodeRunner()
+    const child = spawn(cmd, [cliJs, 'kill-tree', String(pid)], {
+      env: baseEnv,
+      windowsHide: true,
+      detached: false,
+      stdio: 'ignore'
+    })
+    // Detach from our lifecycle; a spawn failure must never surface.
+    child.on('error', () => {})
+    child.unref?.()
+  } catch {
+    /* best-effort — a failed reap must never block or throw in the stop flow */
+  }
+}
+
 ptys.on('exit', (d) => {
   broadcast('pty:exit', d)
   const cwd = operatePtyCwd.get(d.id)
@@ -336,7 +366,13 @@ ipcMain.handle('agent:stop', (_e, path: string) => {
   // row. If no PTY is tracked (edge), just drop the tracked entry.
   if (manager.isOperating(path)) {
     let killed = false
-    for (const [id, cwd] of operatePtyCwd) if (cwd === path) { ptys.kill(id); killed = true }
+    for (const [id, cwd] of operatePtyCwd) if (cwd === path) {
+      // Capture the OS pid BEFORE kill() drops the entry, then reap grok's whole
+      // child tree (essential on Windows where the PTY kill leaves it alive).
+      const pid = ptys.pidOf(id)
+      ptys.kill(id); killed = true
+      killTree(pid)
+    }
     if (!killed) manager.endOperate(path)
     return true
   }
@@ -563,7 +599,11 @@ ipcMain.handle('office:stopOffice', async (_e, officeSlug: string) => {
   for (const p of paths) {
     if (manager.isOperating(p)) {
       let killed = false
-      for (const [id, cwd] of operatePtyCwd) if (cwd === p) { ptys.kill(id); killed = true }
+      for (const [id, cwd] of operatePtyCwd) if (cwd === p) {
+        const pid = ptys.pidOf(id)
+        ptys.kill(id); killed = true
+        killTree(pid)
+      }
       if (!killed) manager.endOperate(p)
     } else {
       manager.stop(p)
@@ -591,7 +631,11 @@ ipcMain.handle('office:removeOffice', async (_e, officeSlug: string) => {
     // removeFolder hard-refuses a path while it is still in _operating. After
     // endOperate the scratch dir is deletable via its `.autodev` workspace marker.
     if (manager.isOperating(p)) {
-      for (const [id, cwd] of operatePtyCwd) if (cwd === p) ptys.kill(id)
+      for (const [id, cwd] of operatePtyCwd) if (cwd === p) {
+        const pid = ptys.pidOf(id)
+        ptys.kill(id)
+        killTree(pid)
+      }
       manager.endOperate(p)
     }
     const r = manager.removeFolder(p)

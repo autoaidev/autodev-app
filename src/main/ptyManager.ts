@@ -50,6 +50,14 @@ export class PtyManager extends EventEmitter {
     }
   }
 
+  /** The OS process id of a live PTY (node-pty IPty.pid), or undefined if the id
+   *  is unknown. Read this BEFORE kill(id) — kill() deletes the entry, after which
+   *  the pid is gone. Used to reap the child's whole tree (e.g. grok's subprocess
+   *  tree on Windows) via the bundled CLI's `kill-tree <pid>`. */
+  pidOf(id: string): number | undefined {
+    return this._ptys.get(id)?.pid
+  }
+
   write(id: string, data: string): void {
     this._ptys.get(id)?.write(data)
   }

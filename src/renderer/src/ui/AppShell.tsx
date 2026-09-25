@@ -333,6 +333,45 @@ export function ConnectionPill({
   )
 }
 
+/**
+ * AppVersionLabel — the installed app version (e.g. "v0.3.63") shown small + muted
+ * beside the Help button. Read once from the main-process `app:version` IPC
+ * (window.api.appVersion). Renders nothing until the version resolves, so it never
+ * flashes a placeholder.
+ */
+export function AppVersionLabel(): React.JSX.Element | null {
+  const [ver, setVer] = React.useState('')
+  React.useEffect(() => {
+    let live = true
+    void window.api
+      .appVersion?.()
+      .then((v) => {
+        if (live && v) setVer(v)
+      })
+      .catch(() => {
+        /* version unavailable — render nothing */
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+  if (!ver) return null
+  return (
+    <span
+      title={`AutoDev v${ver}`}
+      style={{
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--fs-desc)',
+        fontWeight: 500,
+        color: 'var(--tx-dim)',
+        whiteSpace: 'nowrap'
+      }}
+    >
+      v{ver}
+    </span>
+  )
+}
+
 export interface AppShellProps {
   /** id of the active nav item */
   activeNav: string
@@ -455,16 +494,16 @@ export function AppShell({
           )}
           {connectionLabel && <ConnectionPill label={connectionLabel} />}
           {right}
-          {/* App-wide theme quick control — cycles System/Light/Dark (mirrors
-              Settings → General → Appearance). */}
-          <ThemeToggle />
-          {/* App-wide Advanced quick toggle — one click reveals/hides expert controls
-              across every surface (mirrors Settings → General). */}
-          <AdvancedToggle />
+          {/* Theme and Advanced-mode toggles were removed from the top bar (0.3.63):
+              the app is always Advanced, and the theme is changed from Settings →
+              General → Appearance. */}
           {/* Global Help affordance — opens the shared Help & getting-started panel
               (checklist + shortcuts + docs) through the typed app-actions bus, so a
               first-time user always has one discoverable entry to guidance. */}
           <IconButton label="Help & getting started" icon="help" iconSize={13} onClick={openHelp} />
+          {/* Installed app version — small + muted, next to Help, so the build is
+              always visible at a glance without competing with the controls. */}
+          <AppVersionLabel />
           {rightNav && (
             <NavItem
               label={rightNav.label}

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext } from 'react'
 
 /**
  * Advanced mode — one shared, app-wide flag that decides whether the UI shows the
@@ -30,9 +30,13 @@ export interface AdvancedMode {
   toggle: () => void
 }
 
+// Advanced mode is now ALWAYS on. The top-bar toggle and the Basic surface were
+// retired (0.3.63) — every expert control is shown app-wide. The hook API is kept
+// intact so the ~21 useAdvancedMode() consumers keep compiling; they all just read
+// `advanced: true`. setAdvanced/toggle are retained as no-ops for the same reason.
 const AdvancedModeContext = createContext<AdvancedMode>({
-  advanced: false,
-  loaded: false,
+  advanced: true,
+  loaded: true,
   setAdvanced: () => {},
   toggle: () => {}
 })
@@ -42,39 +46,11 @@ export function useAdvancedMode(): AdvancedMode {
 }
 
 export function AdvancedModeProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
-  const [advanced, setAdvancedState] = useState(false)
-  const [loaded, setLoaded] = useState(false)
-
-  // Seed from the persisted preference once.
-  useEffect(() => {
-    let live = true
-    void window.api
-      .getSettings()
-      .then((s) => {
-        if (live) setAdvancedState(!!s?.advancedMode)
-      })
-      .catch(() => {
-        /* missing/corrupt settings read as Basic */
-      })
-      .finally(() => {
-        if (live) setLoaded(true)
-      })
-    return () => {
-      live = false
-    }
-  }, [])
-
-  // Optimistic local update + persist; a failed write leaves the local value (the
-  // next read reconciles). No await needed — the flag is UI-only.
-  const setAdvanced = useCallback((v: boolean) => {
-    setAdvancedState(v)
-    void window.api.setSettings({ advancedMode: v }).catch(() => {})
-  }, [])
-
-  const toggle = useCallback(() => setAdvanced(!advanced), [advanced, setAdvanced])
-
+  // Hardcoded on. No persisted read, no state — the value never changes.
   return (
-    <AdvancedModeContext.Provider value={{ advanced, loaded, setAdvanced, toggle }}>
+    <AdvancedModeContext.Provider
+      value={{ advanced: true, loaded: true, setAdvanced: () => {}, toggle: () => {} }}
+    >
       {children}
     </AdvancedModeContext.Provider>
   )
