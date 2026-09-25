@@ -5,7 +5,7 @@ import { NativeSelect } from '@renderer/components/NativeSelect'
 import { AgentState } from '@renderer/services/model'
 import { actions } from '@renderer/services/agentStore'
 import { useAppActions } from '@renderer/services/appActions'
-import { modelKeyFor, vendorOf, PROVIDER_GROUPS, ENGINE_FAMILIES, defaultProviderIdForFamily } from '@renderer/lib/providers'
+import { modelKeyFor, vendorOf, PROVIDER_GROUPS, ENGINE_FAMILIES, defaultProviderIdForFamily, providerLabel } from '@renderer/lib/providers'
 
 /**
  * BulkModelModal (#6) — set the ENGINE (provider) and/or model across a multi-agent
@@ -207,11 +207,16 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
   }, [open, vendorCounts])
 
   // Converting = a specific engine was chosen → switch the WHOLE selection to it.
+  // `engine` now holds a CONCRETE provider id (e.g. `grok-tui`, `claude-cli`), NOT a
+  // collapsed family — so "Convert all to" lists every CLI provider variant (the tui
+  // and cli/sdk variants named separately), and the write persists that exact id.
   const converting = engine !== ''
-  const engineLabel = ENGINE_FAMILIES.find((f) => f.family === engine)?.label ?? vendorLabel(engine)
-  // The family driving the Model dropdown: the chosen engine when converting, else
-  // the mixed-vendor sub-picker's vendor (model-only mode).
-  const modelVendor = converting ? engine : vendor
+  const engineLabel = converting
+    ? providerLabel(engine)
+    : (ENGINE_FAMILIES.find((f) => f.family === engine)?.label ?? vendorLabel(engine))
+  // The VENDOR driving the Model dropdown: the chosen engine's vendor when converting
+  // (grok-tui → grok models), else the mixed-vendor sub-picker's vendor (model-only).
+  const modelVendor = converting ? vendorOf(engine) : vendor
   const mixed = vendorCounts.length > 1
   // When converting, EVERY selected item is a target. Otherwise the write is scoped to
   // the chosen engine's items (matches the "set model for Grok (12)" option) — model
@@ -325,9 +330,9 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
                 </optgroup>
                 {canEngine && (
                   <optgroup label="Convert all to">
-                    {ENGINE_FAMILIES.map((f) => (
-                      <option key={`to:${f.family}`} value={`to:${f.family}`}>
-                        {f.label}
+                    {PROVIDER_GROUPS.flatMap((g) => g.options).map((o) => (
+                      <option key={`to:${o.id}`} value={`to:${o.id}`}>
+                        {o.label}
                       </option>
                     ))}
                   </optgroup>

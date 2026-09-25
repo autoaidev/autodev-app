@@ -77,6 +77,10 @@ export const vendorOf = (p: string): string => p.split('-')[0]
  * provider picker writes). Falls back to the family itself if unrecognized.
  */
 export const defaultProviderIdForFamily = (family: string): string => {
+  // Idempotent for a CONCRETE provider id (e.g. `grok-tui`, `claude-cli`): the bulk
+  // engine-switcher now passes exact variant ids, and re-collapsing one to its
+  // family default would silently swap `grok-tui`→`grok-cli`. Pass those through.
+  if (ALL_PROVIDER_IDS.includes(family)) return family
   const fam = vendorOf(family)
   const g = PROVIDER_GROUPS.find((grp) => vendorOf(grp.options[0].id) === fam)
   return g?.options[0].id ?? family
