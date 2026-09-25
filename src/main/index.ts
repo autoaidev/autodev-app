@@ -4,8 +4,8 @@ import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
 import { PtyManager } from './ptyManager'
 import { PixelOfficeClient } from './pixelOffice'
-import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson, nodeRunner } from './cli'
-import { spawn } from 'child_process'
+import { resolveCliJs, resolveModelCatalogJson, resolveMcpCatalogJson } from './cli'
+import { killTree } from './killTree'
 import type { McpCatalogServer, McpJsonEntry } from './agentManager'
 import * as appSettings from './appSettings'
 import { initAutoUpdate, checkForUpdatesManually } from './autoUpdate'
@@ -312,34 +312,6 @@ ptys.on('data', (d) => broadcast('pty:data', d))
 // pty:spawn for `op-*` ids so that when the PTY exits we can de-register the
 // tracked office-operate Agents-tab row for that character.
 const operatePtyCwd = new Map<string, string>()
-
-/**
- * Reap a PTY child's WHOLE process tree via the bundled CLI's cross-platform
- * `kill-tree <pid>` (taskkill /T /F on win32). Killing the app-spawned Operate PTY
- * alone leaves an interactive grok's child tree alive on Windows; this cleans it
- * up. Best-effort ONLY: fire-and-forget, never throws, never blocks the stop flow,
- * and no-ops when the pid is missing/invalid or the CLI can't be resolved. Capture
- * the pid via ptys.pidOf(id) BEFORE ptys.kill(id) (which drops the entry).
- */
-function killTree(pid: number | undefined): void {
-  try {
-    if (!pid || pid <= 1) return
-    const cliJs = resolveCliJs()
-    if (!cliJs) return
-    const { cmd, baseEnv } = nodeRunner()
-    const child = spawn(cmd, [cliJs, 'kill-tree', String(pid)], {
-      env: baseEnv,
-      windowsHide: true,
-      detached: false,
-      stdio: 'ignore'
-    })
-    // Detach from our lifecycle; a spawn failure must never surface.
-    child.on('error', () => {})
-    child.unref?.()
-  } catch {
-    /* best-effort — a failed reap must never block or throw in the stop flow */
-  }
-}
 
 ptys.on('exit', (d) => {
   broadcast('pty:exit', d)

@@ -6,6 +6,7 @@ import { join, basename, dirname, resolve, sep, delimiter as pathDelimiter } fro
 import { homedir } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
+import { killTree } from './killTree'
 import { classifyHookActivity, STALE_MS, type Activity } from './hookActivity'
 
 // Activity is defined (and unit-tested) in the pure ./hookActivity module; re-export
@@ -1002,6 +1003,11 @@ export class AgentManager extends EventEmitter {
       setTimeout(() => {
         try { child.kill('SIGKILL') } catch { /* ignore */ }
         for (const d of tree) { try { process.kill(d, 'SIGKILL') } catch { /* ignore */ } }
+        // Cross-platform tree reap. On Windows _descendantPids returns [] (no
+        // /proc) so grok's child tree would survive the SIGKILL above and stay
+        // LIVE/connected; the bundled CLI's `kill-tree` runs `taskkill /T /F` to
+        // reap the loop + its grok subtree. Harmless/complementary on Linux.
+        killTree(child.pid)
       }, 4000).unref()
       return
     }
