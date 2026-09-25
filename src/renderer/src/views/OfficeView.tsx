@@ -79,6 +79,18 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [showBulkModel, setShowBulkModel] = useState(false)
   const [showAddChar, setShowAddChar] = useState(false)
+  // Whether the live Events side-panel is shown (Team tab). Toggleable + persisted
+  // per-viewer; defaults ON. localStorage is best-effort (private windows throw).
+  const [showEvents, setShowEvents] = useState<boolean>(() => {
+    try { return localStorage.getItem('autodev.showEvents') !== '0' } catch { return true }
+  })
+  const toggleEvents = useCallback(() => {
+    setShowEvents((v) => {
+      const next = !v
+      try { localStorage.setItem('autodev.showEvents', next ? '1' : '0') } catch { /* ignore */ }
+      return next
+    })
+  }, [])
 
   // ── spawn / operate (progress + action-level errors) ──
   const [operatingId, setOperatingId] = useState('')
@@ -917,6 +929,17 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   {spawningOffice === selectedGroup.slug ? 'Connecting…' : (online > 0 ? `Connect ${total - online} more` : 'Connect all')}
                 </Button>
               )}
+              {officeTab === 'team' && (
+                <Button
+                  variant={showEvents ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={toggleEvents}
+                  title={showEvents ? 'Hide the live events panel' : 'Show the live events panel'}
+                  aria-pressed={showEvents}
+                >
+                  <Icon name="bolt" size={11} /> {showEvents ? 'Hide events' : 'Events'}
+                </Button>
+              )}
               <Button variant="secondary" size="sm" onClick={openBrowser}>
                 <Icon name="external" size={11} /> Open in browser
               </Button>
@@ -1064,7 +1087,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   calls / narration / status straight from the office's authoritative
                   hook_events (the same feed the web "Events" tab shows). Lets the user
                   WATCH a working agent's real activity instead of trusting the badge. */}
-              {officeTab === 'team' && (
+              {officeTab === 'team' && showEvents && (
                 <EventsPanel agent={focusedChar ?? null} active={visible && officeTab === 'team'} />
               )}
 

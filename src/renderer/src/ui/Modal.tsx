@@ -5,7 +5,8 @@ import { Icon } from './Icon'
  * Modal / Dialog — the scrim + centered card used for Spawn-team, agent Setup
  * and the MCP editor. radius11, bd-strong border, shadow-modal. Header carries
  * a title + optional mono/sans subtitle and a right slot (e.g. a Recheck
- * button); the ✕ close affordance is built in. Closes on Escape and scrim click.
+ * button); the ✕ close affordance is built in. Closes on Escape and the ✕ — NOT
+ * on scrim click (a stray backdrop click must never discard an in-progress form).
  *
  * For the chrome-less compositions (2g) pass `overlay={false}` to drop the
  * scrim and render just the dialog card.
@@ -204,7 +205,10 @@ export function Modal({
 
   return (
     <div
-      onClick={onClose}
+      // NO close-on-scrim-click: modals close ONLY via the ✕ (or Escape / their
+      // own action buttons). A stray backdrop click used to discard an in-progress
+      // dialog (e.g. the bulk Set-model or Add-character forms) — too easy to lose
+      // work, so the scrim is inert and the ✕ is the deliberate close affordance.
       style={{
         position: 'fixed',
         inset: 0,

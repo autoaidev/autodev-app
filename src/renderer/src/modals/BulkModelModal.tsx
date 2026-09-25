@@ -319,7 +319,7 @@ export function BulkModelModal({ open, agents, paths, adapter, onClose, onApplie
                 <optgroup label="Keep engine — set model for">
                   {vendorCounts.map(([v, n]) => (
                     <option key={`keep:${v}`} value={`keep:${v}`}>
-                      {vendorLabel(v)} ({n} {unit}{n === 1 ? '' : 's'})
+                      {vendorLabel(v)} — {n} selected
                     </option>
                   ))}
                 </optgroup>
