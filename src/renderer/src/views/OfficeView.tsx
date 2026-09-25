@@ -1088,7 +1088,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   hook_events (the same feed the web "Events" tab shows). Lets the user
                   WATCH a working agent's real activity instead of trusting the badge. */}
               {officeTab === 'team' && showEvents && (
-                <EventsPanel agent={focusedChar ?? null} active={visible && officeTab === 'team'} />
+                <EventsPanel agent={focusedChar ?? null} officeSlug={selectedGroup.slug} active={visible && officeTab === 'team'} />
               )}
 
               {officeTab === 'room' && (

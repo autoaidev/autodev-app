@@ -1013,6 +1013,33 @@ export class PixelOfficeClient {
    * resolution `messages()` does inline. Rethrows a session-expiry so the caller
    * surfaces it; returns null when the agent is in none of the user's offices.
    */
+  /**
+   * Resolve an office SLUG → its numeric `officeId` (and its agent roster, as a
+   * `agentId → name` map for labeling office-wide events). Mirrors the office-id
+   * resolution `_resolveAgentRef` does, but for the whole office rather than one
+   * agent. Returns null when the slug matches no accessible office.
+   */
+  private async _resolveOfficeId(officeSlug: string): Promise<{ officeId: number; names: Map<string, string> } | null> {
+    const slug = String(officeSlug ?? '').toLowerCase()
+    if (!slug) return null
+    const offices = (await this.getJson('/api/offices'))?.data?.offices ?? []
+    const o = offices.find((x: any) => String(x.slug).toLowerCase() === slug)
+    if (!o) return null
+    const names = new Map<string, string>()
+    try {
+      const ags = await this.getJson(`/api/offices/${encodeURIComponent(o.slug)}/agents`)
+      const arr: any[] = Array.isArray(ags?.data) ? ags.data
+        : Array.isArray(ags?.data?.agents) ? ags.data.agents
+        : Array.isArray(ags?.agents) ? ags.agents
+        : Array.isArray(ags) ? ags : []
+      for (const a of arr) names.set(String(a.id), String(a.name ?? a.slug ?? 'Agent'))
+    } catch (e) {
+      if ((e as Error)?.message?.includes('expired')) throw e
+      /* roster lookup is best-effort — events still render with fallback labels */
+    }
+    return { officeId: o.id, names }
+  }
+
   private async _resolveAgentRef(officeSlug: string, agentRef: string): Promise<{ officeId: number; agentId: string; agentName: string } | null> {
     const ref = String(agentRef ?? '').toLowerCase()
     if (!ref) return null
@@ -1075,6 +1102,44 @@ export class PixelOfficeClient {
       // The server returns newest-first (order=desc); enforce it defensively.
       events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
       return { ok: true, agentId, agentName, events }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
+   * Fetch the WHOLE office's recent hook events — every agent's stream, newest-first,
+   * with each row labeled by its agent NAME (like the pixel-office web "Hook Events"
+   * All tab / Room stream). Same authoritative feed as `agentEvents`, but filtered by
+   * `office_id` ONLY (no `agent_id`), then each event's `agent_id` is mapped to a name
+   * from the office roster (resolved once and cached for the batch). Read-only +
+   * resilient; fails soft to `{ error }`.
+   */
+  async officeEvents(officeSlug: string, limit = 80): Promise<{ ok: true; events: Array<OfficeEvent & { agentId: string; agentName: string }> } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    if (!String(officeSlug ?? '').trim()) return { error: 'No office is open.' }
+    try {
+      const matched = await this._resolveOfficeId(officeSlug)
+      if (!matched) return { error: 'This office could not be found.' }
+      const { officeId, names } = matched
+      const lim = Math.max(1, Math.min(200, Math.trunc(Number(limit)) || 80))
+      const raw = await this.getJson(
+        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&limit=${lim}&order=desc`
+      ).catch(() => ({ data: [] }))
+      const rows: any[] = Array.isArray(raw?.data) ? raw.data : []
+      const events: Array<OfficeEvent & { agentId: string; agentName: string }> = []
+      for (const ev of rows) {
+        const evt = String(ev.eventType ?? '').trim()
+        if (!evt) continue
+        const tool = String(ev.toolName ?? '').trim() || undefined
+        const msg = String(ev.message ?? ev.reasoning ?? '').replace(/\s+/g, ' ').trim()
+        const text = (msg || (tool ? `${evt} · ${tool}` : evt)).slice(0, 400)
+        const agentId = String(ev.agentId ?? ev.agent_id ?? '').trim()
+        const agentName = names.get(agentId) || 'Agent'
+        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text, agentId, agentName })
+      }
+      events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
+      return { ok: true, events }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
     }
