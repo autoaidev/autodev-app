@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { StatusPill, Chip, AgentAvatar, IconButton, Icon } from '@renderer/ui'
 import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
@@ -76,6 +76,24 @@ export interface CharacterCardProps {
   /** When this character started working (epoch ms), for the "Working… · 12s"
    *  elapsed readout when no narration text is available. */
   workingSince?: number
+  /**
+   * Epoch ms of the character's last witnessed activity transition (from the app's
+   * live activity stream — NOT a new data path). When the card is idle this drives a
+   * dim "idle · 4m ago" suffix. Absent → just "idle" (never a fabricated time). */
+  lastActivity?: number
+}
+
+/** A dim "just now / N m ago / N h ago / N d ago" relative label from an epoch-ms
+ *  timestamp. Empty string when unknown, so callers render nothing (no "NaN ago"). */
+function agoLabel(ts?: number): string {
+  if (!ts || !Number.isFinite(ts)) return ''
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (s < 60) return 'just now'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
 /** A single "N s / N m / N h" elapsed readout from an epoch-ms start. */
@@ -105,7 +123,8 @@ export function CharacterCard({
   onToggleSelect,
   working = false,
   activityText,
-  workingSince
+  workingSince,
+  lastActivity
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
   // Basic softens the CTA to a plain "Connect" and hides the online "Open console"
@@ -138,6 +157,19 @@ export function CharacterCard({
     : tick === 'needs-you'
       ? (agent.status || 'asked you a question')
       : (agent.status || 'idle')
+
+  // Dim "idle · 4m ago" suffix: only when genuinely idle (online, not waiting-on-you,
+  // not working) with the default idle label AND a known last-activity time. A light
+  // 30s tick keeps the relative time fresh as it ages; it's armed ONLY while shown, so
+  // resting cards don't each hold a live timer.
+  const showAgo = connected && tick !== 'needs-you' && !working && subtitle === 'idle' && !!lastActivity
+  const [, setAgoTick] = useState(0)
+  useEffect(() => {
+    if (!showAgo) return
+    const id = setInterval(() => setAgoTick((t) => t + 1), 30000)
+    return () => clearInterval(id)
+  }, [showAgo])
+  const idleAgo = showAgo ? agoLabel(lastActivity) : ''
 
   return (
     <div
@@ -335,6 +367,10 @@ export function CharacterCard({
             }}
           >
             {subtitle}
+            {idleAgo && (
+              // Dimmer + smaller than the idle label, so it reads as a quiet timestamp.
+              <span style={{ color: 'var(--tx-ghost)', fontSize: 'var(--fs-tiny)' }}> · {idleAgo}</span>
+            )}
           </div>
         )
       )}

@@ -54,27 +54,63 @@ const closeBtnStyle: React.CSSProperties = {
  * Read-only live log pane for a tracked loop. Self-subscribes to the shared log
  * stream and re-renders only itself (so many panes can coexist cheaply), reading
  * the latest buffer via getText() on each render and sticky-scrolling to the tail.
+ *
+ * Auto-scroll is CONTROLLED by the header toggle (`autoScroll`, the user's master
+ * choice) merged with a transient at-bottom position: the tail is only followed
+ * while `autoScroll && atBottom`. Scrolling up pauses the follow (atBottom→false)
+ * and scrolling back resumes it; the pane reports its at-bottom state up via
+ * `onAtBottom` so the header checkbox mirrors the live follow state. `jumpTick`
+ * increments to command the active pane to snap to the bottom (toggle-on / resume).
  */
-function LogPane({ getText, subscribe }: { getText: () => string; subscribe: (cb: () => void) => () => void }): JSX.Element {
+function LogPane({
+  getText, subscribe, active, autoScroll, jumpTick, onAtBottom
+}: {
+  getText: () => string
+  subscribe: (cb: () => void) => () => void
+  active: boolean
+  autoScroll: boolean
+  jumpTick: number
+  onAtBottom: (atBottom: boolean) => void
+}): JSX.Element {
   const [, force] = useState(0)
   const ref = useRef<HTMLPreElement>(null)
-  // Follow the tail only while the user is already parked at/near the bottom, so a
-  // streaming loop no longer yanks the view back down when they scroll up to read.
-  // Updated on every scroll (the pre-update at-bottom state) and seeded true so a
-  // fresh pane starts pinned to the newest output. Mirrors ActivityStream's follow.
-  const followRef = useRef(true)
+  // Transient "parked at/near the bottom" state. Seeded true so a fresh pane starts
+  // pinned to the newest output. Only reported up (and re-render triggered) when it
+  // actually flips, so a streaming loop doesn't spam the parent on every scroll tick.
+  const atBottomRef = useRef(true)
+  const report = (v: boolean): void => {
+    if (atBottomRef.current !== v) {
+      atBottomRef.current = v
+      onAtBottom(v)
+    }
+  }
+  const scrollToBottom = (): void => {
+    const el = ref.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
   useEffect(() => subscribe(() => force((t) => t + 1)), [subscribe])
   // Strip ANSI/terminal escapes: this is a plain <pre>, not an xterm terminal, so a
   // raw loop's colour codes (\x1b[90m…) would otherwise render as literal text and
   // their ESC byte as a □ box (the "squares in the loop rendering" bug).
   const text = stripAnsi(getText())
+  // Follow the tail on new output only while the user has auto-scroll ON *and* is
+  // parked at the bottom — so OFF (or scrolled-up) leaves the reader's position alone.
   useEffect(() => {
-    const el = ref.current
-    if (el && followRef.current) el.scrollTop = el.scrollHeight
-  }, [text])
+    if (autoScroll && atBottomRef.current) scrollToBottom()
+  }, [text, autoScroll])
+  // Explicit toggle-on / resume from the header: snap the ACTIVE pane to the bottom
+  // and mark it parked (so the checkbox reads as following). Also fires on first mount
+  // (jumpTick starts at its parent value) so a freshly-opened active pane pins to tail.
+  useEffect(() => {
+    if (active) {
+      scrollToBottom()
+      report(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpTick])
   const onScroll = (): void => {
     const el = ref.current
-    if (el) followRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+    if (el) report(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
   }
   return (
     <pre
@@ -97,10 +133,41 @@ function LogPane({ getText, subscribe }: { getText: () => string; subscribe: (cb
  * only the active one is visible (display:block). Log panes are read-only views of
  * a background loop and have no such lifecycle — keeping them mounted is harmless.
  */
+// Persisted master choice for the loop log's auto-scroll toggle (default ON). Wrapped
+// in try/catch so a locked-down / private-window localStorage can't break the view.
+const AUTOSCROLL_KEY = 'autodev.office.loopAutoScroll'
+function loadAutoScroll(): boolean {
+  try { return localStorage.getItem(AUTOSCROLL_KEY) !== '0' } catch { return true }
+}
+function saveAutoScroll(on: boolean): void {
+  try { localStorage.setItem(AUTOSCROLL_KEY, on ? '1' : '0') } catch { /* ignore */ }
+}
+
 export default function TerminalTabs({
   terms, activeId, endedIds, onlineAgentIds, getLog, subscribeLog, onSelect, onClose, onExit
 }: TerminalTabsProps): JSX.Element {
   const active = terms.find((t) => t.id === activeId)
+
+  // Loop log auto-scroll: `autoScroll` is the user's persisted master switch; the
+  // per-pane at-bottom position is transient. The header checkbox reflects the LIVE
+  // follow state (master ON *and* parked at bottom), so scrolling up visibly pauses it.
+  const [autoScroll, setAutoScroll] = useState<boolean>(loadAutoScroll)
+  const [atBottomByPane, setAtBottomByPane] = useState<Record<string, boolean>>({})
+  const [jumpTick, setJumpTick] = useState(0)
+  const activeAtBottom = active ? (atBottomByPane[active.id] ?? true) : true
+  const following = autoScroll && activeAtBottom
+  const setAtBottom = (id: string, v: boolean): void =>
+    setAtBottomByPane((m) => (m[id] === v ? m : { ...m, [id]: v }))
+  const toggleAutoScroll = (): void => {
+    if (following) {
+      // Pause: keep the reader's scroll position exactly where it is.
+      setAutoScroll(false); saveAutoScroll(false)
+    } else {
+      // Turn on / resume: re-enable the master switch and snap the active pane to tail.
+      setAutoScroll(true); saveAutoScroll(true)
+      setJumpTick((t) => t + 1)
+    }
+  }
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -153,6 +220,23 @@ export default function TerminalTabs({
           <div style={{ fontSize: 12, fontWeight: 600 }}>{active.name}</div>
           <span className="badge" title="Provider">{active.kind === 'log' ? (active.provider || 'loop') : active.command}</span>
           <div style={{ flex: 1 }} />
+          {active.kind === 'log' && (
+            <label
+              title={following
+                ? 'Auto-scroll is on — new output sticks to the bottom. Uncheck (or scroll up) to read earlier lines.'
+                : 'Auto-scroll is off — new output won’t move the view. Check it to follow the newest lines.'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 4, fontSize: 12, color: 'var(--muted)', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+            >
+              <input
+                type="checkbox"
+                checked={following}
+                onChange={toggleAutoScroll}
+                aria-label="Auto-scroll the loop output to the newest lines"
+                style={{ cursor: 'pointer', margin: 0 }}
+              />
+              Auto-scroll
+            </label>
+          )}
           {active.kind === 'log'
             ? <button style={{ ...closeBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 5 }} title="Close this log view — the loop keeps running (use Stop office to stop it)" onClick={() => onClose(active.id)}><Icon name="close" size={10} /> Close view</button>
             : <button style={{ ...closeBtnStyle, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }} title="End this session — the character goes offline" onClick={() => onClose(active.id)}><Icon name="stop" size={9} /> Close</button>}
@@ -169,7 +253,14 @@ export default function TerminalTabs({
         {terms.map((t) => (
           <div key={t.id} style={{ position: 'absolute', inset: 0, display: t.id === activeId ? 'block' : 'none' }}>
             {t.kind === 'log'
-              ? <LogPane getText={() => getLog(t.path || '')} subscribe={subscribeLog} />
+              ? <LogPane
+                  getText={() => getLog(t.path || '')}
+                  subscribe={subscribeLog}
+                  active={t.id === activeId}
+                  autoScroll={autoScroll}
+                  jumpTick={jumpTick}
+                  onAtBottom={(v) => setAtBottom(t.id, v)}
+                />
               : <TerminalPane id={t.id} cwd={t.cwd || ''} command={t.command || ''} keepShell={false} onExit={() => onExit(t.id)} />}
           </div>
         ))}

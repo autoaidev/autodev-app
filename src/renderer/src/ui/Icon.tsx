@@ -39,6 +39,8 @@ export type IconName =
   | 'warn'       // warning triangle (failing / attention count)
   | 'paperclip'  // attach a file to a task
   | 'camera'     // take a photo (webcam capture)
+  | 'eye'        // events panel visible (show)
+  | 'eye-off'    // events panel hidden (hide)
 
 type Kind = 'stroke' | 'fill'
 
@@ -180,6 +182,16 @@ const G: Record<IconName, Glyph> = {
   camera: {
     vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
     body: <><rect x="1.5" y="4" width="11" height="7.5" rx="1.6" /><circle cx="7" cy="7.7" r="2" /><path d="M5 4l1-1.6h2L9 4" /></>
+  },
+  // Eye — the live events panel is VISIBLE (click to hide).
+  eye: {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <><path d="M1 7s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4z" /><circle cx="7" cy="7" r="1.7" /></>
+  },
+  // Eye with a slash — the events panel is HIDDEN (click to show).
+  'eye-off': {
+    vb: '0 0 14 14', kind: 'stroke', sw: 1.3,
+    body: <><path d="M2.2 4.4C1.4 5.2 1 7 1 7s2.2 4 6 4c1 0 1.9-.2 2.7-.6" /><path d="M5.7 3.2A6 6 0 0 1 7 3c3.8 0 6 4 6 4a10 10 0 0 1-1.7 2" /><path d="M5.6 5.6a2 2 0 0 0 2.8 2.8" /><path d="M2 2l10 10" /></>
   }
 }
 

@@ -156,19 +156,31 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // purely-remote character is absent → the card falls back to office status.
   const localAgentsRef = useRef<AgentState[]>([])
   const workingSinceRef = useRef<Map<string, number>>(new Map())
-  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number }>>(new Map())
+  // Last-activity clock, derived from the SAME live `agent:updated` activity stream
+  // (no new data path): remember each agent's current activity + when it last CHANGED.
+  // A change we actually witness stamps `ts=now` — so a working→idle transition gives a
+  // truthful "idle · Nm ago". A never-seen-transition agent (idle since app start) keeps
+  // ts undefined → the card shows a plain "idle" with no fabricated time.
+  const lastActivityRef = useRef<Map<string, { activity: string; ts?: number }>>(new Map())
+  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number }>>(new Map())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
-    const next = new Map<string, { activity: string; text?: string; since?: number }>()
+    const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number }>()
     for (const a of localAgentsRef.current) {
       // Track when each agent entered 'working' so the card can show elapsed when no
       // narration is available; clear it the moment it stops working.
       if (a.activity === 'working') { if (!workingSinceRef.current.has(a.path)) workingSinceRef.current.set(a.path, now) }
       else workingSinceRef.current.delete(a.path)
+      // Stamp the last-activity clock on a witnessed activity transition (first sight
+      // records the value only, with no time, so we never invent a "just now").
+      const prevAct = lastActivityRef.current.get(a.path)
+      if (!prevAct) lastActivityRef.current.set(a.path, { activity: a.activity, ts: undefined })
+      else if (prevAct.activity !== a.activity) lastActivityRef.current.set(a.path, { activity: a.activity, ts: now })
       const entry = {
         activity: a.activity,
         text: (a.currentTask || '').trim() || undefined,
-        since: workingSinceRef.current.get(a.path)
+        since: workingSinceRef.current.get(a.path),
+        lastActivity: lastActivityRef.current.get(a.path)?.ts
       }
       const k1 = a.officeAgentSlug?.toLowerCase()
       const k2 = a.officeAgentId?.toLowerCase()
@@ -205,13 +217,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   /** Merge the office character with its immediate local signal → the card's
    *  working verdict + activity line + working-since. */
-  const workingFor = useCallback((a: OfficeAgent): { working: boolean; text?: string; since?: number } => {
+  const workingFor = useCallback((a: OfficeAgent): { working: boolean; text?: string; since?: number; lastActivity?: number } => {
     const local = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
     const working = characterWorking(a, local?.activity)
     // Prefer the office's own live narration (status) as the "what it's doing" line;
     // else the local current task. Never fabricated — undefined falls back to "Working…".
     const text = working ? ((a.status && a.status.trim()) || local?.text) : undefined
-    return { working, text, since: local?.since }
+    return { working, text, since: local?.since, lastActivity: local?.lastActivity }
   }, [localByKey])
 
   // Office-agent ids that are working right now, for the rail's breathing segment
@@ -939,20 +951,26 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   {spawningOffice === selectedGroup.slug ? 'Connecting…' : (online > 0 ? `Connect ${total - online} more` : 'Connect all')}
                 </Button>
               )}
+              {/* Icon-only so the header row stays on one line even with many buttons.
+                  The eye/eye-off glyph flips with state; title + aria-label carry the
+                  full "Hide/Show events" meaning for hover + screen readers. */}
               {officeTab === 'team' && (
-                <Button
-                  variant={showEvents ? 'secondary' : 'ghost'}
-                  size="sm"
+                <IconButton
+                  label={showEvents ? 'Hide events' : 'Show events'}
+                  icon={showEvents ? 'eye' : 'eye-off'}
+                  size={28}
+                  iconSize={13}
+                  active={showEvents}
                   onClick={toggleEvents}
-                  title={showEvents ? 'Hide the live events panel' : 'Show the live events panel'}
-                  aria-pressed={showEvents}
-                >
-                  <Icon name="bolt" size={11} /> {showEvents ? 'Hide events' : 'Events'}
-                </Button>
+                />
               )}
-              <Button variant="secondary" size="sm" onClick={openBrowser}>
-                <Icon name="external" size={11} /> Open in browser
-              </Button>
+              <IconButton
+                label="Open in browser"
+                icon="external"
+                size={28}
+                iconSize={13}
+                onClick={openBrowser}
+              />
               {/* Destructive local cleanup — stops every character AND deletes their
                   local scratch workspaces for this office. De-emphasised (ghost +
                   danger) and gated to Advanced, matching how the other destructive /
@@ -1042,6 +1060,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   working={work.working}
                   activityText={work.text}
                   workingSince={work.since}
+                  lastActivity={work.lastActivity}
                   // Card ↔ console-tab sync: selecting a card also switches the
                   // active console tab to this character IF one is already open
                   // (matched by the term's agentId === card id). If none is open we
