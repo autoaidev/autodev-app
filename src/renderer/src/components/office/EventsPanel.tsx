@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Icon } from '@renderer/ui'
-import { OfficeAgent, hhmm } from './officeTypes'
+import { OfficeAgent } from './officeTypes'
 
 /**
  * EventsPanel — the office's LIVE server-side activity stream, with two views:
@@ -37,8 +37,42 @@ const EVENTS_POLL_MS = 4000
 // immediately; older history is reachable via the `before` cursor below.
 const DEEP_LIMIT = 200
 
-type EventRow = { id: string; at: number; evt: string; tool?: string; text: string; agentName?: string }
+type EventRow = { id: string; at: number; evt: string; tool?: string; text: string; agentName?: string; toolInput?: unknown; toolOutput?: unknown; raw?: Record<string, unknown> }
 type Mode = 'all' | 'agent'
+
+/** Compact relative "ago" label from epoch-ms: "just now" / "Nm ago" / "Nh ago" /
+ *  "Nd ago". Empty when unknown so we never render a stray "NaN ago". Recomputed on
+ *  every render (the panel re-renders on each 4s poll, so labels stay fresh). */
+function agoLabel(ts?: number): string {
+  if (!ts || !Number.isFinite(ts)) return ''
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000))
+  if (s < 45) return 'just now'
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+/** Absolute local date+time for a row's hover title (kept alongside the relative
+ *  label so the exact timestamp is one hover away). Empty when unknown. */
+function absLabel(ts?: number): string {
+  if (!ts || !Number.isFinite(ts)) return ''
+  const d = new Date(ts)
+  return isNaN(d.getTime()) ? '' : d.toLocaleString()
+}
+
+/** Pretty-print an event detail value (tool input/output / raw row) for the
+ *  expanded view: parse a JSON string, else stringify, else coerce — never throws. */
+function prettyJson(v: unknown): string {
+  if (v == null) return ''
+  if (typeof v === 'string') {
+    const t = v.trim()
+    if (t.startsWith('{') || t.startsWith('[')) { try { return JSON.stringify(JSON.parse(t), null, 2) } catch { /* not JSON */ } }
+    return v
+  }
+  try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+}
 
 /** A concise, human label for an event-type token ('tool_start' → 'Tool'). Falls
  *  back to a Title-Cased version of the raw token for anything unmapped. */
@@ -72,6 +106,15 @@ function mergeById(existing: EventRow[], incoming: EventRow[]): EventRow[] {
   return Array.from(byId.values()).sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
 }
 
+/** Shared style for the expanded detail's pretty-JSON / text blocks — mono, wrapped,
+ *  scrollable, capped in height so a huge payload never blows out the row. */
+const detailPre: React.CSSProperties = {
+  margin: 0, padding: '6px 8px', background: 'var(--bg-panel)', border: '1px solid var(--bd-2)',
+  borderRadius: 'var(--r-input)', color: 'var(--tx-2)', fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--fs-tiny)', lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  overflowX: 'auto', maxHeight: 260, overflowY: 'auto'
+}
+
 export function EventsPanel({
   agent,
   active,
@@ -97,6 +140,11 @@ export function EventsPanel({
   const [hasMore, setHasMore] = useState(false)
   const [total, setTotal] = useState(0)
   const [loadingOlder, setLoadingOlder] = useState(false)
+  // Which event rows are expanded (tool details + raw payload). Keyed by event id
+  // so multiple can be open at once and the set survives live merges/re-sorts.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleExpanded = (id: string): void =>
+    setExpanded((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
   const loadedOlderRef = useRef(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const atTopRef = useRef(true)
@@ -113,6 +161,7 @@ export function EventsPanel({
   useEffect(() => {
     setEvents([]); setLoaded(false); setStale(false)
     setCursor(null); setHasMore(false); setTotal(0); loadedOlderRef.current = false
+    setExpanded(new Set())
     atTopRef.current = true
   }, [officeSlug, slug, effectiveMode])
 
@@ -259,37 +308,91 @@ export function EventsPanel({
           </div>
         ) : (
           <>
-            {filtered.map((e) => (
-              <div
-                key={e.id}
-                style={{
-                  display: 'flex', gap: 9, alignItems: 'baseline', padding: '5px 14px',
-                  borderBottom: '1px solid var(--bd-3, var(--bd-2))'
-                }}
-              >
-                <span style={{ flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', minWidth: 38 }}>
-                  {hhmm(e.at)}
-                </span>
-                <div style={{ minWidth: 0, flex: 1 }}>
+            {filtered.map((e) => {
+              const isOpen = expanded.has(e.id)
+              const inputStr = prettyJson(e.toolInput)
+              const outputStr = prettyJson(e.toolOutput)
+              const rawStr = e.raw ? prettyJson(e.raw) : ''
+              const hasDetail = !!(inputStr || outputStr || rawStr || (e.text && e.text.length >= 400))
+              return (
+                <div
+                  key={e.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isOpen}
+                  title={absLabel(e.at)}
+                  onClick={() => toggleExpanded(e.id)}
+                  onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleExpanded(e.id) } }}
+                  style={{
+                    display: 'flex', gap: 9, alignItems: 'baseline', padding: '5px 14px',
+                    borderBottom: '1px solid var(--bd-3, var(--bd-2))', cursor: 'pointer',
+                    background: isOpen ? 'var(--bg-input)' : 'transparent'
+                  }}
+                >
                   <span
-                    style={{
-                      display: 'inline-block', marginRight: 6, padding: '0 6px', borderRadius: 'var(--r-input)',
-                      fontSize: 'var(--fs-tiny)', fontWeight: 700, color: evtColor(e.evt),
-                      background: 'var(--bg-input)', whiteSpace: 'nowrap'
-                    }}
+                    title={absLabel(e.at)}
+                    style={{ flex: 'none', fontFamily: 'var(--font-mono)', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', minWidth: 52, textAlign: 'right' }}
                   >
-                    {evtLabel(e.evt)}{e.tool ? ` · ${e.tool}` : ''}
+                    {agoLabel(e.at)}
                   </span>
-                  <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-2)', wordBreak: 'break-word' }}>{e.text}</span>
-                  {/* In All-events mode, tag each row with its agent name (muted, right-aligned). */}
-                  {effectiveMode === 'all' && e.agentName && (
-                    <span style={{ display: 'block', marginTop: 1, textAlign: 'right', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', fontWeight: 600 }}>
-                      {e.agentName}
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <span
+                      style={{
+                        display: 'inline-block', marginRight: 6, padding: '0 6px', borderRadius: 'var(--r-input)',
+                        fontSize: 'var(--fs-tiny)', fontWeight: 700, color: evtColor(e.evt),
+                        background: 'var(--bg-input)', whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {evtLabel(e.evt)}{e.tool ? ` · ${e.tool}` : ''}
                     </span>
-                  )}
+                    {/* A subtle disclosure caret when there's expandable detail. */}
+                    {hasDetail && (
+                      <span aria-hidden style={{ marginRight: 5, fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform .12s ease' }}>▸</span>
+                    )}
+                    <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-2)', wordBreak: 'break-word', whiteSpace: isOpen ? 'pre-wrap' : 'normal' }}>{e.text}</span>
+                    {/* In All-events mode, tag each row with its agent name (muted, right-aligned). */}
+                    {effectiveMode === 'all' && e.agentName && (
+                      <span style={{ display: 'block', marginTop: 1, textAlign: 'right', fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)', fontWeight: 600 }}>
+                        {e.agentName}
+                      </span>
+                    )}
+                    {/* EXPANDED detail: tool call input/output (pretty JSON) + a native
+                        raw-JSON toggle. Matches how pixel-office renders expandable
+                        events. Clicks inside must not re-collapse the row. */}
+                    {isOpen && (
+                      <div onClick={(ev) => ev.stopPropagation()} style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {e.tool && (
+                          <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}>
+                            Tool <span style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{e.tool}</span>
+                          </div>
+                        )}
+                        {inputStr && (
+                          <div>
+                            <div style={{ fontSize: 'var(--fs-tiny)', fontWeight: 700, color: 'var(--tx-dim)', marginBottom: 2 }}>Input</div>
+                            <pre style={detailPre}>{inputStr}</pre>
+                          </div>
+                        )}
+                        {outputStr && (
+                          <div>
+                            <div style={{ fontSize: 'var(--fs-tiny)', fontWeight: 700, color: 'var(--tx-dim)', marginBottom: 2 }}>Output</div>
+                            <pre style={detailPre}>{outputStr}</pre>
+                          </div>
+                        )}
+                        {rawStr && (
+                          <details>
+                            <summary style={{ fontSize: 'var(--fs-tiny)', fontWeight: 700, color: 'var(--tx-dim)', cursor: 'pointer', userSelect: 'none' }}>Raw event JSON</summary>
+                            <pre style={detailPre}>{rawStr}</pre>
+                          </details>
+                        )}
+                        {!inputStr && !outputStr && !rawStr && (
+                          <div style={{ fontSize: 'var(--fs-tiny)', color: 'var(--tx-4)' }}>No further detail for this event.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
             {/* PAGING — walk the full history back. Hidden once the server reports no
                 older events. Disabled/labeled while a page is in flight. */}
             {hasMore && !query.trim() && (

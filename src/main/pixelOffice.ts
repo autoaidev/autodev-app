@@ -117,6 +117,36 @@ export interface OfficeEvent {
   tool?: string
   /** A short human summary line — prose message when present, else a tool/status label. */
   text: string
+  /** Tool-call input/args, when the row carries them (for the expandable detail). */
+  toolInput?: unknown
+  /** Tool-call output/result, when the row carries it (for the expandable detail). */
+  toolOutput?: unknown
+  /** The full raw hook row (already secret-redacted server-side) for the raw-JSON
+   *  toggle in the expandable event detail. */
+  raw?: Record<string, unknown>
+}
+
+/**
+ * Pull the expandable DETAIL (tool args/input, tool output, and the full raw hook
+ * row) out of a `/api/hooks/events` row, so the events panel can reveal a tool
+ * call's specifics + raw JSON on click. Server field names vary by provider/hook
+ * version, so we probe the common aliases. The feed is already secret-redacted on
+ * ingest (pixel-office SecretRedactor + CLI redaction), so the raw row is safe to
+ * surface.
+ */
+function hookRowDetail(ev: any): { toolInput?: unknown; toolOutput?: unknown; raw: Record<string, unknown> } {
+  const pick = (...keys: string[]): unknown => {
+    for (const k of keys) {
+      const v = ev?.[k]
+      if (v !== undefined && v !== null && v !== '') return v
+    }
+    return undefined
+  }
+  return {
+    toolInput: pick('toolInput', 'tool_input', 'input', 'args', 'arguments', 'params', 'parameters'),
+    toolOutput: pick('toolResponse', 'tool_response', 'toolOutput', 'tool_output', 'output', 'result', 'response'),
+    raw: ev && typeof ev === 'object' ? (ev as Record<string, unknown>) : {}
+  }
 }
 
 /** One usage/limit window for a provider credential, flattened from the
@@ -1100,7 +1130,7 @@ export class PixelOfficeClient {
         const msg = String(ev.message ?? ev.reasoning ?? '').replace(/\s+/g, ' ').trim()
         // Prose message wins as the label; else a compact tool/status descriptor.
         const text = (msg || (tool ? `${evt} · ${tool}` : evt)).slice(0, 400)
-        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text })
+        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text, ...hookRowDetail(ev) })
       }
       // The server returns newest-first (order=desc); enforce it defensively.
       events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
@@ -1143,7 +1173,7 @@ export class PixelOfficeClient {
         const text = (msg || (tool ? `${evt} · ${tool}` : evt)).slice(0, 400)
         const agentId = String(ev.agentId ?? ev.agent_id ?? '').trim()
         const agentName = names.get(agentId) || 'Agent'
-        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text, agentId, agentName })
+        events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text, agentId, agentName, ...hookRowDetail(ev) })
       }
       events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
       const nextBefore = typeof raw?.nextBefore === 'number' ? raw.nextBefore : null

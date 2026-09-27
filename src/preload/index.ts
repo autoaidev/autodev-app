@@ -83,7 +83,7 @@ const api = {
   removeAgentFolder: (path: string) => ipcRenderer.invoke('agents:removeFolder', path),
   agentState: (path: string) => ipcRenderer.invoke('agent:state', path),
   startAgent: (path: string, provider?: string) => ipcRenderer.invoke('agent:start', path, provider),
-  stopAgent: (path: string) => ipcRenderer.invoke('agent:stop', path),
+  stopAgent: (path: string, keepLeader?: boolean) => ipcRenderer.invoke('agent:stop', path, keepLeader),
   sendAgentMessage: (path: string, text: string) => ipcRenderer.invoke('agent:message', path, text),
   // Save a task attachment (picked file / captured photo) into the agent workspace.
   // Returns the workspace-relative path (attachments/<name>) referenced in the task.
@@ -184,8 +184,8 @@ const api = {
   officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
-  officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number, before?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit, before),
-  officeEvents: (officeSlug: string, limit?: number, before?: number): Promise<{ ok: true; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; agentId: string; agentName: string }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:events', officeSlug, limit, before),
+  officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number, before?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; toolInput?: unknown; toolOutput?: unknown; raw?: Record<string, unknown> }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit, before),
+  officeEvents: (officeSlug: string, limit?: number, before?: number): Promise<{ ok: true; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; agentId: string; agentName: string; toolInput?: unknown; toolOutput?: unknown; raw?: Record<string, unknown> }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:events', officeSlug, limit, before),
   // Ensure a character's Operate/loop scratch workspace exists (+ office-MCP key)
   // and return its path — the per-character MCP editor scopes its edits to this dir.
   officeEnsureWorkspace: (officeSlug: string, agentId: string, agentSlug: string, provider?: string): Promise<{ ok: true; cwd: string } | { error: string }> => ipcRenderer.invoke('office:ensureWorkspace', officeSlug, agentId, agentSlug, provider),
@@ -205,8 +205,8 @@ const api = {
   ): Promise<{ ok: true; provider?: string; model?: string; name?: string } | { error: string }> =>
     ipcRenderer.invoke('office:updateCharacter', agentId, patch),
   // App preferences (non-secret; persisted in userData/app-settings.json)
-  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number }> => ipcRenderer.invoke('settings:get'),
-  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
+  getSettings: (): Promise<{ officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean }> => ipcRenderer.invoke('settings:get'),
+  setSettings: (patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }): Promise<{ ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: 'system' | 'dark' | 'light'; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean } | { error: string }> => ipcRenderer.invoke('settings:set', patch),
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
   // Windows Explorer "Open as AutoDev agent" right-click integration. Status
   // reflects whether the entries are registered AND whether this build can register

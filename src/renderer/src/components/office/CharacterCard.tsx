@@ -442,8 +442,10 @@ export function CharacterCard({
       )}
 
       {/* LATEST EVENT (item 6) — this character's most-recent office event as a hard-
-          truncated, dim one-liner. Reuses the Events-panel feed; hidden when empty. */}
-      {latestEvent && latestEvent.trim() && (
+          truncated, dim one-liner. Reuses the Events-panel feed. Shown ONLY while the
+          agent is actively WORKING (0.3.80): when idle it was stale noise competing
+          with the calm "idle · Nm ago" line, so it's hidden unless work is live. */}
+      {working && latestEvent && latestEvent.trim() && (
         <div
           title={latestEvent}
           style={{

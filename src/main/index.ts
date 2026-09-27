@@ -331,7 +331,7 @@ ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); re
 ipcMain.handle('agents:removeFolder', (_e, path: string) => manager.removeFolder(path))
 ipcMain.handle('agent:state', (_e, path: string) => manager.readState(path))
 ipcMain.handle('agent:start', (_e, path: string, provider?: string) => manager.start(path, provider))
-ipcMain.handle('agent:stop', (_e, path: string) => {
+ipcMain.handle('agent:stop', (_e, path: string, keepLeader?: boolean) => {
   // A locally-operated office character (Change 1) has no loop to stop — map Stop
   // to closing its Operate PTY (owned by the renderer's term registry, keyed by
   // id). Killing the PTY fires ptys 'exit' → manager.endOperate, which drops the
@@ -348,7 +348,10 @@ ipcMain.handle('agent:stop', (_e, path: string) => {
     if (!killed) manager.endOperate(path)
     return true
   }
-  manager.stop(path); return true
+  // `keepLeader` is set by RESTART (stop→gap→start) so an always-open grok loop's
+  // detached leader/keepalive is preserved and the fresh loop re-attaches warm; a
+  // plain Stop leaves it undefined → full teardown that reaps the leader.
+  manager.stop(path, { keepLeader: keepLeader === true }); return true
 })
 // A native confirmation dialog driven from the main process. `window.confirm`
 // in the sandboxed renderer is unreliable (it can return false without ever

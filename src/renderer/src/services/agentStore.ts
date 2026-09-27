@@ -54,7 +54,7 @@ const RESTART_GAP_MS = 400 // let a child fully exit before respawn (AgentsView 
 type Api = {
   listAgents: () => Promise<AgentState[]>
   startAgent: (path: string, provider?: string) => Promise<unknown>
-  stopAgent: (path: string) => Promise<unknown>
+  stopAgent: (path: string, keepLeader?: boolean) => Promise<unknown>
   removeAgentFolder: (path: string) => Promise<unknown>
   ptyKill: (id: string) => Promise<unknown>
   openPath: (p: string) => Promise<unknown>
@@ -352,7 +352,10 @@ export const actions = {
   },
   async restart(path: string): Promise<void> {
     try {
-      await api().stopAgent(path)
+      // keepLeader: preserve an always-open grok agent's warm leader/keepalive
+      // across the stop→gap→start bounce so the fresh loop re-attaches without a
+      // cold reload. No-op for the toggle-OFF / non-grok path (main ignores it).
+      await api().stopAgent(path, true)
     } catch {
       /* may not be running */
     }

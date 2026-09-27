@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -165,6 +165,26 @@ export function setResetSessionEveryNTurns(n: number): number {
   return getResetSessionEveryNTurns()
 }
 
+/**
+ * "Always-open sessions" — keep a grok agent's warm session ALIVE across loop
+ * restarts (no cold reload) via the CLI's per-agent leader+keepalive daemon.
+ * DEFAULT TRUE (ON): the user has repeatedly asked for this. When ON, the office
+ * grok LOOP process is spawned with `AUTODEV_GROK_LEADER=1` (the CLI's opt-in
+ * gate), so it spawns a detached leader that holds the grok session in memory and
+ * survives loop restarts; the app reaps BOTH pid-trees via `autodev leader-stop`
+ * on every full teardown (stop / remove / quit), so nothing leaks. When OFF the
+ * env is not set → the CLI's default behavior (no leader), byte-for-byte unchanged.
+ */
+export function getAlwaysOpenSessions(): boolean {
+  return load().alwaysOpenSessions !== false
+}
+
+/** Persist the always-open-sessions flag (a plain boolean UI preference). */
+export function setAlwaysOpenSessions(on: boolean): boolean {
+  persist({ ...load(), alwaysOpenSessions: !!on })
+  return getAlwaysOpenSessions()
+}
+
 /** The persisted theme preference (system | dark | light). Defaults 'system'. */
 export function getTheme(): ThemePref {
   const t = load().theme
@@ -213,8 +233,8 @@ export function setShellIntegration(on: boolean): boolean {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions() }
 }
 
 /**
@@ -262,8 +282,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -296,6 +316,9 @@ export function updateSettings(
     if ('resetSessionEveryNTurns' in patch) {
       setResetSessionEveryNTurns(Number(patch.resetSessionEveryNTurns) || 0)
     }
+    if ('alwaysOpenSessions' in patch) {
+      setAlwaysOpenSessions(patch.alwaysOpenSessions === true)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions() }
 }

@@ -7,6 +7,8 @@ import { homedir } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
 import { killTree } from './killTree'
+import { reapGrokLeader } from './leaderStop'
+import { getAlwaysOpenSessions } from './appSettings'
 import { classifyHookActivity, STALE_MS, type Activity } from './hookActivity'
 
 // Activity is defined (and unit-tested) in the pure ./hookActivity module; re-export
@@ -952,7 +954,16 @@ export class AgentManager extends EventEmitter {
     // dies, so closing/crashing the app never leaves a stale loop (+ its provider
     // subprocess) running. disposeAll() still SIGKILLs them on a clean quit; this
     // is the backstop for force-quit / crash where disposeAll can't run.
-    const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, AUTODEV_EXIT_WITH_PARENT: '1', PATH: augmentPath((baseEnv as Record<string, string>).PATH ?? process.env.PATH) }, stdio: ['ignore', 'pipe', 'pipe'] })
+    //
+    // AUTODEV_GROK_LEADER: "always-open sessions" (default ON). For a grok agent
+    // this opts the CLI loop into its leader+keepalive daemon (gated OFF by default
+    // in the CLI), which holds the grok session warm in a DETACHED process so a
+    // loop restart re-attaches without a cold reload. The daemon is reaped by
+    // `autodev leader-stop` on every full teardown (see stop/disposeAll), so it
+    // never leaks. When the toggle is OFF (or non-grok) the var is absent → the
+    // CLI's default no-leader behavior, byte-for-byte unchanged.
+    const leaderEnv = this._leaderMode(path, provider) ? { AUTODEV_GROK_LEADER: '1' } : {}
+    const child = spawn(cmd, args, { cwd: path, env: { ...baseEnv, ...leaderEnv, AUTODEV_EXIT_WITH_PARENT: '1', PATH: augmentPath((baseEnv as Record<string, string>).PATH ?? process.env.PATH) }, stdio: ['ignore', 'pipe', 'pipe'] })
     this._procs.set(path, child)
     this._spawnedAt.set(path, Date.now())
     const onData = (buf: Buffer) => {
@@ -1034,12 +1045,61 @@ export class AgentManager extends EventEmitter {
     this._retryTimers.set(path, t)
   }
 
-  stop(path: string): void {
+  /**
+   * Is this workspace a grok agent? Reads `.autodev/settings.json` `provider`
+   * (grok-tui / grok-cli / grok), or trusts an explicit provider hint (the value
+   * passed to start(), authoritative before settings.json is on disk). Only grok
+   * agents use the leader+keepalive daemon, so this scopes every leader decision.
+   */
+  private _isGrokWorkspace(path: string, providerHint?: string): boolean {
+    const hint = String(providerHint ?? '').trim().toLowerCase()
+    if (hint) return hint.startsWith('grok')
+    const s = this._readJson(join(path, '.autodev', 'settings.json'))
+    const p = String(s?.provider ?? '').trim().toLowerCase()
+    return p.startsWith('grok')
+  }
+
+  /**
+   * Should this grok loop run in "always-open" (leader) mode? True iff the app
+   * setting is ON AND the workspace is grok. Gates BOTH the `AUTODEV_GROK_LEADER`
+   * env on spawn and the SIGTERM-only (keep-leader) kill behavior on stop, so the
+   * toggle-OFF path keeps the current killProcessTree behavior verbatim.
+   */
+  private _leaderMode(path: string, providerHint?: string): boolean {
+    return getAlwaysOpenSessions() && this._isGrokWorkspace(path, providerHint)
+  }
+
+  /**
+   * Reap a grok agent's detached leader+keepalive backend (via `autodev
+   * leader-stop`). Called on FULL teardown only (user stop / office stop / remove /
+   * quit) — NOT on a keep-leader restart. A no-op when the workspace never spawned
+   * a leader (no `.autodev/leader.json`), so it is safe to call for any grok
+   * workspace even if the toggle was flipped off after the leader came up.
+   */
+  private _reapLeader(path: string, opts?: { detached?: boolean }): void {
+    if (!this._isGrokWorkspace(path)) return
+    reapGrokLeader(path, opts)
+  }
+
+  /**
+   * Stop a loop. `opts.keepLeader` is set by RESTART (stop→gap→start): in
+   * always-open mode it sends SIGTERM to JUST the loop process (not its tree) so
+   * the detached leader/keepalive reparent to init and SURVIVE, letting the fresh
+   * loop re-attach to the warm session; the leader is NOT reaped. A plain Stop (no
+   * opts) is a FULL teardown: it also reaps the leader via `autodev leader-stop`.
+   */
+  stop(path: string, opts?: { keepLeader?: boolean }): void {
     // A locally-operated office character (Change 1) has no `autodev start` loop to
     // stop — its lifecycle is the Operate PTY, killed by the office:operate/pty
     // wiring in the main process (which calls endOperate on exit). Do NOT write a
     // loop stop marker into the scratch dir or hunt for loop pids.
     if (this._operating.has(path)) return
+    // Always-open (leader) mode changes the KILL shape: SIGTERM the loop only, keep
+    // its detached leader/keepalive alive (they reparent to init), and reap the
+    // leader by pid on a full teardown. Gated so the toggle-OFF / non-grok path is
+    // byte-for-byte the previous killProcessTree behavior.
+    const leaderMode = this._leaderMode(path)
+    const keepLeader = opts?.keepLeader === true
     // Mark as a deliberate stop so the exit handler doesn't auto-restart it, and
     // cancel any pending retry from an earlier crash.
     this._intentionalStop.add(path)
@@ -1054,6 +1114,20 @@ export class AgentManager extends EventEmitter {
     this._markUserStopped(path)
     const child = this._procs.get(path)
     if (child) {
+      if (leaderMode) {
+        // ALWAYS-OPEN: kill JUST the loop process, NOT its tree. The detached
+        // leader/keepalive are still ppid-descendants at this instant, so a tree
+        // reap (SIGKILL descendants / killTree) would take them down too. SIGTERM
+        // lets the loop run its own exit reaper (which kills only the thin ACP
+        // client); the leader/keepalive reparent to init and survive, so a fresh
+        // loop re-attaches to the warm session. SIGKILL the LOOP ONLY as a last
+        // resort if SIGTERM doesn't land. Then, unless this is a keep-leader
+        // restart, reap the (now-orphaned) leader+keepalive by pid via leader-stop.
+        try { child.kill('SIGTERM') } catch { /* ignore */ }
+        setTimeout(() => { try { child.kill('SIGKILL') } catch { /* ignore */ } }, 4000).unref()
+        if (!keepLeader) this._reapLeader(path)
+        return
+      }
       // Snapshot the loop's descendant pids (provider subprocesses — grok tmux,
       // opencode serve, a claude child) BEFORE we signal it: once the loop dies
       // they reparent to init (ppid 1) and can no longer be found by walking the
@@ -1082,6 +1156,17 @@ export class AgentManager extends EventEmitter {
     // external loop is being torn down and force-kills any lingering pid instead
     // of no-op'ing on it. Cleared once a fresh loop actually spawns.
     if (pids.length) this._extStopping.set(path, Date.now())
+    if (leaderMode) {
+      // ALWAYS-OPEN, external loop: SIGTERM the loop pid(s) only (no descendant
+      // reap that would take the detached leader with it), then reap the leader by
+      // pid unless this is a keep-leader restart.
+      for (const pid of pids) {
+        this.emit('log', { path, line: `\n[stopping external loop pid=${pid} (keep-leader)]\n` })
+        try { process.kill(pid, 'SIGTERM') } catch { /* ignore */ }
+      }
+      if (!keepLeader) this._reapLeader(path)
+      return
+    }
     const tree = this._descendantPids(pids)
     for (const pid of pids) {
       this.emit('log', { path, line: `\n[stopping external loop pid=${pid}]\n` })
@@ -1559,6 +1644,15 @@ export class AgentManager extends EventEmitter {
     this._disposing = true
     for (const t of this._retryTimers.values()) { try { clearTimeout(t) } catch { /* ignore */ } }
     this._retryTimers.clear()
+    // ALWAYS-OPEN no-leak on QUIT: reap every grok agent's detached leader+keepalive
+    // by pid via `autodev leader-stop`. SIGKILLing our loop child (below) leaves the
+    // DETACHED leader/keepalive alive (they reparent to init), so without this they
+    // would outlive the app — a leak. The reaper is spawned DETACHED so it runs to
+    // completion after the app exits. A no-op for a grok workspace that never spawned
+    // a leader (no leader.json), so it is safe to fire for all of them.
+    for (const p of this._paths) {
+      try { this._reapLeader(p, { detached: true }) } catch { /* best-effort */ }
+    }
     // Kill the loops WE spawned…
     for (const child of this._procs.values()) { try { child.kill('SIGKILL') } catch { /* ignore */ } }
     // …and any EXTERNAL `autodev start` loops for our registered workspaces —

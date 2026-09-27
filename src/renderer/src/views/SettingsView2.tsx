@@ -188,6 +188,17 @@ export function SettingsView2(): JSX.Element {
   const [desktopNotifSaved, setDesktopNotifSaved] = useState(false)
   const desktopNotifTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Always-open sessions (app preference) ----------------------------------
+  // Stored in app-settings.json. Default TRUE (ON). When on, the office grok LOOP
+  // is spawned with AUTODEV_GROK_LEADER=1 so a detached leader+keepalive holds the
+  // grok session warm across loop restarts (no cold reload); the app reaps both
+  // pid-trees via `autodev leader-stop` on every full teardown so nothing leaks.
+  // Off = the CLI's default no-leader behavior. `alwaysOpenSaved` briefly flags the
+  // just-persisted write for feedback.
+  const [alwaysOpen, setAlwaysOpen] = useState(true)
+  const [alwaysOpenSaved, setAlwaysOpenSaved] = useState(false)
+  const alwaysOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Windows shell integration ("Open as AutoDev agent" right-click) --------
   // Whether the Explorer folder right-click menu is registered. `shellIntegWin`
   // gates the whole row off entirely on Linux/mac (hidden); `shellIntegAvail` is
@@ -246,13 +257,14 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
       setDefaultBase(v)
       setCozempic(cfg.cozempicAutoInit === true)
       setDesktopNotif(cfg.desktopNotifications === true)
+      setAlwaysOpen(cfg.alwaysOpenSessions !== false)
       const rn = typeof cfg.resetSessionEveryNTurns === 'number' && cfg.resetSessionEveryNTurns > 0 ? Math.floor(cfg.resetSessionEveryNTurns) : 0
       setResetTurns(rn)
       if (rn > 0) setResetDraft(String(rn))
@@ -272,6 +284,7 @@ export function SettingsView2(): JSX.Element {
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
       if (resetTimer.current) clearTimeout(resetTimer.current)
       if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
+      if (alwaysOpenTimer.current) clearTimeout(alwaysOpenTimer.current)
       if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
       offShell()
     }
@@ -285,6 +298,19 @@ export function SettingsView2(): JSX.Element {
       setCozempicSaved(true)
       if (cozempicTimer.current) clearTimeout(cozempicTimer.current)
       cozempicTimer.current = setTimeout(() => setCozempicSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
+    }
+  }, [])
+
+  // Toggle the Always-open sessions preference — optimistic, then persist + flash Saved.
+  const toggleAlwaysOpen = useCallback(async (next: boolean) => {
+    setAlwaysOpen(next) // optimistic; a failed write is corrected on next open
+    try {
+      await window.api.setSettings({ alwaysOpenSessions: next })
+      setAlwaysOpenSaved(true)
+      if (alwaysOpenTimer.current) clearTimeout(alwaysOpenTimer.current)
+      alwaysOpenTimer.current = setTimeout(() => setAlwaysOpenSaved(false), 1600)
     } catch {
       /* leave the optimistic value; the next open re-reads truth */
     }
@@ -808,6 +834,76 @@ export function SettingsView2(): JSX.Element {
                         height: 14,
                         borderRadius: '50%',
                         background: cozempic ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Always-open sessions — keep a grok agent's warm session alive across
+                loop restarts via the CLI leader+keepalive daemon. Default ON. When
+                off, the CLI's default no-leader behavior. Only affects grok agents. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Always-open sessions
+                  {alwaysOpenSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  Keep the agent alive across restarts (no reload). Holds a grok agent&apos;s
+                  session warm so a restart re-attaches instantly instead of cold-loading.
+                  On by default; the background session is cleaned up when you stop, remove,
+                  or quit. Only affects grok agents.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={alwaysOpen}
+                  aria-label="Always-open sessions"
+                  disabled={!loaded}
+                  onClick={() => void toggleAlwaysOpen(!alwaysOpen)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: loaded ? 'pointer' : 'default'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: alwaysOpen ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {alwaysOpen ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: alwaysOpen ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${alwaysOpen ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: alwaysOpen ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: alwaysOpen ? 'var(--tx-onaccent)' : 'var(--tx-4)',
                         transition: 'left .12s ease'
                       }}
                     />
