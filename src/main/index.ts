@@ -658,8 +658,12 @@ ipcMain.handle('office:removeOffice', async (_e, officeSlug: string) => {
 ipcMain.handle('office:keyUsage', () => office.keyUsage())
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
 ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
-ipcMain.handle('office:agentEvents', (_e, officeSlug: string, agentRef: string, limit?: number) => office.agentEvents(officeSlug, agentRef, limit))
-ipcMain.handle('office:events', (_e, officeSlug: string, limit?: number) => office.officeEvents(officeSlug, limit))
+ipcMain.handle('office:agentEvents', (_e, officeSlug: string, agentRef: string, limit?: number, before?: number) => office.agentEvents(officeSlug, agentRef, limit, before))
+ipcMain.handle('office:events', (_e, officeSlug: string, limit?: number, before?: number) => office.officeEvents(officeSlug, limit, before))
+// Ensure a character's Operate/loop scratch workspace exists (+ its office-MCP key)
+// and return its path — the per-character MCP editor scopes to this dir so its
+// changes land in the SAME .mcp.json the loop/operate launch uses. No launch.
+ipcMain.handle('office:ensureWorkspace', (_e, officeSlug: string, agentId: string, agentSlug: string, provider?: string) => office.ensureWorkspace(officeSlug, agentId, agentSlug, provider))
 ipcMain.handle('office:createCharacter', (_e, officeId: number, name: string, opts?: { avatarIndex?: number; color?: string; emoji?: string }) => office.createCharacter(officeId, name, opts))
 ipcMain.handle('office:offices', () => office.offices())
 ipcMain.handle('office:setupUrl', (_e, officeSlug: string, agentId: string) => office.setupUrl(officeSlug, agentId))

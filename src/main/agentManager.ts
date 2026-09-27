@@ -169,6 +169,15 @@ export interface AgentState {
    *  closing the Operate session instead of spawning/killing a loop. Ephemeral:
    *  the row is registered when operate() runs and de-registered when the PTY exits. */
   officeOperate?: boolean
+  /** When `activity === 'needs-auth'`, the human REASON the provider surfaced (the
+   *  reauth_required hook's `message` — e.g. grok's "Not signed in… Please run: grok
+   *  login"). Threaded through so the UI can render the exact instruction + a
+   *  provider-specific sign-in action, not just the generic needs-auth STATE. */
+  authMessage?: string
+  /** The provider that raised the needs-auth (`grok-cli` / `grok-tui` / `claude…`),
+   *  from the reauth_required hook payload — drives the provider-specific sign-in
+   *  affordance (grok → `grok login`). Falls back to the workspace `provider`. */
+  authProvider?: string
 }
 
 /** In-memory identity for a locally-operated office character (Change 1). Stored
@@ -659,6 +668,17 @@ export class AgentManager extends EventEmitter {
     // already-parsed settings so surfacing the model costs no extra CLI round-trip.
     const modelKey = MODEL_SETTING_KEY[(settings.provider || '').split('-')[0]] ?? 'claudeModel'
     const model = (settings[modelKey] || '').trim() || undefined
+    // When the loop is paused for re-auth, thread the provider's OWN reason +
+    // provider tag through so the UI can render the exact sign-in instruction and a
+    // provider-specific action (grok → `grok login`). The reason (when present)
+    // supersedes the generic error text set above.
+    let authMessage: string | undefined
+    let authProvider: string | undefined
+    if (activity === 'needs-auth') {
+      const d = this._reauthDetail(path)
+      if (d?.message) { authMessage = d.message; error = d.message }
+      authProvider = d?.provider || settings.provider || undefined
+    }
     return {
       path,
       name: settings.sessionName || basename(path),
@@ -683,7 +703,9 @@ export class AgentManager extends EventEmitter {
       // Only carry the real avatar while the character is office-online (presence is
       // undefined when offline), so an offline agent falls back to the monogram.
       officeAvatarUrl: presence?.avatarUrl,
-      officeColor: presence?.color
+      officeColor: presence?.color,
+      authMessage,
+      authProvider
     }
   }
 
@@ -747,6 +769,46 @@ export class AgentManager extends EventEmitter {
    */
   private _activityFromHooks(path: string): Activity {
     return this._localHookActivity(path) ?? 'working'
+  }
+
+  /**
+   * The newest `reauth_required` hook's REASON + provider from a workspace's
+   * hooks-events.jsonl — so a needs-auth AgentState can carry the exact provider
+   * instruction ("Please run: grok login …") instead of a generic label. Scans the
+   * tail newest-first (the paused loop emits it as its last event) and returns the
+   * first reauth event's `message` + `provider`. Null when there is none. Pure
+   * best-effort: any read/parse failure → null (the caller keeps the generic text).
+   */
+  private _reauthDetail(path: string): { message?: string; provider?: string } | null {
+    try {
+      const file = join(path, '.autodev', 'hooks-events.jsonl')
+      if (!existsSync(file)) return null
+      const st = statSync(file)
+      const TAIL = 64 * 1024
+      let text: string
+      if (st.size > TAIL) {
+        const fd = openSync(file, 'r')
+        try { const buf = Buffer.alloc(TAIL); readSync(fd, buf, 0, TAIL, st.size - TAIL); text = buf.toString('utf8') } finally { closeSync(fd) }
+        const nl = text.indexOf('\n'); if (nl >= 0) text = text.slice(nl + 1)
+      } else {
+        text = readFileSync(file, 'utf8')
+      }
+      const lines = text.trim().split('\n')
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const raw = lines[i]
+        if (!raw) continue
+        let ev: any
+        try { ev = JSON.parse(raw) } catch { continue }
+        const name = ev.hook_event_name || ev.hook || ev.type
+        const et = ev.event_type || ev.event
+        if (name === 'reauth_required' || et === 'reauth_required') {
+          const message = typeof ev.message === 'string' ? ev.message.trim() : undefined
+          const provider = typeof ev.provider === 'string' ? ev.provider.trim() : undefined
+          return { message: message || undefined, provider: provider || undefined }
+        }
+      }
+    } catch { /* best effort */ }
+    return null
   }
 
   /**

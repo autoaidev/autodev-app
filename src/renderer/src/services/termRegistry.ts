@@ -81,6 +81,12 @@ type Api = {
     provider?: string,
     name?: string
   ) => Promise<{ ok?: boolean; cwd?: string; mcpUrl?: string; command?: string; error?: string }>
+  officeEnsureWorkspace: (
+    officeSlug: string,
+    agentId: string,
+    agentSlug: string,
+    provider?: string
+  ) => Promise<{ ok?: boolean; cwd?: string; error?: string }>
   ptyKill: (id: string) => Promise<unknown>
 }
 const api = (): Api => (window as unknown as { api: Api }).api
@@ -203,6 +209,48 @@ export async function operate(
       // --continue) so Operate re-opens the existing session; fall back to the bare
       // provider command when main didn't supply one (ADD 2).
       command: r.command || providerToCommand(agent.provider),
+      provider: agent.provider
+    }
+  ]
+  dropEnded([id])
+  activeId = id
+  emit()
+  return { ok: true, id }
+}
+
+/**
+ * Open (or focus) an interactive `grok login --device-code` terminal for a
+ * needs-auth grok character. Prepares the character's OWN scratch workspace (so
+ * the login writes grok's credentials where the loop/operate will read them) via
+ * ensureWorkspace — which does NOT launch a provider — then opens a PTY running the
+ * interactive device-code login. Distinct id (`op-<slug>-<id>-login`) so it never
+ * collides with the character's Operate pane; buckets to the office (op- prefix) so
+ * stopAll/reap treat it like any Operate PTY.
+ */
+export async function login(
+  officeSlug: string,
+  agent: OfficeAgent
+): Promise<{ ok: true; id: string; reused?: boolean } | { error: string }> {
+  seenSlugs.add(officeSlug)
+  const id = `op-${officeSlug}-${agent.id}-login`
+  const existing = terms.find((t) => t.id === id)
+  if (existing && !endedIds.has(existing.id)) {
+    activeId = existing.id
+    emit()
+    return { ok: true, id: existing.id, reused: true }
+  }
+  const r = await api().officeEnsureWorkspace(officeSlug, agent.id, agent.slug, agent.provider)
+  if (r?.error || !r?.cwd) return { error: r?.error || 'Could not prepare the workspace for login' }
+  if (existing) { terms = terms.filter((t) => t.id !== existing.id); dropEnded([existing.id]) }
+  terms = [
+    ...terms,
+    {
+      id,
+      kind: 'pty',
+      cwd: r.cwd,
+      name: `${agent.name} · sign in to grok`,
+      agentId: agent.id,
+      command: 'grok login --device-code',
       provider: agent.provider
     }
   ]

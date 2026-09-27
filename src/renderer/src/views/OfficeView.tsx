@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Button, IconButton, Icon } from '@renderer/ui'
+import { Button, IconButton, Icon, Modal } from '@renderer/ui'
+import { GrokSignInModal } from '../modals/GrokSignInModal'
 import TerminalTabs, { OpenTerm } from '../TerminalTabs'
 import { OfficeCard } from '../components/office/OfficeCard'
 import { CharacterCard } from '../components/office/CharacterCard'
@@ -73,6 +74,12 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   // ── per-character SETTINGS editor (provider / model / name) ──
   const [settingsCharId, setSettingsCharId] = useState('')
+  // Per-agent EVENTS modal (item 7): the id of the character whose events modal is
+  // open (the enriched EventsPanel, agent-locked, with search + paging).
+  const [eventsCharId, setEventsCharId] = useState('')
+  // The grok character whose provider-aware "Sign in to grok" modal is open (item 2).
+  const [signInAgent, setSignInAgent] = useState<OfficeAgent | null>(null)
+  const [signInRetrying, setSignInRetrying] = useState(false)
 
   // ── bulk selection of characters (ids) + the two office-window management modals:
   //    a bulk Set-model over the selection, and a single-character Add. ──
@@ -162,10 +169,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // truthful "idle · Nm ago". A never-seen-transition agent (idle since app start) keeps
   // ts undefined → the card shows a plain "idle" with no fabricated time.
   const lastActivityRef = useRef<Map<string, { activity: string; ts?: number }>>(new Map())
-  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number }>>(new Map())
+  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string }>>(new Map())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
-    const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number }>()
+    const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string }>()
     for (const a of localAgentsRef.current) {
       // Track when each agent entered 'working' so the card can show elapsed when no
       // narration is available; clear it the moment it stops working.
@@ -180,7 +187,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         activity: a.activity,
         text: (a.currentTask || '').trim() || undefined,
         since: workingSinceRef.current.get(a.path),
-        lastActivity: lastActivityRef.current.get(a.path)?.ts
+        lastActivity: lastActivityRef.current.get(a.path)?.ts,
+        authMessage: a.authMessage,
+        authProvider: a.authProvider || a.provider
       }
       const k1 = a.officeAgentSlug?.toLowerCase()
       const k2 = a.officeAgentId?.toLowerCase()
@@ -217,13 +226,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   /** Merge the office character with its immediate local signal → the card's
    *  working verdict + activity line + working-since. */
-  const workingFor = useCallback((a: OfficeAgent): { working: boolean; text?: string; since?: number; lastActivity?: number } => {
+  const workingFor = useCallback((a: OfficeAgent): { working: boolean; text?: string; since?: number; lastActivity?: number; needsAuth: boolean; authMessage?: string; authProvider?: string } => {
     const local = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
     const working = characterWorking(a, local?.activity)
     // Prefer the office's own live narration (status) as the "what it's doing" line;
     // else the local current task. Never fabricated — undefined falls back to "Working…".
     const text = working ? ((a.status && a.status.trim()) || local?.text) : undefined
-    return { working, text, since: local?.since, lastActivity: local?.lastActivity }
+    // A locally-tracked agent paused for re-auth surfaces its provider sign-in action.
+    const needsAuth = local?.activity === 'needs-auth'
+    return { working, text, since: local?.since, lastActivity: local?.lastActivity, needsAuth, authMessage: local?.authMessage, authProvider: local?.authProvider }
   }, [localByKey])
 
   // Office-agent ids that are working right now, for the rail's breathing segment
@@ -346,6 +357,37 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     active: visible && officeTab === 'room'
   })
 
+  // ── per-agent LATEST event (item 6) — one lightweight office-wide events poll
+  //    (the SAME authoritative hook_events feed the Events panel reads), folded to a
+  //    map of agentId → newest event one-liner so each CharacterCard can show its
+  //    latest activity inline. Polls only while the Team tab is visible. ──
+  const [latestByAgent, setLatestByAgent] = useState<Map<string, string>>(new Map())
+  const selectedSlugForEvents = selectedGroup?.slug ?? ''
+  useEffect(() => {
+    if (!visible || officeTab !== 'team' || !selectedSlugForEvents) { setLatestByAgent(new Map()); return }
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const tick = async (): Promise<void> => {
+      try {
+        const r = await window.api.officeEvents(selectedSlugForEvents, 120)
+        if (alive && r && 'ok' in r) {
+          // Events come newest-first; the FIRST occurrence per agentId is its latest.
+          const m = new Map<string, string>()
+          for (const e of r.events) {
+            if (e.agentId && !m.has(e.agentId)) {
+              const label = e.tool ? `${e.tool}: ${e.text}` : e.text
+              m.set(e.agentId, label.replace(/\s+/g, ' ').slice(0, 120))
+            }
+          }
+          setLatestByAgent(m)
+        }
+      } catch { /* non-fatal — cards just omit the latest-event line */ }
+      finally { if (alive) timer = setTimeout(() => void tick(), 5000) }
+    }
+    void tick()
+    return () => { alive = false; if (timer) clearTimeout(timer) }
+  }, [visible, officeTab, selectedSlugForEvents])
+
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate
   // officeAgents() will re-hit the auth error and officeService resolves it (soft
@@ -433,6 +475,26 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     await operate(a)
     actions.toast(`Restarted ${a.name}`)
   }, [liveOpTermId, operate, actions])
+
+  // Open a live `grok login --device-code` terminal for a needs-auth grok character —
+  // the interactive sign-in the headless restart can't do (item 2). Reuses the
+  // termRegistry PTY infra in the character's own workspace, then focuses the office's
+  // Team tab so the terminal is visible.
+  const openSignInTerminal = useCallback(async (a: OfficeAgent) => {
+    setOfficeTab('team')
+    const r = await termRegistry.login(a.officeSlug, a)
+    if ('error' in r) { setActionErr(r.error); return }
+    setSignInAgent(null)
+    actions.toast(`Opened grok sign-in for ${a.name}`)
+  }, [actions])
+
+  // "I've signed in — retry": restart the character's loop/operate now that grok is
+  // logged in. restartCharacter re-operates; for a purely-loop character we also
+  // nudge a refresh so the paused loop's next task is re-attempted.
+  const retrySignIn = useCallback(async (a: OfficeAgent) => {
+    setSignInRetrying(true)
+    try { await restartCharacter(a) } finally { setSignInRetrying(false); setSignInAgent(null) }
+  }, [restartCharacter])
 
   // Spawn the WHOLE office as tracked loops (block-if-any-online); the registry opens
   // read-only log panes for the returned loops.
@@ -1061,6 +1123,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   activityText={work.text}
                   workingSince={work.since}
                   lastActivity={work.lastActivity}
+                  needsAuth={work.needsAuth}
+                  authProvider={work.authProvider}
+                  onSignIn={() => setSignInAgent(a)}
+                  latestEvent={latestByAgent.get(a.id)}
+                  onOpenEvents={() => { setFocusedId(a.id); setEventsCharId(a.id) }}
                   // Card ↔ console-tab sync: selecting a card also switches the
                   // active console tab to this character IF one is already open
                   // (matched by the term's agentId === card id). If none is open we
@@ -1174,6 +1241,41 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
           onTeamGenerated={() => { void officeService.refresh() }}
         />
       )}
+
+      {/* Per-character EVENTS modal (item 7) — the enriched EventsPanel, locked to
+          this agent, with search + full-history paging. Reuses the same component the
+          sidebar renders, so there's one events implementation. */}
+      {(() => {
+        const evAgent =
+          office.agents.find((a) => a.id === eventsCharId) ??
+          selectedGroup?.agents.find((a) => a.id === eventsCharId) ??
+          null
+        return (
+          <Modal
+            open={!!eventsCharId && !!evAgent}
+            onClose={() => setEventsCharId('')}
+            width={640}
+            title={<>{evAgent?.name ?? 'Character'} <span style={{ color: 'var(--tx-5)', fontWeight: 400 }}>· events</span></>}
+            subtitle="tool calls · narration · task lifecycle — search or load older"
+          >
+            <div style={{ height: 460, display: 'flex', minHeight: 0, margin: '-4px -2px' }}>
+              <EventsPanel agent={evAgent} active={!!eventsCharId} officeSlug={selectedGroup?.slug} lockAgent embedded />
+            </div>
+          </Modal>
+        )
+      })()}
+
+      {/* Provider-aware "Sign in to grok" action (item 2) for a needs-auth grok
+          character — device-code login terminal / XAI_API_KEY, with a headless retry. */}
+      <GrokSignInModal
+        open={!!signInAgent}
+        onClose={() => setSignInAgent(null)}
+        name={signInAgent?.name}
+        message={signInAgent ? workingFor(signInAgent).authMessage : undefined}
+        onOpenTerminal={signInAgent ? () => void openSignInTerminal(signInAgent) : undefined}
+        onRetry={() => { if (signInAgent) void retrySignIn(signInAgent) }}
+        retrying={signInRetrying}
+      />
     </div>
   )
 }

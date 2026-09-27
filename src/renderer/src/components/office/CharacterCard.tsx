@@ -52,6 +52,24 @@ export interface CharacterCardProps {
   /** Reveal the character's working folder (its office loop/operate cwd) in the OS
    *  file manager. Absent → the folder button is hidden. */
   onOpenFolder?: () => void
+  /** Open the per-character EVENTS modal (the enriched EventsPanel scoped to this
+   *  agent, with search + paging). Absent → the events button is hidden. */
+  onOpenEvents?: () => void
+  /**
+   * This character's LATEST office event as a short muted one-liner (item 6) —
+   * reuses the same hook-event feed the Events panel reads. Truncated hard so it
+   * never grows the card. Empty/undefined → nothing is shown. */
+  latestEvent?: string
+  /**
+   * The character's loop is PAUSED for re-authentication (local AgentState
+   * `activity === 'needs-auth'`). Drives a provider-aware "sign in" affordance —
+   * for grok, a 🔑 hint that opens the interactive sign-in action. */
+  needsAuth?: boolean
+  /** The provider that raised the needs-auth (grok-cli / grok-tui / claude…) — the
+   *  sign-in hint is grok-specific; other providers keep the generic attention line. */
+  authProvider?: string
+  /** Invoke the provider-aware sign-in action (grok → open the sign-in modal). */
+  onSignIn?: () => void
   /** The character's effective model as a friendly label (e.g. "Grok 4"), shown as a
    *  muted line so a set (or bulk-set) model is confirmable at a glance. Empty = hidden. */
   modelLabel?: string
@@ -117,6 +135,11 @@ export function CharacterCard({
   onRestart,
   onSettings,
   onOpenFolder,
+  onOpenEvents,
+  latestEvent,
+  needsAuth = false,
+  authProvider,
+  onSignIn,
   modelLabel,
   selectable,
   checked,
@@ -127,6 +150,10 @@ export function CharacterCard({
   lastActivity
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
+  // A grok character whose loop paused for re-auth gets a provider-aware "sign in"
+  // affordance; other providers keep the generic needs-you attention line.
+  const isGrok = /grok/i.test(authProvider || agent.provider || '')
+  const showSignIn = needsAuth && isGrok && !!onSignIn
   // Basic softens the CTA to a plain "Connect" and hides the online "Open console"
   // (operating a live terminal is an Advanced action). Advanced keeps both.
   const { advanced } = useAdvancedMode()
@@ -138,10 +165,13 @@ export function CharacterCard({
   // character reads WORKING (not the ambiguous LIVE), waiting → NEEDS YOU, online
   // but quiet → LIVE, offline → OFFLINE. Same 'good' tint for LIVE/WORKING so the
   // animated subtitle below — not a new colour — carries the "actively doing" cue.
+  // A re-auth pause is a "needs you" state even when the office presence heuristic
+  // (tickFor) hasn't caught it — surface it as the same amber NEEDS YOU.
+  const needsYou = tick === 'needs-you' || needsAuth
   const status: { variant: StatusVariant; label: string } = !connected
     ? { variant: 'neutral', label: 'OFFLINE' }
-    : tick === 'needs-you'
-      ? { variant: 'warn', label: 'NEEDS YOU' }
+    : needsYou
+      ? { variant: 'warn', label: needsAuth ? 'SIGN IN' : 'NEEDS YOU' }
       : working
         ? { variant: 'good', label: 'WORKING' }
         : { variant: 'good', label: 'LIVE' }
@@ -154,15 +184,17 @@ export function CharacterCard({
   // calm idle hint (no more speculative "working…" for a quiet online character).
   const subtitle = !connected
     ? 'not connected'
-    : tick === 'needs-you'
-      ? (agent.status || 'asked you a question')
-      : (agent.status || 'idle')
+    : needsAuth
+      ? 'sign in to grok to resume'
+      : tick === 'needs-you'
+        ? (agent.status || 'asked you a question')
+        : (agent.status || 'idle')
 
   // Dim "idle · 4m ago" suffix: only when genuinely idle (online, not waiting-on-you,
   // not working) with the default idle label AND a known last-activity time. A light
   // 30s tick keeps the relative time fresh as it ages; it's armed ONLY while shown, so
   // resting cards don't each hold a live timer.
-  const showAgo = connected && tick !== 'needs-you' && !working && subtitle === 'idle' && !!lastActivity
+  const showAgo = connected && !needsYou && !working && subtitle === 'idle' && !!lastActivity
   const [, setAgoTick] = useState(0)
   useEffect(() => {
     if (!showAgo) return
@@ -255,6 +287,18 @@ export function CharacterCard({
         >
           {agent.name}
         </div>
+        {onOpenEvents && (
+          <IconButton
+            label={`Events for ${agent.name}`}
+            icon="bolt"
+            size={22}
+            iconSize={12}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenEvents()
+            }}
+          />
+        )}
         {onOpenFolder && (
           <IconButton
             label="Open folder"
@@ -311,8 +355,9 @@ export function CharacterCard({
           variant={status.variant}
           label={status.label}
           size="sm"
-          // A LIVE (online, not waiting-on-you) character breathes to signal presence.
-          live={connected && tick !== 'needs-you'}
+          // Breathe ONLY while actively WORKING — an idle/online character shows a
+          // solid, STATIC dot (no perpetual "loading" animation on a resting card).
+          live={working}
           style={{ marginLeft: 'auto', flex: '0 0 auto' }}
         />
       </div>
@@ -358,7 +403,7 @@ export function CharacterCard({
               // → dim. A quiet online character no longer borrows the working green.
               color: !connected
                 ? 'var(--tx-4)'
-                : tick === 'needs-you'
+                : needsYou
                   ? stateColor('needs-auth')
                   : 'var(--tx-4)',
               whiteSpace: 'nowrap',
@@ -373,6 +418,41 @@ export function CharacterCard({
             )}
           </div>
         )
+      )}
+
+      {/* GROK SIGN-IN hint (item 2) — a provider-aware 🔑 affordance for a grok
+          character whose loop paused for re-auth. Opens the interactive sign-in
+          action (device-code login / XAI_API_KEY). Non-grok providers keep the
+          generic NEEDS YOU line above. */}
+      {showSignIn && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onSignIn?.() }}
+          aria-label={`Sign in to grok for ${agent.name}`}
+          style={{
+            alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 5,
+            padding: '2px 8px', borderRadius: 'var(--r-pill)',
+            background: 'var(--st-warn-tint)', border: '1px solid var(--st-warn-ink)',
+            color: 'var(--st-warn-ink)', fontFamily: 'var(--font-sans)',
+            fontSize: 'var(--fs-tiny)', fontWeight: 700, cursor: 'pointer'
+          }}
+        >
+          <span aria-hidden="true">🔑</span> grok — sign in
+        </button>
+      )}
+
+      {/* LATEST EVENT (item 6) — this character's most-recent office event as a hard-
+          truncated, dim one-liner. Reuses the Events-panel feed; hidden when empty. */}
+      {latestEvent && latestEvent.trim() && (
+        <div
+          title={latestEvent}
+          style={{
+            fontSize: 'var(--fs-tiny)', color: 'var(--tx-ghost)', fontFamily: 'var(--font-mono)',
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0
+          }}
+        >
+          {latestEvent}
+        </div>
       )}
 
       {/* LIFECYCLE controls — on their own footer row so they never overlap the

@@ -28,7 +28,7 @@ const ASSET = `AutoDev-${APP_VERSION}-x86_64.AppImage`;
 
 // sha256 of ASSET, pinned at publish time. The download is verified against this
 // before anything is executed — a truncated or tampered file must never run.
-const SHA256 = '669a7b4704b5da5671a8088596efc4fe877f1480460ccf4b288f83d57f3352eb';
+const SHA256 = '1d990074ae24fb8962a03b52a3931e3fa82654e96627a657e68a21453b0636d0';
 
 // Overridable so a self-hosted office can serve its own build.
 const BASE = (process.env.AUTODEV_APP_DOWNLOAD_BASE || 'https://autodev.code.aioffice.works/download').replace(/\/+$/, '');

@@ -1077,16 +1077,19 @@ export class PixelOfficeClient {
    * heuristic badge. Read-only + resilient: resolves the agent like messages()
    * does, returns a compact newest-first list.
    */
-  async agentEvents(officeSlug: string, agentRef: string, limit = 50): Promise<{ ok: true; agentId: string; agentName: string; events: OfficeEvent[] } | { error: string }> {
+  async agentEvents(officeSlug: string, agentRef: string, limit = 200, before?: number): Promise<{ ok: true; agentId: string; agentName: string; events: OfficeEvent[]; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     if (!String(agentRef ?? '').trim()) return { error: 'This agent is not linked to an office.' }
     try {
       const matched = await this._resolveAgentRef(officeSlug, agentRef)
       if (!matched) return { error: 'This agent could not be found in any of your offices.' }
       const { officeId, agentId, agentName } = matched
-      const lim = Math.max(1, Math.min(200, Math.trunc(Number(limit)) || 50))
+      // Server clamps to 500; default to a deep first page so the panel matches the
+      // pixel-office web depth immediately (older pages walk back via `before`).
+      const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit)) || 200))
+      const beforeParam = Number.isFinite(before) && (before as number) > 0 ? `&before=${Math.trunc(before as number)}` : ''
       const raw = await this.getJson(
-        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&agent_id=${encodeURIComponent(agentId)}&limit=${lim}&order=desc`
+        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&agent_id=${encodeURIComponent(agentId)}&limit=${lim}&order=desc${beforeParam}`
       ).catch(() => ({ data: [] }))
       const rows: any[] = Array.isArray(raw?.data) ? raw.data : []
       const events: OfficeEvent[] = []
@@ -1101,7 +1104,10 @@ export class PixelOfficeClient {
       }
       // The server returns newest-first (order=desc); enforce it defensively.
       events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
-      return { ok: true, agentId, agentName, events }
+      const nextBefore = typeof raw?.nextBefore === 'number' ? raw.nextBefore : null
+      const hasMore = !!raw?.hasMore
+      const total = typeof raw?.total === 'number' ? raw.total : events.length
+      return { ok: true, agentId, agentName, events, nextBefore, hasMore, total }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
     }
@@ -1115,16 +1121,17 @@ export class PixelOfficeClient {
    * from the office roster (resolved once and cached for the batch). Read-only +
    * resilient; fails soft to `{ error }`.
    */
-  async officeEvents(officeSlug: string, limit = 80): Promise<{ ok: true; events: Array<OfficeEvent & { agentId: string; agentName: string }> } | { error: string }> {
+  async officeEvents(officeSlug: string, limit = 200, before?: number): Promise<{ ok: true; events: Array<OfficeEvent & { agentId: string; agentName: string }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     if (!String(officeSlug ?? '').trim()) return { error: 'No office is open.' }
     try {
       const matched = await this._resolveOfficeId(officeSlug)
       if (!matched) return { error: 'This office could not be found.' }
       const { officeId, names } = matched
-      const lim = Math.max(1, Math.min(200, Math.trunc(Number(limit)) || 80))
+      const lim = Math.max(1, Math.min(500, Math.trunc(Number(limit)) || 200))
+      const beforeParam = Number.isFinite(before) && (before as number) > 0 ? `&before=${Math.trunc(before as number)}` : ''
       const raw = await this.getJson(
-        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&limit=${lim}&order=desc`
+        `/api/hooks/events?office_id=${encodeURIComponent(String(officeId))}&limit=${lim}&order=desc${beforeParam}`
       ).catch(() => ({ data: [] }))
       const rows: any[] = Array.isArray(raw?.data) ? raw.data : []
       const events: Array<OfficeEvent & { agentId: string; agentName: string }> = []
@@ -1139,7 +1146,10 @@ export class PixelOfficeClient {
         events.push({ id: `e-${ev.id}`, at: Date.parse(ev.createdAt) || 0, evt, tool, text, agentId, agentName })
       }
       events.sort((a, b) => b.at - a.at || b.id.localeCompare(a.id))
-      return { ok: true, events }
+      const nextBefore = typeof raw?.nextBefore === 'number' ? raw.nextBefore : null
+      const hasMore = !!raw?.hasMore
+      const total = typeof raw?.total === 'number' ? raw.total : events.length
+      return { ok: true, events, nextBefore, hasMore, total }
     } catch (e) {
       return { error: String((e as Error)?.message ?? e) }
     }
@@ -1279,6 +1289,38 @@ export class PixelOfficeClient {
     const dir = join(root, safeSeg(officeSlug), safeSeg(agentSlug || agentId))
     if (resolve(dir) !== root && !resolve(dir).startsWith(resolve(root) + sep)) return null
     return dir
+  }
+
+  /**
+   * Ensure a character's Operate/loop scratch workspace EXISTS + is wired to the
+   * office (its office-MCP key written into `.mcp.json`, folder pre-trusted), and
+   * return its path — WITHOUT launching any provider. This is what the per-character
+   * MCP editor (CharacterSettingsModal → McpEditorModal) scopes to, so adding /
+   * toggling MCP servers there writes the SAME `.mcp.json` the operate/loop launch
+   * uses. Mirrors operate()'s provisioning minus the command/bin resolution — a
+   * character whose scratch dir was never operated still gets a valid workspace to
+   * edit. Best-effort office-key write (an editor still works with just the file).
+   */
+  async ensureWorkspace(officeSlug: string, agentId: string, agentSlug: string, provider = ''): Promise<{ ok: true; cwd: string } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    const dir = this.resolveOperateCwd(officeSlug, agentSlug, agentId)
+    if (!dir) return { error: 'Invalid office/agent identifier.' }
+    try {
+      mkdirSync(dir, { recursive: true, mode: 0o700 })
+      // Write the office-MCP server (its key) so the character's MCP list starts
+      // from its real office connection — best-effort: a failed credentials fetch
+      // still leaves a usable dir the editor can add servers to.
+      try {
+        const creds = (await this.getJson(`/api/offices/${officeSlug}/agents/${agentId}/credentials`))?.data ?? {}
+        const key = creds.apiKey as string | undefined
+        const url = safeMcpUrl(creds.mcpUrl, this.base, `${this.base}/api/office-mcp`)
+        if (key) { writeMcpJson(dir, key, url); writeMcpTrust(dir); this.recordProvisioned(dir) }
+      } catch (e) { dbg('ensureWorkspace: office key write skipped', e) }
+      markFolderTrusted(dir)
+      markGrokFolderTrusted(dir)
+      if (provider) this.writeProvider(dir, provider)
+      return { ok: true, cwd: dir }
+    } catch (e) { dbg('ensureWorkspace error', e); return { error: String((e as Error)?.message ?? e) } }
   }
 
   /**

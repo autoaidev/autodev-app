@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Modal, Button, ProviderChip } from '@renderer/ui'
+import { Modal, Button, ProviderChip, Icon } from '@renderer/ui'
 import { OfficeAgent } from './officeTypes'
 import { PROVIDER_FAMILIES, providerAccent, providerFamilyOf, type ProviderFamily } from '@renderer/services/identity'
 import { ModelSelect } from '@renderer/components/ModelSelect'
+import { McpEditorModal } from '@renderer/modals/McpEditorModal'
 import * as officeService from '@renderer/services/officeService'
 
 /**
@@ -45,6 +46,12 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
+  // Per-character MCP editor (item 4): resolves the character's OWN Operate/loop
+  // scratch workspace, then reuses the shared McpEditorModal scoped to that dir so
+  // add/enable/disable/remove land in the SAME .mcp.json the loop/operate launch uses.
+  const [mcpPath, setMcpPath] = useState<string | null>(null)
+  const [mcpBusy, setMcpBusy] = useState(false)
+  const [mcpErr, setMcpErr] = useState('')
 
   // Seed from the live character on open. providerFamilyOf coerces a `-tui/-cli`
   // id OR a bare family down to the family the selector edits.
@@ -70,6 +77,20 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
       ? 'Saved — reconnect this character to run on the new engine.'
       : 'Saved.')
   }, [agent, family, model, name])
+
+  const openMcp = useCallback(async (): Promise<void> => {
+    if (!agent) return
+    setMcpBusy(true); setMcpErr('')
+    try {
+      const r = await window.api.officeEnsureWorkspace(agent.officeSlug, agent.id, agent.slug, family)
+      if ('cwd' in r && r.cwd) setMcpPath(r.cwd)
+      else setMcpErr(('error' in r && r.error) || 'Could not prepare this character’s workspace.')
+    } catch (e) {
+      setMcpErr(e instanceof Error ? e.message : 'Could not prepare this character’s workspace.')
+    } finally {
+      setMcpBusy(false)
+    }
+  }, [agent, family])
 
   const agentName = name || agent?.name || 'Character'
 
@@ -150,9 +171,31 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
         <span style={label}>Model</span>
         <ModelSelect vendor={family} value={model} onChange={setModel} />
       </div>
-      <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>
+      <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginBottom: 18 }}>
         Leave empty for the provider's default model.
       </div>
+
+      {/* MCP SERVERS (item 4) — view + add/remove/enable-disable the MCP servers for
+          THIS character's workspace. Opens the shared McpEditorModal (built-in
+          Memory/Playwright/Sequential-Thinking/Computer-Use stay always-on) scoped
+          to the character's Operate/loop scratch dir. */}
+      <div style={{ borderTop: '1px solid var(--bd-2)', paddingTop: 14 }}>
+        <span style={label}>MCP servers</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Button variant="secondary" onClick={() => void openMcp()} disabled={mcpBusy || !agent}>
+            <Icon name="gear" size={12} /> {mcpBusy ? 'Preparing…' : 'Manage MCP servers…'}
+          </Button>
+          {mcpErr && <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--st-error)' }}>{mcpErr}</span>}
+        </div>
+        <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginTop: 6 }}>
+          Tools this character can call — scoped to its own workspace; applies on its next task.
+        </div>
+      </div>
+
+      {/* Reused per-agent MCP editor, scoped to the resolved workspace path. */}
+      {mcpPath && (
+        <McpEditorModal agentPath={mcpPath} open={!!mcpPath} onClose={() => setMcpPath(null)} />
+      )}
     </Modal>
   )
 }

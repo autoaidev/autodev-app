@@ -184,8 +184,11 @@ const api = {
   officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
-  officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string }> } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit),
-  officeEvents: (officeSlug: string, limit?: number): Promise<{ ok: true; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; agentId: string; agentName: string }> } | { error: string }> => ipcRenderer.invoke('office:events', officeSlug, limit),
+  officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number, before?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit, before),
+  officeEvents: (officeSlug: string, limit?: number, before?: number): Promise<{ ok: true; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; agentId: string; agentName: string }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:events', officeSlug, limit, before),
+  // Ensure a character's Operate/loop scratch workspace exists (+ office-MCP key)
+  // and return its path — the per-character MCP editor scopes its edits to this dir.
+  officeEnsureWorkspace: (officeSlug: string, agentId: string, agentSlug: string, provider?: string): Promise<{ ok: true; cwd: string } | { error: string }> => ipcRenderer.invoke('office:ensureWorkspace', officeSlug, agentId, agentSlug, provider),
   officeCreateCharacter: (officeId: number, name: string, opts?: { avatarIndex?: number; color?: string; emoji?: string }) => ipcRenderer.invoke('office:createCharacter', officeId, name, opts),
   officeOffices: () => ipcRenderer.invoke('office:offices'),
   officeSetupUrl: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:setupUrl', officeSlug, agentId),

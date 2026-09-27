@@ -14,6 +14,7 @@ import { useAgents, getAgents, getElapsedMs, actions } from '@renderer/services/
 import { modelKeyFor } from '@renderer/lib/providers'
 import { BulkModelModal } from '@renderer/modals/BulkModelModal'
 import { BulkMcpModal } from '@renderer/modals/BulkMcpModal'
+import { GrokSignInModal } from '@renderer/modals/GrokSignInModal'
 import '@renderer/components/fleet/fleet.css'
 import { MAIN_NAV, SETTINGS_NAV, type NavId } from '@renderer/nav'
 import { useAppActions } from '@renderer/services/appActions'
@@ -182,11 +183,15 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   const attentionAction = useCallback(
     (a: AgentState): AttentionAction => {
       switch (a.activity) {
-        case 'needs-auth':
-          // TODO(redesign): re-auth is interactive; restart is the closest the
-          // app can drive headlessly. A true "Answer/Re-auth" flow would open
-          // the provider login (not exposed on window.api for the fleet view).
+        case 'needs-auth': {
+          // grok login is INTERACTIVE — a headless restart just re-hits the same
+          // logged-out gate. For grok, open the provider-aware "Sign in to grok"
+          // modal (device-code login / XAI_API_KEY + copy, with a headless retry).
+          // Non-grok providers keep the headless restart as the closest re-auth.
+          const isGrok = /grok/i.test(a.authProvider || a.provider || '')
+          if (isGrok) return { label: 'Sign in', onClick: () => setSignInAgent(a) }
           return { label: 'Re-auth', onClick: () => void restart(a.path) }
+        }
         case 'rate-limited':
           return { label: 'Retry', onClick: () => void restart(a.path) }
         case 'crashed':
@@ -210,6 +215,9 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   // Bulk "Set MCP…" over the current selection (BulkMcpModal fans an MCP op out
   // over the selected paths via the CLI seam). Non-null = the modal is open.
   const [mcpModal, setMcpModal] = useState<{ paths: string[] } | null>(null)
+  // The grok agent whose provider-aware "Sign in to grok" modal is open (item 2).
+  const [signInAgent, setSignInAgent] = useState<AgentState | null>(null)
+  const [signInRetrying, setSignInRetrying] = useState(false)
 
   // Per-row model change (#10) — persist via the SAME `config set <vendorKey>` path
   // as Setup; the model takes hold on the agent's next loop.
@@ -607,6 +615,22 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
           setMcpModal(null)
           setSelected(new Set())
         }}
+      />
+
+      {/* Provider-aware "Sign in to grok" for a needs-auth grok agent (item 2). The
+          fleet has no per-agent terminal, so this shows the exact commands (copy) +
+          the XAI_API_KEY escape hatch, with a headless "I've signed in — retry". */}
+      <GrokSignInModal
+        open={!!signInAgent}
+        onClose={() => setSignInAgent(null)}
+        name={signInAgent?.name}
+        message={signInAgent?.authMessage}
+        onRetry={() => {
+          if (!signInAgent) return
+          setSignInRetrying(true)
+          try { void restart(signInAgent.path) } finally { setSignInRetrying(false); setSignInAgent(null) }
+        }}
+        retrying={signInRetrying}
       />
     </AppShell>
   )

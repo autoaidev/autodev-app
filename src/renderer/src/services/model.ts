@@ -70,6 +70,13 @@ export interface AgentState {
    *  (deleting the scratch dir would nuke a live Operate session) and maps Stop to
    *  closing the Operate session. Set by the main-process readState. */
   officeOperate?: boolean
+  /** When `activity === 'needs-auth'`, the provider's own reason (the reauth_required
+   *  hook `message`, e.g. grok's "Not signed in… Please run: grok login"). Drives the
+   *  provider-specific sign-in affordance's instruction text. */
+  authMessage?: string
+  /** The provider that raised the needs-auth (`grok-cli` / `grok-tui` / `claude…`) —
+   *  selects the sign-in action (grok → `grok login`). Falls back to `provider`. */
+  authProvider?: string
 }
 
 /** Human, sentence-case label for each activity. */

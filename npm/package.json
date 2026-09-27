@@ -1,6 +1,6 @@
 {
   "name": "autodev-app",
-  "version": "0.3.77",
+  "version": "0.3.78",
   "description": "AutoDev desktop app — run autonomous AI agents from a GUI. Installs and launches the AutoDev desktop app.",
   "keywords": [
     "autodev",
