@@ -229,6 +229,10 @@ This app is one repo in the AutoDev / Pixel Office family. Related projects:
   (repo) — spawns agents on SSH / Docker / K8s with managed auth. Live:
   [deployer.pixeloffice.org](https://deployer.pixeloffice.org).
 
+## Author / Maintainer
+
+**Peter Ivanov** <peter@microweber.com>
+
 ## License
 
 MIT
