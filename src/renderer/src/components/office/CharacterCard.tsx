@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { StatusPill, Chip, AgentAvatar, IconButton, Icon } from '@renderer/ui'
+import React, { useEffect, useRef, useState } from 'react'
+import { StatusPill, Chip, AgentAvatar, IconButton, Icon, ContextMenu } from '@renderer/ui'
 import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
@@ -49,6 +49,12 @@ export interface CharacterCardProps {
   onRestart?: () => void
   /** Open the SETTINGS editor for this character (provider / model / name). */
   onSettings?: () => void
+  /** Open the RENAME dialog for this character. Absent → the action is hidden from
+   *  the ⋯ "More actions" menu. */
+  onRename?: () => void
+  /** Open the DELETE confirm dialog for this character. Absent → the action is
+   *  hidden from the ⋯ "More actions" menu. */
+  onDelete?: () => void
   /** Reveal the character's working folder (its office loop/operate cwd) in the OS
    *  file manager. Absent → the folder button is hidden. */
   onOpenFolder?: () => void
@@ -134,6 +140,8 @@ export function CharacterCard({
   onStop,
   onRestart,
   onSettings,
+  onRename,
+  onDelete,
   onOpenFolder,
   onOpenEvents,
   latestEvent,
@@ -202,6 +210,27 @@ export function CharacterCard({
     return () => clearInterval(id)
   }, [showAgo])
   const idleAgo = showAgo ? agoLabel(lastActivity) : ''
+
+  // ── ⋯ "More actions" menu (Rename / Delete) ──────────────────────────────
+  // Shown whenever at least one management action is wired (the office is one the
+  // user owns/operates — the app only ever lists owned offices, and the backend
+  // DELETE/PATCH routes are owner-scoped). Anchored with fixed coords off the
+  // button rect so it floats over the (overflow:auto) grid instead of being
+  // clipped. Escape closes and focus lands on the first item on open.
+  const showMore = !!(onRename || onDelete)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+  const menuWrapRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!menuPos) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') { e.stopPropagation(); setMenuPos(null) }
+    }
+    window.addEventListener('keydown', onKey, true)
+    const t = setTimeout(() => {
+      menuWrapRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
+    }, 0)
+    return () => { window.removeEventListener('keydown', onKey, true); clearTimeout(t) }
+  }, [menuPos])
 
   return (
     <div
@@ -323,7 +352,37 @@ export function CharacterCard({
             }}
           />
         )}
+        {showMore && (
+          <IconButton
+            label={`More actions for ${agent.name}`}
+            icon="more"
+            size={22}
+            iconSize={12}
+            active={!!menuPos}
+            onClick={(e) => {
+              e.stopPropagation()
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+              setMenuPos((p) => (p ? null : { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }))
+            }}
+          />
+        )}
       </div>
+
+      {/* ⋯ menu — Rename / Delete. Floating (fixed) so it isn't clipped by the
+          grid's overflow; clicks/keys are kept from bubbling to the card's
+          select handler. */}
+      {showMore && menuPos && (
+        <div ref={menuWrapRef} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+          <ContextMenu
+            onClose={() => setMenuPos(null)}
+            style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, minWidth: 180 }}
+            items={[
+              ...(onRename ? [{ label: 'Rename', icon: 'editor' as const, onClick: () => onRename() }] : []),
+              ...(onDelete ? [{ label: 'Delete', icon: 'trash' as const, danger: true, onClick: () => onDelete() }] : [])
+            ]}
+          />
+        </div>
+      )}
 
       {/* META ROW — provider Chip (left, brand hue, flex:none so it never clips) ·
           model label (takes the slack, ellipsis) · StatusPill (right, flex:none).

@@ -6,6 +6,7 @@ import { OfficeCard } from '../components/office/OfficeCard'
 import { CharacterCard } from '../components/office/CharacterCard'
 import { CharacterSettingsModal } from '../components/office/CharacterSettingsModal'
 import { AddCharacterModal } from '../components/office/AddCharacterModal'
+import { RenameCharacterModal, DeleteCharacterModal } from '../components/office/CharacterActionModals'
 import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { EventsPanel } from '../components/office/EventsPanel'
@@ -77,6 +78,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // Per-agent EVENTS modal (item 7): the id of the character whose events modal is
   // open (the enriched EventsPanel, agent-locked, with search + paging).
   const [eventsCharId, setEventsCharId] = useState('')
+  // The character whose in-app Rename / Delete dialog is open (by id, resolved from
+  // the live list so it survives polls). Both reached from the card's ⋯ menu.
+  const [renameCharId, setRenameCharId] = useState('')
+  const [deleteCharId, setDeleteCharId] = useState('')
   // The grok character whose provider-aware "Sign in to grok" modal is open (item 2).
   const [signInAgent, setSignInAgent] = useState<OfficeAgent | null>(null)
   const [signInRetrying, setSignInRetrying] = useState(false)
@@ -1142,6 +1147,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   onStop={() => stopCharacter(a)}
                   onRestart={() => restartCharacter(a)}
                   onSettings={() => { setFocusedId(a.id); setSettingsCharId(a.id) }}
+                  onRename={() => { setFocusedId(a.id); setRenameCharId(a.id) }}
+                  onDelete={() => setDeleteCharId(a.id)}
                   onOpenFolder={() => void openCharFolder(a)}
                   modelLabel={modelNameFor(a)}
                   selectable={advanced}
@@ -1217,6 +1224,39 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         }
         open={!!settingsCharId}
         onClose={() => setSettingsCharId('')}
+      />
+
+      {/* Per-character RENAME — small in-app dialog (never window.prompt). Resolved
+          from the live list so it always edits the current character (survives
+          polls); persists via officeService.updateCharacter(id, { name }). */}
+      <RenameCharacterModal
+        agent={
+          office.agents.find((a) => a.id === renameCharId) ??
+          selectedGroup?.agents.find((a) => a.id === renameCharId) ??
+          null
+        }
+        open={!!renameCharId}
+        onClose={() => setRenameCharId('')}
+      />
+
+      {/* Per-character DELETE — danger-styled in-app confirm (never window.confirm).
+          On success clear any selection pointing at the removed character and drop
+          it from the bulk selection. */}
+      <DeleteCharacterModal
+        agent={
+          office.agents.find((a) => a.id === deleteCharId) ??
+          selectedGroup?.agents.find((a) => a.id === deleteCharId) ??
+          null
+        }
+        open={!!deleteCharId}
+        onClose={() => setDeleteCharId('')}
+        onDeleted={(id) => {
+          if (focusedId === id) setFocusedId('')
+          setBulkSelected((prev) => {
+            if (!prev.has(id)) return prev
+            const n = new Set(prev); n.delete(id); return n
+          })
+        }}
       />
 
       {/* Bulk Set-model across the selected characters — persisted via the OFFICE path

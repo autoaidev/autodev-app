@@ -117,6 +117,7 @@ type Api = {
     agentId: string,
     patch: { provider?: string; model?: string; name?: string; fileBrowserEnabled?: boolean }
   ) => Promise<{ ok?: boolean; provider?: string; model?: string; name?: string; error?: string }>
+  officeDeleteAgent: (officeSlug: string, agentId: string) => Promise<{ ok?: boolean; error?: string }>
   officeMessages: (
     officeSlug: string,
     agentRef: string
@@ -646,6 +647,39 @@ export async function updateCharacter(
 }
 
 /**
+ * deleteCharacter(officeSlug, agentId) — permanently delete an office character
+ * via the office API (DELETE /api/agents/{id}, owner/office-scoped server-side).
+ * On success we OPTIMISTICALLY drop the character from the local store (and any
+ * pending optimistic placeholder) so its card disappears from the grid at once —
+ * the 8s presence poll reconciles — instead of waiting up to 8s for the next
+ * fetch. Returns the server verdict; the caller surfaces errors + clears any
+ * selection pointing at the removed character.
+ */
+export async function deleteCharacter(
+  officeSlug: string,
+  agentId: string
+): Promise<{ ok: true } | { error: string }> {
+  const id = String(agentId ?? '')
+  if (!id) return { error: 'No character selected.' }
+  let r: { ok?: boolean; error?: string }
+  try {
+    r = await api().officeDeleteAgent(officeSlug, id)
+  } catch (e) {
+    return { error: String((e as Error)?.message ?? e) }
+  }
+  if (r?.error || !r?.ok) return { error: r?.error || 'Could not delete the character.' }
+  // Optimistic removal — drop from the store + any pending placeholder so the
+  // card vanishes immediately (reconciled by the next poll, which no longer
+  // returns it).
+  optimisticChars.delete(id)
+  if (state.agents.some((a) => a.id === id)) {
+    const agents = state.agents.filter((a) => a.id !== id)
+    emit({ agents, offices: computeOffices(agents, state.officeMeta) })
+  }
+  return { ok: true }
+}
+
+/**
  * insertOptimisticCharacter(agent) — show a just-created character's card at once,
  * before the office's ~5s WS round-trip surfaces it in `officeAgents()`. The card
  * renders in its (offline) pending state and is reconciled to the real row the
@@ -675,7 +709,7 @@ export function getConnection(): OfficeConnection {
 
 /* ------------------------------------------------------------------- hooks -- */
 
-const officeActions = { connect, disconnect, reconnect, refresh, setVisible, updateCharacter }
+const officeActions = { connect, disconnect, reconnect, refresh, setVisible, updateCharacter, deleteCharacter }
 
 /**
  * useOffice() — the office list + connection state + actions. See the file header
