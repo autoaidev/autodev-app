@@ -178,3 +178,7 @@ say(`  (npm publish)  cd npm && npm publish --access public`);
 say(`  (pixel-office) git add public/download && git commit   # if /download is tracked`);
 say(`  (prod + mirror) after staging the prod download dir + autoaidev releases,`);
 say(`                  prune them too: node scripts/prune-downloads.mjs <dir> ${KEEP_RELEASES}`);
+say(`  (autoaidev.com) REFRESH the stable download-button aliases or the self-host`);
+say(`                  page serves the PREVIOUS build (fresh install then prompts to`);
+say(`                  update). Run on the release server, after versioned files land:`);
+say(`                  ~/refresh-latest-aliases.sh   (repo: autoaidev.com/scripts/)`);
