@@ -6,6 +6,7 @@ import { McpCatalogList } from '../components/mcp/McpCatalogList'
 import { McpCatalogPicker } from '../components/mcp/McpCatalogPicker'
 import { summarize, metaFor, type McpServerStatus } from '../components/mcp/mcpStatus'
 import { CreativeAppsSection } from '../components/mcp/CreativeAppsSection'
+import { SyntheticMemSection } from '../components/mcp/SyntheticMemSection'
 import { useMcpCatalog, type McpListEntry, type McpJsonEntry } from '@renderer/lib/mcp'
 
 /**
@@ -50,6 +51,11 @@ export function McpEditorModal(props: {
 }): React.JSX.Element {
   const { agentPath, open, onClose } = props
   const { catalog } = useMcpCatalog()
+
+  // Remote servers that require a bearer key (SyntheticMem) can't be one-click
+  // "Add"ed without first collecting the key, so they get their own section below
+  // and are dropped from the generic catalog list + "Add custom…" picker.
+  const pickableCatalog = React.useMemo(() => catalog.filter((s) => !(s.kind === 'remote' && s.auth)), [catalog])
 
   const [current, setCurrent] = React.useState<McpListEntry[]>([])
   const [servers, setServers] = React.useState<McpServerStatus[]>([])
@@ -221,8 +227,19 @@ export function McpEditorModal(props: {
           Loading the MCP catalog…
         </div>
       ) : (
-        <McpCatalogList catalog={catalog} current={current} busyName={busyName} onApply={apply} />
+        <McpCatalogList catalog={pickableCatalog} current={current} busyName={busyName} onApply={apply} />
       )}
+
+      {/* ── HOSTED MEMORY (SyntheticMem remote MCP — optional, needs a key) ── */}
+      <SyntheticMemSection
+        agentPath={agentPath}
+        catalog={catalog}
+        current={current}
+        onMcpChanged={() => {
+          void loadList()
+          void recheck()
+        }}
+      />
 
       {/* ── CONNECTIVITY (live status) ────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '18px 0 8px' }}>

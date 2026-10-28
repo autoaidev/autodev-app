@@ -52,12 +52,13 @@ export interface McpJsonEntry {
 export interface McpCatalogServer {
   id: string
   name: string
-  kind: 'builtin' | 'common' | 'creative'
+  kind: 'builtin' | 'common' | 'creative' | 'remote'
   transport: 'stdio' | 'http' | 'sse'
   server: McpJsonEntry
   description?: string
   experimental?: boolean
   requiresApp?: string
+  auth?: { header: string; keyPrefix: string; demoKeyUrl?: string; registerUrl?: string }
 }
 
 /** One entry from `autodev mcp list --json` (a raw entry plus its `name`). */
@@ -70,7 +71,7 @@ export interface DefaultMcpEntry {
   id?: string
   name: string
   server: McpJsonEntry
-  kind?: 'builtin' | 'common' | 'creative' | 'custom'
+  kind?: 'builtin' | 'common' | 'creative' | 'remote' | 'custom'
 }
 
 const api = {

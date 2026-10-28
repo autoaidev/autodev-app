@@ -26,16 +26,26 @@ export interface McpJsonEntry {
   _meta?: { managedBy?: string; name?: string; kind?: string }
 }
 
+/** Auth metadata for a 'remote' catalog server that needs a bearer key. */
+export interface McpCatalogAuth {
+  header: string
+  keyPrefix: string
+  demoKeyUrl?: string
+  registerUrl?: string
+}
+
 /** One pickable server from `autodev mcp catalog --json`. */
 export interface McpCatalogServer {
   id: string
   name: string
-  kind: 'builtin' | 'common' | 'creative'
+  kind: 'builtin' | 'common' | 'creative' | 'remote'
   transport: 'stdio' | 'http' | 'sse'
   server: McpJsonEntry
   description?: string
   experimental?: boolean
   requiresApp?: string
+  /** Present for 'remote' entries requiring a key (SyntheticMem). */
+  auth?: McpCatalogAuth
 }
 
 /** One entry from `autodev mcp list --json` (a raw entry plus its `name`). */
@@ -52,7 +62,7 @@ export interface DefaultMcpEntry {
    *  entries / custom servers — fall back to `name`. */
   label?: string
   server: McpJsonEntry
-  kind?: 'builtin' | 'common' | 'creative' | 'custom'
+  kind?: 'builtin' | 'common' | 'creative' | 'remote' | 'custom'
 }
 
 export type McpKind = McpCatalogServer['kind']
@@ -88,7 +98,8 @@ export const CORE_BUILTIN_IDS: ReadonlySet<string> = new Set(CORE_BUILTIN_MCP.ma
 export const MCP_KIND_META: Record<McpKind, { label: string; order: number }> = {
   builtin: { label: 'Built-in', order: 0 },
   common: { label: 'Common', order: 1 },
-  creative: { label: 'Creative apps', order: 2 }
+  creative: { label: 'Creative apps', order: 2 },
+  remote: { label: 'Hosted memory', order: 3 }
 }
 
 // ---------------------------------------------------------------------------

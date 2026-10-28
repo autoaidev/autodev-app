@@ -25,7 +25,7 @@ import {
 export interface McpPick {
   name: string
   server: McpJsonEntry
-  kind: 'builtin' | 'common' | 'creative' | 'custom'
+  kind: 'builtin' | 'common' | 'creative' | 'remote' | 'custom'
   id?: string
   /** Friendly catalog name for DISPLAY (identity stays `name`/`id`). */
   label?: string
@@ -98,7 +98,13 @@ export function McpCatalogPicker({
   const [cSse, setCSse] = React.useState(false)
 
   const groups = React.useMemo(
-    () => groupCatalog(catalog).filter((g) => !(hideBuiltins && g.kind === 'builtin')),
+    () =>
+      groupCatalog(
+        // Remote servers that need a bearer key (SyntheticMem) can't be added from
+        // this keyless picker — they have their own key-collecting section in the
+        // MCP editor. Drop them here so no keyless/broken add is ever offered.
+        catalog.filter((s) => !(s.kind === 'remote' && s.auth))
+      ).filter((g) => !(hideBuiltins && g.kind === 'builtin')),
     [catalog, hideBuiltins]
   )
 
