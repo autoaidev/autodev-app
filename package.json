@@ -1,6 +1,6 @@
 {
   "name": "autodev-app",
-  "version": "0.3.84",
+  "version": "0.3.85",
   "//": "private: this dir builds the DESKTOP APP, it is not the npm package. Publishing it would ship a package with no out/ (gitignored, so `main` points at nothing), no bin, and electron only as a devDependency — it installs fine and does nothing. The published `autodev-app` package is npm/ — a launcher that fetches the release artifact.",
   "private": true,
   "autodevCliMinVersion": "1.4.31",

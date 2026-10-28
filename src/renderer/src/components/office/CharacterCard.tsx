@@ -268,10 +268,12 @@ export function CharacterCard({
         minWidth: 0
       }}
     >
-      {/* HEADER ROW — avatar · name · gear. Name owns all the slack (flex + ellipsis)
-          so it truncates cleanly; the provider Chip and StatusPill live on their OWN
-          row below, so neither can clip mid-word or be occluded by the other (F2). */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+      {/* HEADER — split into TWO rows so the action icons can't squeeze the name
+          off the card (F3): ROW 1 is identity (checkbox · avatar · name — the name
+          owns the whole row and truncates cleanly only when genuinely too long);
+          ROW 2 is the action controls (events · folder · settings · ⋯). */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
         {selectable && (
           <input
             type="checkbox"
@@ -316,6 +318,9 @@ export function CharacterCard({
         >
           {agent.name}
         </div>
+        </div>
+        {/* ROW 2 — action controls on their own row so ROW 1's name is never clipped. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
         {onOpenEvents && (
           <IconButton
             label={`Events for ${agent.name}`}
@@ -366,6 +371,7 @@ export function CharacterCard({
             }}
           />
         )}
+        </div>
       </div>
 
       {/* ⋯ menu — Rename / Delete. Floating (fixed) so it isn't clipped by the
