@@ -13,6 +13,7 @@ import { humanizeFetchError } from './netError'
 import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
+import { buildOperateCommand } from './operateCommand'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -1191,30 +1192,23 @@ export class PixelOfficeClient {
    * separate from the loop, so without this a "Connect & operate" always opened a
    * fresh chat and lost all prior context).
    *
-   *   grok    → `grok --resume <id> --always-approve` when a NON-EMPTY prior session
-   *             exists for this scratch dir (grok keys sessions by encodeURIComponent
-   *             of the cwd, newest uuid wins — ported from agentManager
-   *             `_resolveGrokSessionId`), else bare `grok --always-approve`.
-   *   claude  → `claude --continue` (resumes the most-recent session in this cwd, no
-   *             picker; harmless when there is none — it just starts fresh).
-   *   others  → bare (opencode / copilot have no clean, non-interactive continue flag).
+   * grok resumes via `--continue` (NOT `--resume <id>`): a per-turn re-launch with
+   * an id WE computed is fragile — a stale id or a cwd-encoding/realpath mismatch
+   * makes grok error on resume and silently fall back to a FRESH, stateless session
+   * (the observed post-turn-1 stall: a blank session with only the system prompt +
+   * skill reminders, no task, so grok idles forever). `grok --continue` lets grok
+   * resolve the newest session for the real cwd itself, immune to our id drift. The
+   * command shape lives in the pure, unit-tested `buildOperateCommand`; here we only
+   * supply the session-PRESENCE boolean it needs.
    *
    * POISON/EMPTY GUARD: the raw Operate pane has no poison self-heal, so we only
-   * `--resume` a grok session whose `chat_history.jsonl` exists and is non-empty —
-   * a dead/empty session would otherwise crash the pane on launch. A first connect
-   * on a fresh scratch dir legitimately has no session → bare.
+   * treat grok as resumable when a `chat_history.jsonl` exists and is non-empty —
+   * a first connect on a fresh scratch dir legitimately has no session → bare.
    */
   private resolveOperateCommand(dir: string, provider: string): string {
-    const p = String(provider ?? '').toLowerCase()
-    const GROK = 'grok --always-approve'
-    if (p.startsWith('grok')) {
-      const id = this.newestGrokSession(dir)
-      return id ? `grok --resume ${id} --always-approve` : GROK
-    }
-    if (p.startsWith('claude') || p === '' ) return 'claude --continue'
-    if (p.startsWith('opencode')) return 'opencode'
-    if (p.startsWith('copilot')) return 'copilot'
-    return 'claude --continue'
+    const hasResumableGrokSession =
+      String(provider ?? '').toLowerCase().startsWith('grok') && this.newestGrokSession(dir) !== null
+    return buildOperateCommand(provider, hasResumableGrokSession)
   }
 
   /**
