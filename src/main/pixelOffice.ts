@@ -14,6 +14,7 @@ import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns } fro
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
 import { buildOperateCommand } from './operateCommand'
+import { isOfficeAgentPresent } from './officePresence'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
  *  volume) so the "can't see my agents" path is diagnosable from app logs. */
@@ -866,7 +867,13 @@ export class PixelOfficeClient {
           const avatarIndex = typeof a.avatarIndex === 'number' ? a.avatarIndex : undefined
           out.push({
             office: o.name, officeSlug: o.slug, id: a.id, name: String(a.name ?? a.slug ?? 'Agent'), slug: a.slug,
-            status: a.status, online: !!(a.isConnected ?? a.online), provider: a.provider, model: a.model,
+            // Presence is online over EITHER transport: a WebSocket (loop/spawn +
+            // the mcp-operate bridge) OR a pure office-MCP poll (an operate-mode TUI
+            // whose only office link is its .mcp.json). The old `isConnected ?? online`
+            // saw only the WS flag, so a genuinely-working operate agent (presence:
+            // 'mcp', isConnected:false) read OFFLINE — the shared root cause of the
+            // stuck "connecting…"/OFFLINE badge. See officePresence.ts.
+            status: a.status, online: isOfficeAgentPresent(a), provider: a.provider, model: a.model,
             avatarIndex, color: a.color, emoji: a.emoji,
             // Inline the pixel-art sprite (CSP-safe data: URI) so both the office
             // cards AND office-bound local agents can render the character's real face.
@@ -1502,9 +1509,10 @@ export class PixelOfficeClient {
       if (!selected.length) return { error: 'None of the selected characters are in this office.' }
 
       // BLOCK if any SELECTED character is already online (same online test listAgents
-      // uses) — the renderer filters to offline, so this now only trips on a race.
+      // uses — WS OR MCP, so a live operate-mode TUI also blocks a double-driving loop
+      // spawn). The renderer filters to offline, so this now only trips on a race.
       // Checked BEFORE any workspace is written so a blocked call has no side effects.
-      const online = selected.filter((a) => !!(a.isConnected ?? a.online))
+      const online = selected.filter((a) => isOfficeAgentPresent(a))
                            .map((a) => String(a.name ?? a.slug ?? a.id))
       if (online.length) {
         return { error: `Can't spawn — ${online.length} character(s) already online: ${online.join(', ')}.`, online }
