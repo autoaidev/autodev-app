@@ -82,7 +82,9 @@ const PROVIDER_HINTS: Record<string, string> = {
   'grok-cli':
     'xAI Grok, driven through its CLI. Authenticate with `grok`; tokens refresh automatically but can still expire.',
   'grok-tui':
-    'xAI Grok via its interactive TUI. Same `grok` sign-in as the CLI variant.'
+    'xAI Grok via its interactive TUI. Same `grok` sign-in as the CLI variant.',
+  'grok-acp':
+    'xAI Grok driven through its persistent ACP session — one warm session kept alive across turns. Same `grok` sign-in as the other variants.'
 }
 const providerHint = (id: string): string =>
   PROVIDER_HINTS[id] ??

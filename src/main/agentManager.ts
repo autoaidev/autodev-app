@@ -1568,7 +1568,7 @@ export class AgentManager extends EventEmitter {
    */
   private _resolveGrokSessionId(path: string, provider: string): string | null {
     const st = this._readJson(join(path, '.autodev', 'session-state.json')) || {}
-    const fromState = st['grok-tui'] || st['grok-cli'] || st[provider]
+    const fromState = st['grok-tui'] || st['grok-cli'] || st['grok-acp'] || st[provider]
     if (typeof fromState === 'string' && fromState.trim()) return fromState.trim()
     // Grok keys its session dir by the URL-encoded workspace cwd (raw + realpath).
     const roots = new Set<string>([path])

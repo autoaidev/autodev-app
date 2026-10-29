@@ -48,8 +48,11 @@ export const PROVIDER_GROUPS: ProviderGroup[] = [
   {
     vendor: 'Grok',
     options: [
+      // NOTE: grok-cli stays options[0] — it is the Grok family default that
+      // defaultProviderIdForFamily('grok') resolves to; do not reorder.
       { id: 'grok-cli', label: 'Grok — CLI' },
-      { id: 'grok-tui', label: 'Grok — interactive' }
+      { id: 'grok-tui', label: 'Grok — interactive' },
+      { id: 'grok-acp', label: 'Grok — ACP (persistent)' }
     ]
   }
 ]

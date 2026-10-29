@@ -224,8 +224,11 @@ function officeMcpServer(key: string, url: string, fileBrowser = false): Record<
  *  every spawned loop hit. Maps family → the -tui/-cli id; passes a full id through. */
 function toAutodevProvider(provider?: string): string {
   const p = String(provider ?? '').toLowerCase()
-  const VALID = new Set(['claude-cli', 'claude-tui', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-cli', 'grok-tui'])
+  const VALID = new Set(['claude-cli', 'claude-tui', 'copilot-cli', 'copilot-sdk', 'opencode-cli', 'opencode-sdk', 'grok-cli', 'grok-tui', 'grok-acp'])
   if (VALID.has(p)) return p
+  // Only a BARE/unknown grok family falls back to grok-tui. An explicit variant
+  // (grok-cli / grok-acp) is a VALID id handled above and must NOT be coerced —
+  // coercing grok-acp here would silently downgrade the persistent ACP session.
   if (p.startsWith('grok')) return 'grok-tui'
   if (p.startsWith('claude')) return 'claude-cli'
   if (p.startsWith('opencode')) return 'opencode-cli'

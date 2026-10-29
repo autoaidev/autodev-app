@@ -41,6 +41,7 @@ const PROVIDER_OPTIONS: Array<{ id: string; label: string }> = [
   { id: 'claude-cli', label: 'Claude — headless CLI' },
   { id: 'grok-tui', label: 'Grok — interactive' },
   { id: 'grok-cli', label: 'Grok — CLI' },
+  { id: 'grok-acp', label: 'Grok — ACP (persistent)' },
   { id: 'opencode-cli', label: 'OpenCode — CLI' },
   { id: 'opencode-sdk', label: 'OpenCode — SDK' },
   { id: 'copilot-cli', label: 'Copilot — CLI' },

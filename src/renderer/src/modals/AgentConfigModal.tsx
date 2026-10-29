@@ -27,7 +27,7 @@ import { fetchDefaultMcp, applyDefaultToPath, type DefaultMcpEntry } from '@rend
 interface AgentState { path: string; name: string; provider?: string; sessionName?: string; running?: boolean }
 interface McpStat { name: string; status: string }
 
-type Variant = 'interactive' | 'headless' | 'sdk'
+type Variant = 'interactive' | 'headless' | 'sdk' | 'acp'
 
 // The real provider ids, tagged with vendor + variant so the two controls can
 // recombine into a valid id (and disable combos that don't exist).
@@ -39,19 +39,21 @@ const PROVIDERS: Array<{ id: string; vendor: string; variant: Variant }> = [
   { id: 'opencode-cli', vendor: 'opencode', variant: 'headless' },
   { id: 'opencode-sdk', vendor: 'opencode', variant: 'sdk' },
   { id: 'grok-cli', vendor: 'grok', variant: 'headless' },
-  { id: 'grok-tui', vendor: 'grok', variant: 'interactive' }
+  { id: 'grok-tui', vendor: 'grok', variant: 'interactive' },
+  { id: 'grok-acp', vendor: 'grok', variant: 'acp' }
 ]
 const VENDORS: Array<{ id: string; label: string }> = [
   { id: 'claude', label: 'Claude' }, { id: 'copilot', label: 'GitHub Copilot' },
   { id: 'opencode', label: 'OpenCode' }, { id: 'grok', label: 'Grok' }
 ]
 const VARIANTS: Array<{ id: Variant; label: string }> = [
-  { id: 'interactive', label: 'Interactive' }, { id: 'headless', label: 'Headless CLI' }, { id: 'sdk', label: 'SDK · API' }
+  { id: 'interactive', label: 'Interactive' }, { id: 'headless', label: 'Headless CLI' }, { id: 'sdk', label: 'SDK · API' }, { id: 'acp', label: 'ACP' }
 ]
 const VARIANT_HINT: Record<Variant, string> = {
   interactive: 'Interactive gives a terminal you can watch and log into.',
   headless: 'Headless CLI runs the loop with no attached terminal.',
-  sdk: 'SDK · API drives the model directly — needs an API key.'
+  sdk: 'SDK · API drives the model directly — needs an API key.',
+  acp: 'ACP keeps one persistent Grok session warm across turns (no cold reload).'
 }
 const MODEL_KEY: Record<string, string> = { claude: 'claudeModel', opencode: 'opencodeModel', copilot: 'copilotModel', grok: 'grokModel', dummy: 'dummyModel' }
 const modelKeyFor = (p: string): string => MODEL_KEY[p.split('-')[0]] ?? 'claudeModel'
