@@ -42,6 +42,10 @@ export interface CharacterSettingsModalProps {
 
 export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettingsModalProps): React.JSX.Element {
   const [family, setFamily] = useState<ProviderFamily>('claude')
+  // grok runs two ways: the per-turn TUI (grok --continue) or the persistent ACP
+  // session (grok-acp). The office stores the family for the other engines, but the
+  // grok RUNNER is a real behavioural choice, so it's a stored variant here.
+  const [grokAcp, setGrokAcp] = useState(false)
   const [model, setModel] = useState('')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -60,6 +64,7 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
     setStatus('')
     const fam = providerFamilyOf(agent.provider)
     setFamily(fam === 'unknown' ? 'claude' : fam)
+    setGrokAcp(String(agent.provider ?? '').toLowerCase() === 'grok-acp')
     setModel(agent.model ?? '')
     setName(agent.name ?? '')
   }, [open, agent])
@@ -67,7 +72,10 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
   const save = useCallback(async (): Promise<void> => {
     if (!agent) return
     setBusy(true); setStatus('')
-    const patch: { provider?: string; model?: string; name?: string } = { provider: family, model }
+    // grok family + ACP runner → the concrete `grok-acp` id (routes to the persistent
+    // ACP loop); every other case stores the family (variant chosen at operate time).
+    const providerId = family === 'grok' && grokAcp ? 'grok-acp' : family
+    const patch: { provider?: string; model?: string; name?: string } = { provider: providerId, model }
     const trimmed = name.trim()
     if (trimmed && trimmed !== agent.name) patch.name = trimmed
     const r = await officeService.updateCharacter(agent.id, patch)
@@ -76,7 +84,7 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
     setStatus(agent.online
       ? 'Saved — reconnect this character to run on the new engine.'
       : 'Saved.')
-  }, [agent, family, model, name])
+  }, [agent, family, grokAcp, model, name])
 
   const openMcp = useCallback(async (): Promise<void> => {
     if (!agent) return
@@ -93,6 +101,8 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
   }, [agent, family])
 
   const agentName = name || agent?.name || 'Character'
+  const grokRunnerShown = family === 'grok'
+  const grokAccent = providerAccent('grok')
 
   return (
     <Modal
@@ -162,9 +172,42 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
           })}
         </div>
       </div>
-      <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginBottom: 16 }}>
+      <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)', marginBottom: grokRunnerShown ? 12 : 16 }}>
         The character keeps its name and identity — only the engine changes.
       </div>
+
+      {/* GROK RUNNER — grok runs two ways; this is a real behavioural choice, not a
+          cosmetic one, so it's exposed (and stored as the concrete grok-acp id). */}
+      {grokRunnerShown && (
+        <div style={{ marginBottom: 16 }}>
+          <span style={label}>Grok runner</span>
+          <div role="radiogroup" aria-label="Grok runner" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {([['tui', 'TUI', 'grok --continue, a fresh turn each time'], ['acp', 'ACP (persistent)', 'one long-lived ACP session across turns']] as const).map(([val, title, hint]) => {
+              const on = (val === 'acp') === grokAcp
+              return (
+                <button
+                  key={val}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => setGrokAcp(val === 'acp')}
+                  style={{
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+                    padding: '8px 10px', borderRadius: 'var(--r-card)', cursor: 'pointer', textAlign: 'left',
+                    background: on ? grokAccent.tint : 'var(--bg-input)',
+                    border: `1px solid ${on ? grokAccent.fg : 'var(--bd-1)'}`,
+                    boxShadow: on ? `inset 0 0 0 1px ${grokAccent.ring}` : undefined,
+                    color: on ? grokAccent.ink : 'var(--tx-3)', outline: 'none'
+                  }}
+                >
+                  <span style={{ fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-meta)', fontWeight: 600 }}>{title}</span>
+                  <span style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-5)' }}>{hint}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* MODEL */}
       <div style={{ marginBottom: 4 }}>
