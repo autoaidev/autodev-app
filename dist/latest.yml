@@ -1,8 +1,8 @@
-version: 0.3.93
+version: 0.3.94
 files:
-  - url: AutoDev-0.3.93-setup.exe
-    sha512: J2dReNyCk6mtSDXk/kC5grPsJdpHQhcw/cXSgn32VNbu3dBQ8JOG1GU+FvEdmx2+uNu6oUJbV/YUNmsSeyIgrQ==
-    size: 97996909
-path: AutoDev-0.3.93-setup.exe
-sha512: J2dReNyCk6mtSDXk/kC5grPsJdpHQhcw/cXSgn32VNbu3dBQ8JOG1GU+FvEdmx2+uNu6oUJbV/YUNmsSeyIgrQ==
-releaseDate: '2026-10-29T13:22:35.584Z'
+  - url: AutoDev-0.3.94-setup.exe
+    sha512: Nu+W80yle/02EOb/+bjX8NI++tkNaESp7m469DsEcSZaU1OXPE/qk0E1+/N48pSSop9QEeWFKqYOERu3E7HU9g==
+    size: 97996840
+path: AutoDev-0.3.94-setup.exe
+sha512: Nu+W80yle/02EOb/+bjX8NI++tkNaESp7m469DsEcSZaU1OXPE/qk0E1+/N48pSSop9QEeWFKqYOERu3E7HU9g==
+releaseDate: '2026-10-29T14:23:35.786Z'

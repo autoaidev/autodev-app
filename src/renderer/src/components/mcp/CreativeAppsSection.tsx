@@ -50,6 +50,21 @@ const linkBtn: React.CSSProperties = {
   gap: 5,
   marginLeft: 'auto'
 }
+// A quiet, muted disclosure toggle (chevron + label) used to fold a card's
+// caveats / setup notes away by default so each app item stays compact.
+const disclosureBtn: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--tx-4)',
+  fontFamily: 'var(--font-sans)',
+  fontSize: 'var(--fs-desc)',
+  fontWeight: 600,
+  cursor: 'pointer',
+  padding: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5
+}
 
 /** A numbered, readable rendering of the CLI's post-setup / guidance steps. */
 function StepList({ steps, tone }: { steps: string[]; tone: 'info' | 'success' }): React.JSX.Element {
@@ -124,6 +139,9 @@ function AppCard({
   // structured postSetup for this app). Kept local so the box only appears once
   // the user acts, not permanently.
   const [showEnabledSteps, setShowEnabledSteps] = React.useState(false)
+  // The caveats / setup-notes disclosure is collapsed by default so the card is
+  // compact — a per-app accordion, not a wall of warnings on top of every item.
+  const [showNotes, setShowNotes] = React.useState(false)
   // Optional advanced override: a custom gimp_mcp_client.py path. Hidden by
   // default — the enable checkbox installs the real client automatically, so
   // this is only for power users pointing at a hand-built client.
@@ -146,6 +164,9 @@ function AppCard({
         return
       }
       setShowEnabledSteps(true)
+      // Reveal the (otherwise-collapsed) caveats/steps right after enabling so
+      // the post-setup guidance is visible as active feedback.
+      setShowNotes(true)
       onMcpChanged()
       onRefresh()
     } catch (e) {
@@ -246,16 +267,54 @@ function AppCard({
         </div>
       ))}
 
-      {/* experimental notes (GIMP) as caution */}
-      {app.notes.length > 0 && (
-        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {app.notes.map((n, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', lineHeight: 1.5 }}>
-              <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1, color: 'var(--st-needsyou)' }}><Icon name="warn" size={12} /></span>{n}
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Caveats & setup notes — folded into a per-card accordion so the
+          warnings live INSIDE each app item (collapsed by default) instead of
+          spilling across the top of the card. The always-on experimental
+          guidance steps (GIMP) and the persisted post-enable steps ride in the
+          same disclosure; the transient success-tone steps shown right after a
+          Blender enable stay visible below (active feedback, not a caveat). */}
+      {(() => {
+        const discSteps =
+          app.postSetup.length > 0 &&
+          (app.experimental || app.alreadyEnabled) &&
+          !(showEnabledSteps && !app.experimental)
+        if (app.notes.length === 0 && !discSteps) return null
+        const label =
+          app.notes.length > 0
+            ? `${app.notes.length} caveat${app.notes.length === 1 ? '' : 's'} & setup notes`
+            : 'Setup notes'
+        return (
+          <div style={{ marginTop: 8 }}>
+            <button type="button" onClick={() => setShowNotes((v) => !v)} style={disclosureBtn}>
+              <Icon name={showNotes ? 'chevron' : 'caret'} size={11} />
+              <span style={{ display: 'inline-flex', color: 'var(--st-needsyou)' }}>
+                <Icon name="warn" size={11} />
+              </span>
+              {label}
+            </button>
+            {showNotes && (
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {app.notes.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {app.notes.map((n, i) => (
+                      <div
+                        key={i}
+                        style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', lineHeight: 1.5 }}
+                      >
+                        <span style={{ display: 'inline-flex', flex: 'none', marginTop: 1, color: 'var(--st-needsyou)' }}>
+                          <Icon name="warn" size={12} />
+                        </span>
+                        {n}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {discSteps && <StepList steps={app.postSetup} tone="info" />}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* action row */}
       <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -371,15 +430,12 @@ function AppCard({
         </div>
       )}
 
-      {/* Post-setup guidance:
-          - experimental (GIMP): always shown as manual guidance;
-          - Blender: shown after a successful enable so the user knows the next
-            (out-of-app) steps to actually reach the running server on :9876. */}
-      {app.postSetup.length > 0 && (app.experimental || showEnabledSteps || app.alreadyEnabled) && (
-        <StepList
-          steps={app.postSetup}
-          tone={showEnabledSteps && !app.experimental ? 'success' : 'info'}
-        />
+      {/* Post-enable success feedback (Blender): the next out-of-app steps to
+          reach the running server on :9876, shown inline right after a
+          successful enable. The experimental/persisted guidance now lives in the
+          collapsed caveats accordion above, so it is no longer duplicated here. */}
+      {app.postSetup.length > 0 && showEnabledSteps && !app.experimental && (
+        <StepList steps={app.postSetup} tone="success" />
       )}
     </div>
   )
