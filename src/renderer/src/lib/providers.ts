@@ -69,6 +69,22 @@ export function providerLabel(id: string): string {
   return id
 }
 
+/**
+ * A short RUN-MODE tag for a provider id — HOW it actually drives, not which
+ * vendor. This is what makes `grok-acp` (a persistent ACP loop, driven by the CLI
+ * task loop over JSON-RPC stdio) visibly distinct from `grok-tui` (an interactive
+ * TUI in a PTY pane): the family badge says "Grok" for both, this says the engine.
+ * Empty string for a bare family id with no variant suffix.
+ */
+export function runModeLabel(id: string): string {
+  const s = String(id || '').toLowerCase()
+  if (s.endsWith('-acp')) return 'ACP loop'
+  if (s.endsWith('-tui')) return 'TUI'
+  if (s.endsWith('-cli')) return 'CLI'
+  if (s.endsWith('-sdk')) return 'SDK'
+  return ''
+}
+
 /** The vendor (`claude`, `grok`, `opencode`, `copilot`) for a provider id. */
 export const vendorOf = (p: string): string => p.split('-')[0]
 

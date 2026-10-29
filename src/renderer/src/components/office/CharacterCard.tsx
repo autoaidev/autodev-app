@@ -3,6 +3,7 @@ import { StatusPill, Chip, AgentAvatar, IconButton, Icon, ContextMenu } from '@r
 import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
 import { providerAccent } from '@renderer/services/identity'
+import { runModeLabel } from '@renderer/lib/providers'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { AgentLifecycleControls } from '@renderer/components/agent/AgentLifecycleControls'
 import { OfficeAgent, tickFor } from './officeTypes'
@@ -395,11 +396,27 @@ export function CharacterCard({
           The two pills are pinned to opposite ends with the model between them, so
           they can never overlap regardless of card width. */}
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 6, rowGap: 5, minWidth: 0 }}>
-        {agent.provider && (
-          <Chip variant="provider" provider={agent.provider} style={{ flex: '0 0 auto', maxWidth: '100%' }}>
-            {providerLabel(agent.provider)}
-          </Chip>
-        )}
+        {agent.provider && (() => {
+          // WHICH DRIVER: show the EXACT provider id + its run mode (e.g.
+          // "grok-acp · ACP loop" vs "grok-tui · TUI") so the real engine behind a
+          // character is visible at a glance — the family badge alone said "Grok"
+          // for both, hiding whether the persistent ACP loop or the interactive TUI
+          // is actually running. A bare family id (no variant suffix) keeps the plain
+          // brand label. Stays one compact, provider-tinted pill.
+          const mode = runModeLabel(agent.provider)
+          const exact = agent.provider.toLowerCase()
+          return (
+            <Chip
+              variant="provider"
+              provider={agent.provider}
+              title={mode ? `Driver: ${exact} · ${mode}` : `Provider: ${providerLabel(agent.provider)}`}
+              style={{ flex: '0 0 auto', maxWidth: '100%' }}
+            >
+              {mode ? exact : providerLabel(agent.provider)}
+              {mode && <span style={{ opacity: 0.7, fontWeight: 500 }}> · {mode}</span>}
+            </Chip>
+          )
+        })()}
         {modelLabel && (
           <span
             title={`Model: ${modelLabel}`}

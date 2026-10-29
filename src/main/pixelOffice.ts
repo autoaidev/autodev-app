@@ -13,7 +13,7 @@ import { humanizeFetchError } from './netError'
 import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
-import { buildOperateCommand } from './operateCommand'
+import { buildOperateCommand, buildLoopOperateCommand, isLoopProvider } from './operateCommand'
 import { isOfficeAgentPresent } from './officePresence'
 
 /** Concise main-process tracing for the pixel-office flow. Always on (low
@@ -1287,7 +1287,37 @@ export class PixelOfficeClient {
       markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir (claude)
       markGrokFolderTrusted(dir) // …and for grok — always launch in trust/auto mode
       this.recordProvisioned(dir) // track for key-purge on logout
-      // Resume the agent's existing session (grok --resume <id> / claude --continue)
+
+      // LOOP/ACP PROVIDER ROUTING (grok-acp, …): a persistent ACP engine driven by
+      // the CLI task loop does NOT fit a self-driving TUI pane. Instead of launching
+      // the grok TUI (the old `startsWith('grok')` bug), run the CLI loop itself in
+      // the operate pane — `autodev start <dir> -p grok-acp` — so the ACP driver
+      // actually runs and JOINS the office (posts started/completed to the office
+      // chat, shows online) exactly like `autodev office <slug>`. The operate pane
+      // then shows the loop's LOG (informative), not a chat TUI.
+      if (isLoopProvider(provider)) {
+        const providerId = toAutodevProvider(provider)
+        // Bind the workspace to the office so the loop comes up CONNECTED: writes
+        // serverBaseUrl/serverApiKey/webhookSlug/wsUrl into .autodev/settings.json
+        // (the app's equivalent of the CLI's applyWsUrl) + merges the office-MCP +
+        // scoped trust. Without this the loop would start but never join the office.
+        const bound = await this.bindWorkspaceToOffice(dir, officeSlug, { id: agentId, slug: agentSlug }, true)
+        if ('error' in bound) return { error: `Couldn't bind this character to the office for the ACP loop — ${bound.error}` }
+        // Persist the provider so a restart/supervisor reads grok-acp (the -p arg
+        // below also forces it on this launch — belt and suspenders).
+        this.writeProvider(dir, providerId)
+        // Run the EXACT bundled CLI (resolveCliJs) via its node runner — NOT a bare
+        // `autodev`, which is usually absent from a GUI PATH even though we bundle it.
+        const cliJs = resolveCliJs()
+        if (!cliJs) return { error: 'The bundled autodev CLI could not be located — reinstall the app or set AUTODEV_CLI_JS.' }
+        const { cmd, baseEnv } = nodeRunner()
+        const electronRunAsNode = !!(baseEnv as Record<string, string>)['ELECTRON_RUN_AS_NODE']
+        const command = buildLoopOperateCommand({ nodeCmd: cmd, cliJs, dir, provider: providerId, electronRunAsNode })
+        dbg('operate: ACP loop wired', agentSlug || agentId, '→', url, 'cwd', dir, 'provider', providerId, 'cmd', command)
+        return { ok: true, cwd: dir, mcpUrl: url, command }
+      }
+
+      // Resume the agent's existing session (grok --continue / claude --continue)
       // rather than opening a blank chat — the Operate pane is separate from the loop
       // (ADD 2). Bare/fresh when no non-empty prior session exists for this dir.
       const command = this.resolveOperateCommand(dir, provider)

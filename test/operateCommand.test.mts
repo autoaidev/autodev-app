@@ -24,7 +24,7 @@
 //     the first token so PixelOffice's resolveBinOnPath pre-check still works.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildOperateCommand, OPERATE_KICK_PROMPT, GROK_OPERATE_KICK_PROMPT } from '../src/main/operateCommand.ts'
+import { buildOperateCommand, buildLoopOperateCommand, isLoopProvider, OPERATE_KICK_PROMPT, GROK_OPERATE_KICK_PROMPT } from '../src/main/operateCommand.ts'
 
 const KICK = OPERATE_KICK_PROMPT
 
@@ -44,9 +44,56 @@ test('grok with no resumable session launches bare (fresh) + kick prompt', () =>
   assert.equal(buildOperateCommand('grok', false), `grok --always-approve '${KICK}'`)
 })
 
-test('grok-cli / grok-tui family ids are treated as grok', () => {
+test('grok-cli / grok-tui family ids are treated as grok (TUI), NOT as the ACP loop', () => {
   assert.equal(buildOperateCommand('grok-tui', true), `grok --continue --always-approve '${KICK}'`)
   assert.equal(buildOperateCommand('grok-cli', false), `grok --always-approve '${KICK}'`)
+  assert.equal(isLoopProvider('grok-tui'), false)
+  assert.equal(isLoopProvider('grok-cli'), false)
+})
+
+test('isLoopProvider matches grok-acp (and the -acp family) by EXACT id, never startsWith(grok)', () => {
+  assert.equal(isLoopProvider('grok-acp'), true)
+  assert.equal(isLoopProvider('GROK-ACP'), true)
+  assert.equal(isLoopProvider('some-future-acp'), true)
+  // The plain grok TUI family and everyone else are NOT loop providers.
+  for (const p of ['grok', 'grok-tui', 'grok-cli', 'claude', 'claude-cli', 'opencode', 'copilot', '']) {
+    assert.equal(isLoopProvider(p), false, `${p} must not be a loop provider`)
+  }
+})
+
+test('buildOperateCommand REFUSES grok-acp — it must route to the loop, not the grok TUI (the bug)', () => {
+  assert.throws(() => buildOperateCommand('grok-acp', true), /loop\/ACP provider/)
+  assert.throws(() => buildOperateCommand('grok-acp', false), /autodev start -p grok-acp/)
+})
+
+test('buildLoopOperateCommand runs the CLI loop (autodev start -p grok-acp), never the grok TUI', () => {
+  const cmd = buildLoopOperateCommand(
+    { nodeCmd: '/usr/bin/node', cliJs: '/opt/app/autodev-cli/bin/autodev.js', dir: '/home/u/.autodev-app/offices/o/a', provider: 'grok-acp' },
+    'linux'
+  )
+  assert.equal(cmd, `'/usr/bin/node' '/opt/app/autodev-cli/bin/autodev.js' start '/home/u/.autodev-app/offices/o/a' -p grok-acp`)
+  assert.ok(!/grok --continue|--always-approve|wait_for_events/.test(cmd), 'the ACP loop must NOT use the grok TUI command / kick')
+  assert.ok(cmd.includes('-p grok-acp'), 'must force the grok-acp provider on the loop')
+})
+
+test('buildLoopOperateCommand exports ELECTRON_RUN_AS_NODE only for Electron-node, per platform', () => {
+  const posix = buildLoopOperateCommand(
+    { nodeCmd: '/apps/AutoDev', cliJs: '/r/autodev-cli/bin/autodev.js', dir: '/d', provider: 'grok-acp', electronRunAsNode: true },
+    'linux'
+  )
+  assert.ok(posix.startsWith('ELECTRON_RUN_AS_NODE=1 '), `posix inline-env prefix expected: ${posix}`)
+  const win = buildLoopOperateCommand(
+    { nodeCmd: 'C:/apps/AutoDev.exe', cliJs: 'C:/r/autodev-cli/bin/autodev.js', dir: 'C:/d', provider: 'grok-acp', electronRunAsNode: true },
+    'win32'
+  )
+  assert.ok(win.startsWith('set "ELECTRON_RUN_AS_NODE=1" && '), `win32 set-env prefix expected: ${win}`)
+  assert.ok(win.includes('-p grok-acp'))
+  // System-node runner needs no env var.
+  const sysNode = buildLoopOperateCommand(
+    { nodeCmd: '/usr/bin/node', cliJs: '/r/bin/autodev.js', dir: '/d', provider: 'grok-acp', electronRunAsNode: false },
+    'linux'
+  )
+  assert.ok(!sysNode.includes('ELECTRON_RUN_AS_NODE'), 'system node must not export ELECTRON_RUN_AS_NODE')
 })
 
 test('claude gets the kick via its positional [prompt] arg (resumes via --continue)', () => {

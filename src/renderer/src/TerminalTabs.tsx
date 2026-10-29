@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import TerminalPane from './TerminalPane'
 import { Icon } from '@renderer/ui'
 import { stripAnsi } from '@renderer/lib/ansi'
+import { runModeLabel } from '@renderer/lib/providers'
 
 /**
  * One open pane in the office view. Two kinds:
@@ -218,7 +219,17 @@ export default function TerminalTabs({
                 ? <span className="badge" style={{ background: 'var(--st-running-soft)', color: 'var(--st-running)' }}>● operating (MCP)</span>
                 : <span className="badge" style={{ background: 'var(--st-needsyou-soft)', color: 'var(--st-needsyou-ink)' }}>◐ connecting…</span>}
           <div style={{ fontSize: 12, fontWeight: 600 }}>{active.name}</div>
-          <span className="badge" title="Provider">{active.kind === 'log' ? (active.provider || 'loop') : active.command}</span>
+          {/* WHICH DRIVER: the exact provider id + run mode (e.g. "grok-acp · ACP
+              loop") so a glance at the pane tells you which engine is running — not
+              the raw launch command (long/opaque), which moves to the tooltip. */}
+          <span className="badge" title={active.command ? `Driver command: ${active.command}` : 'Provider'}>
+            {(() => {
+              const p = (active.provider || '').toLowerCase()
+              const mode = runModeLabel(p)
+              if (p) return mode ? `${p} · ${mode}` : p
+              return active.kind === 'log' ? 'loop' : (active.command || 'session')
+            })()}
+          </span>
           <div style={{ flex: 1 }} />
           {active.kind === 'log' && (
             <label

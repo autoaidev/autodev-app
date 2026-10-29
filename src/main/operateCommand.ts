@@ -88,9 +88,72 @@ export const OPERATE_KICK_PROMPT =
  */
 export const GROK_OPERATE_KICK_PROMPT = OPERATE_KICK_PROMPT
 
+/**
+ * A LOOP/ACP provider is a persistent JSON-RPC-over-stdio engine driven by the
+ * CLI's task loop (`autodev start <dir> -p <id>`), NOT an interactive TUI that
+ * can self-drive inside a PTY pane. grok-acp is the first such provider: it runs
+ * `grok agent stdio` under the CLI loop. These providers do NOT belong on the
+ * raw-TUI operate path (`buildOperateCommand`); the operate pane runs them as the
+ * loop instead (see `buildLoopOperateCommand` / PixelOffice.operate), so they
+ * actually drive over ACP and JOIN the office rather than opening a grok TUI.
+ *
+ * Matched by EXACT id (and the `*-acp` family for obvious future ACP providers),
+ * NEVER by `startsWith('grok')` — that was the original bug: it swept grok-acp
+ * into the grok TUI command, so "Connect & operate" ran `grok --continue` and the
+ * ACP engine never ran.
+ */
+export function isLoopProvider(provider: string): boolean {
+  const p = String(provider ?? '').trim().toLowerCase()
+  if (!p) return false
+  return p === 'grok-acp' || p.endsWith('-acp')
+}
+
+/** POSIX single-quote a token so it arrives as one argv word, literal. */
+function shSingleQuote(s: string): string {
+  return `'${String(s).replace(/'/g, `'\\''`)}'`
+}
+
+/**
+ * Build the OPERATE-PANE command for a LOOP/ACP provider (e.g. grok-acp): run the
+ * bundled CLI's persistent task loop — `autodev start <dir> -p <provider>` — in the
+ * pane. Unlike the TUI providers, this is NOT an interactive chat; the pane shows
+ * the loop's LOG (started/turn/completed), which is exactly what we want to SEE the
+ * ACP driver working. The loop joins the office over WS (its serverApiKey/wsUrl were
+ * written by the caller's office bind), posts started/completed to the office chat,
+ * and shows online — identical to `autodev office <slug>` and `office:spawnOffice`.
+ *
+ * The command is handed to a PTY as `sh -lc "<cmd>"` (unix) / `cmd /d /s /c "<cmd>"`
+ * (win32), so it must be a self-contained shell line. We run the EXACT bundled CLI
+ * via its resolved node runner (absolute paths, double-quoted for spaces) rather
+ * than a bare `autodev`, because `autodev` is frequently not on a GUI PATH even
+ * though the app bundles the CLI. When the runner is Electron's own node we must
+ * export ELECTRON_RUN_AS_NODE=1 (the "ELECTRON_RUN_AS_NODE trap"), per-platform.
+ */
+export function buildLoopOperateCommand(
+  opts: { nodeCmd: string; cliJs: string; dir: string; provider: string; electronRunAsNode?: boolean },
+  platform: NodeJS.Platform = process.platform
+): string {
+  const provider = String(opts.provider ?? '').trim() || 'grok-acp'
+  if (platform === 'win32') {
+    // cmd.exe: double-quote each path; `set VAR=val &&` prefix when Electron-node.
+    const q = (s: string): string => `"${String(s).replace(/"/g, '')}"`
+    const core = `${q(opts.nodeCmd)} ${q(opts.cliJs)} start ${q(opts.dir)} -p ${provider}`
+    return opts.electronRunAsNode ? `set "ELECTRON_RUN_AS_NODE=1" && ${core}` : core
+  }
+  // POSIX: single-quote each path; `VAR=val cmd` inline-env prefix when Electron-node.
+  const core = `${shSingleQuote(opts.nodeCmd)} ${shSingleQuote(opts.cliJs)} start ${shSingleQuote(opts.dir)} -p ${provider}`
+  return opts.electronRunAsNode ? `ELECTRON_RUN_AS_NODE=1 ${core}` : core
+}
+
 export function buildOperateCommand(provider: string, hasResumableGrokSession: boolean): string {
   const p = String(provider ?? '').toLowerCase()
   const kick = `'${OPERATE_KICK_PROMPT}'`
+  // grok-acp (and any ACP/loop provider) is NOT a TUI — it must NEVER get the grok
+  // TUI command here. Its routing lives in PixelOffice.operate (the loop path); this
+  // guard just makes the pure builder refuse to mis-handle it if ever called.
+  if (isLoopProvider(p)) {
+    throw new Error(`buildOperateCommand called for loop/ACP provider '${p}' — route it to the loop (autodev start -p ${p}), not the TUI.`)
+  }
   if (p.startsWith('grok')) {
     // POSITIONAL [PROMPT] keeps the TUI interactive (NOT `-p/--single`, which exits).
     const base = hasResumableGrokSession ? 'grok --continue --always-approve' : 'grok --always-approve'
