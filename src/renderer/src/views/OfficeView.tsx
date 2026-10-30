@@ -8,6 +8,7 @@ import { CharacterSettingsModal } from '../components/office/CharacterSettingsMo
 import { AddCharacterModal } from '../components/office/AddCharacterModal'
 import { RenameCharacterModal, DeleteCharacterModal } from '../components/office/CharacterActionModals'
 import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
+import { BulkOfficeMcpModal } from '../modals/BulkOfficeMcpModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { EventsPanel } from '../components/office/EventsPanel'
 import { OfficeRoom } from '../components/office/OfficeRoom'
@@ -102,6 +103,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   //    a bulk Set-model over the selection, and a single-character Add. ──
   const [bulkSelected, setBulkSelected] = useState<Set<string>>(new Set())
   const [showBulkModel, setShowBulkModel] = useState(false)
+  const [showBulkMcp, setShowBulkMcp] = useState(false)
   const [showAddChar, setShowAddChar] = useState(false)
   // Whether the live Events side-panel is shown (Team tab). Toggleable + persisted
   // per-viewer; defaults ON. localStorage is best-effort (private windows throw).
@@ -760,6 +762,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     return [...bulkSelected].filter((id) => live.has(id))
   }, [bulkSelected, selectedGroup])
   const allSelected = !!selectedGroup && selectedGroup.agents.length > 0 && selectedIds.length === selectedGroup.agents.length
+  // The live selected characters handed to the bulk MCP editor (filtered from the
+  // selected office's roster, so a stale/cross-office id can never leak in). This
+  // array's identity still churns on each office poll; the modal snapshots it at
+  // open and keys its one-time workspace resolution on the stable selection id-set,
+  // so the churn never re-runs resolution mid-edit.
+  const bulkMcpAgents = useMemo(
+    () => (selectedGroup?.agents ?? []).filter((a) => bulkSelected.has(a.id)),
+    [selectedGroup, bulkSelected]
+  )
 
   // The office backend for the shared BulkModelModal: persist each character's model
   // via the OFFICE path (updateCharacter → PATCH /api/agents/{id}), NOT `config set`.
@@ -1183,6 +1194,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   >
                     Set model…
                   </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={selectedIds.length === 0}
+                    onClick={() => setShowBulkMcp(true)}
+                    title={selectedIds.length === 0 ? 'Select characters to edit their MCP servers' : 'Add / remove / enable MCP servers across the selected characters'}
+                  >
+                    MCP servers…
+                  </Button>
                   {selectedIds.length > 0 && (
                     <Button variant="ghost" size="sm" onClick={() => setBulkSelected(new Set())}>Clear</Button>
                   )}
@@ -1393,6 +1413,17 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         adapter={bulkAdapter}
         onClose={() => setShowBulkModel(false)}
         onApplied={() => { setShowBulkModel(false); setBulkSelected(new Set()) }}
+      />
+
+      {/* Bulk MCP editor — mass-apply one MCP-server change (add / remove / enable
+          a creative app) across the bulk-selected characters. Each change routes
+          through the SAME CLI seam the per-character McpEditorModal uses, scoped to
+          each character's own resolved workspace. Selection is kept so the user can
+          apply several ops in a row. */}
+      <BulkOfficeMcpModal
+        open={showBulkMcp}
+        agents={bulkMcpAgents}
+        onClose={() => setShowBulkMcp(false)}
       />
 
       {/* Add ONE character to the selected office (distinct from Generate team). */}
