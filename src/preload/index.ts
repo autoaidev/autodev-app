@@ -204,7 +204,14 @@ const api = {
   officeSetupUrl: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:setupUrl', officeSlug, agentId),
   officeConnectSession: (officeSlug: string, officeId: number, cwd: string, sessionId: string, name: string) => ipcRenderer.invoke('office:connectSession', officeSlug, officeId, cwd, sessionId, name),
   officeCreateOffice: (name: string, description: string) => ipcRenderer.invoke('office:createOffice', name, description),
-  officeGenerateTeam: (officeId: number, prompt: string, count: number) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count),
+  // Owner's office-template catalog (same owner-session auth as officeOffices).
+  // Returns { templates:[{ id, name, description, icon, default_count, roles }] }
+  // or { error }; the Make-app funnel feeds a picked template into generateTeam.
+  officeTemplates: () => ipcRenderer.invoke('office:templates'),
+  // `opts` is optional + backward-compatible: with a `templateId` the office AI
+  // builds the roster from that template, treating `adjustments` as free-text
+  // tweaks; with no opts it behaves exactly as before (free-text purpose).
+  officeGenerateTeam: (officeId: number, prompt: string, count: number, opts?: { templateId?: string; adjustments?: string }) => ipcRenderer.invoke('office:generateTeam', officeId, prompt, count, opts),
   officeWriteSharedMcp: (folder: string, officeSlug: string, agents: Array<{ id?: string; slug?: string; name?: string }>, fileBrowser?: boolean) => ipcRenderer.invoke('office:writeSharedMcp', folder, officeSlug, agents, fileBrowser),
   officeBindWorkspace: (cwd: string, officeSlug: string, want: { id?: string; slug?: string; name?: string }, fileBrowser?: boolean) => ipcRenderer.invoke('office:bindWorkspace', cwd, officeSlug, want, fileBrowser),
   officeDeleteAgent: (officeSlug: string, agentId: string) => ipcRenderer.invoke('office:deleteAgent', officeSlug, agentId),

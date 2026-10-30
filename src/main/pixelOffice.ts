@@ -1708,18 +1708,62 @@ export class PixelOfficeClient {
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }
   }
 
-  /** AI-generate a complementary team of agents for an office (Kimi via ollama).
-   *  Each created character comes back with its office `id`/`slug`, which the
-   *  single-shared-folder spawn needs to fetch per-agent MCP credentials. */
-  async generateTeam(officeId: number, prompt: string, count: number): Promise<{ ok: true; agents: Array<{ id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }> } | { error: string }> {
+  /** Owner's office-template catalog (PHP/SQL web app, Game Studio, …) used to seed
+   *  AI team-generation. Same owner-session auth as `offices()` — resolves to the
+   *  user-configured base when no session is live. Tolerant of either an envelope
+   *  (`{ data:[…] }`) or a bare `{ templates:[…] }` shape; returns a normalized list
+   *  (or `{ error }`) so the renderer can quietly fall back to the free-text funnel. */
+  async officeTemplates(): Promise<{ templates: Array<{ id: string; name: string; description?: string; icon?: string; default_count?: number; roles: Array<{ title: string; personality?: string; skills: string[] }> }> } | { error: string }> {
     if (!this._authed) return { error: 'Not connected to a pixel-office.' }
     try {
-      const r = await this.postJson('/api/agents/generate', { officeId, prompt, count })
+      const r = await this.getJson('/api/office-templates')
+      const raw = (Array.isArray(r?.data) ? r.data : Array.isArray(r?.templates) ? r.templates : []) as Array<Record<string, any>>
+      const templates = raw.map((t) => ({
+        id: String(t.id ?? ''),
+        name: String(t.name ?? ''),
+        description: t.description != null ? String(t.description) : undefined,
+        icon: t.icon != null ? String(t.icon) : undefined,
+        default_count: Number.isFinite(Number(t.default_count)) ? Number(t.default_count) : undefined,
+        roles: Array.isArray(t.roles) ? t.roles.map((role: any) => ({
+          title: String(role?.title ?? ''),
+          personality: role?.personality != null ? String(role.personality) : undefined,
+          skills: Array.isArray(role?.skills) ? role.skills.map((s: any) => String(s)) : []
+        })) : []
+      })).filter((t) => t.id && t.name)
+      return { templates }
+    } catch (e) { return { error: String((e as Error)?.message ?? e) } }
+  }
+
+  /** AI-generate a complementary team of agents for an office (Kimi via ollama).
+   *  Each created character comes back with its office `id`/`slug`, which the
+   *  single-shared-folder spawn needs to fetch per-agent MCP credentials, plus the
+   *  template-assigned `personality`/`skills` so the funnel can surface them.
+   *
+   *  `opts.templateId` switches the office endpoint to template-mode (roles come
+   *  from the template) with `opts.adjustments` as free-text tweaks; with no opts
+   *  it posts the free-text purpose exactly as before. `prompt`/`purpose` are sent
+   *  together for forward/backward compatibility with the endpoint field rename. */
+  async generateTeam(officeId: number, prompt: string, count: number, opts?: { templateId?: string; adjustments?: string }): Promise<{ ok: true; agents: Array<{ id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; personality?: string; skills?: string[] }> } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    try {
+      const body: Record<string, unknown> = { officeId, count }
+      // Keep `prompt` (legacy field) and mirror it to `purpose` (new field) so the
+      // call works whether the endpoint has shipped the rename yet or not.
+      if (prompt) { body.prompt = prompt; body.purpose = prompt }
+      const templateId = opts?.templateId?.trim()
+      if (templateId) {
+        body.templateId = templateId
+        const adjustments = (opts?.adjustments ?? '').trim()
+        if (adjustments) body.adjustments = adjustments
+      }
+      const r = await this.postJson('/api/agents/generate', body)
       const raw = (r?.data?.agents ?? r?.agents ?? []) as Array<Record<string, any>>
       const agents = raw.map((a) => ({
         id: a.id != null ? String(a.id) : undefined,
         slug: a.slug != null ? String(a.slug) : undefined,
-        name: String(a.name ?? ''), role: a.role, emoji: a.emoji, color: a.color
+        name: String(a.name ?? ''), role: a.role, emoji: a.emoji, color: a.color,
+        personality: a.personality != null ? String(a.personality) : undefined,
+        skills: Array.isArray(a.skills) ? a.skills.map((s: any) => String(s)) : undefined
       }))
       return { ok: true, agents }
     } catch (e) { return { error: String((e as Error)?.message ?? e) } }

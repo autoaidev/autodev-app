@@ -9,11 +9,16 @@ import { useCliStatus } from '@renderer/services/cliStatus'
 import { useAgents } from '@renderer/services/agentStore'
 import { PROVIDER_GROUPS, modelKeyFor, useModelCatalog, modelsForFamily, slugify, providerAuthFor, fetchDefaultModels, defaultModelFor } from '@renderer/lib/providers'
 
-interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string }
+interface RosterAgent { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; personality?: string; skills?: string[] }
 /** Per-agent editable fields the user can tweak before spawning. `id`/`slug` are
  *  the office character identity (present on the office-backed path) — needed to
- *  fetch each agent's MCP credentials for the single-shared-folder spawn. */
-interface AgentEdit { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; provider: string; model: string }
+ *  fetch each agent's MCP credentials for the single-shared-folder spawn.
+ *  `personality`/`skills` are what the AI/template assigned (read-only surface). */
+interface AgentEdit { id?: string; slug?: string; name: string; role?: string; emoji: string; color: string; provider: string; model: string; personality?: string; skills?: string[] }
+
+/** An office template from `GET /api/office-templates` — a starting blueprint
+ *  (PHP/SQL web app, Game Studio, …) the office AI expands into a full roster. */
+interface OfficeTemplate { id: string; name: string; description?: string; icon?: string; default_count?: number; roles?: Array<{ title: string; personality?: string; skills?: string[] }> }
 
 /** Tone of the spawn result line — an honest signal, not always success-green. */
 type SpawnTone = 'ok' | 'partial' | 'error'
@@ -138,6 +143,52 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // local-only mode this is false so `make` takes the local default-roster path.
   const officeMode = connected && useOffice
 
+  // ── Office-template picker ──────────────────────────────────────────────────
+  // Templates are an owner-authed, office-backed catalog, so they only exist on
+  // the office path. `templates === null` = not fetched yet; `[]` = fetched but
+  // none available (→ quietly fall back to the free-text funnel). `selectedTemplateId`
+  // of '' means the "Blank / custom" option (current free-text-only behavior).
+  const [templates, setTemplates] = useState<OfficeTemplate[] | null>(null)
+  const [templatesTried, setTemplatesTried] = useState(false)
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  // The last description string we auto-filled from a template — so switching or
+  // clearing a template can replace/clear its own prefill WITHOUT clobbering text
+  // the user actually typed.
+  const [autoDesc, setAutoDesc] = useState('')
+  useEffect(() => {
+    if (!officeMode || templatesTried) return
+    let cancelled = false
+    void (async () => {
+      const r = (await window.api.officeTemplates()) as { templates?: OfficeTemplate[]; error?: string }
+      if (cancelled) return
+      setTemplatesTried(true)
+      setTemplates(r?.templates?.length ? r.templates : [])
+    })()
+    return () => { cancelled = true }
+  }, [officeMode, templatesTried])
+  // A real template is only "selected" on the office path; otherwise the funnel is
+  // always the free-text (blank) behavior. `blankMode` gates the purpose vs.
+  // adjustments semantics + the "describe first" validation.
+  const templateSelected = officeMode && !!selectedTemplateId
+  const blankMode = !templateSelected
+  const activeTemplate = templateSelected ? templates?.find((t) => t.id === selectedTemplateId) ?? null : null
+  // Pick a template (or '' for Blank/custom): prefill the purpose/description box
+  // and default the team size from the template. Prefill only overwrites an empty
+  // box or a prior template prefill, never hand-typed text.
+  const selectTemplate = useCallback((id: string): void => {
+    setSelectedTemplateId(id)
+    setErr('')
+    const t = id ? (templates?.find((x) => x.id === id) ?? null) : null
+    // Replace the box only when it's empty or still holds a prior template prefill —
+    // never clobber text the user actually typed.
+    if (!desc.trim() || desc === autoDesc) {
+      const pre = t ? (t.description || t.name || '') : ''
+      setDesc(pre)
+      setAutoDesc(pre)
+    }
+    if (t?.default_count && t.default_count >= 1 && t.default_count <= 12) setCount(t.default_count)
+  }, [templates, autoDesc, desc])
+
   // ── quick path: register an EXISTING folder as a single agent (no AI team, no
   //    office login) — the heavyweight describe→team funnel is overkill when you
   //    already have a repo. Mirrors window.api.addAgent, which supports exactly this. ──
@@ -209,7 +260,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   }, [base, email, password, officeSel])
 
   const make = useCallback(async () => {
-    if (!desc.trim()) { setErr('Describe what you want to build first.'); return }
+    // With a template chosen, the free-text box is optional (adjustments); without
+    // one it's the required purpose.
+    if (blankMode && !desc.trim()) { setErr('Describe what you want to build first.'); return }
     setCreating(true); setErr(''); setOffice(null); setEdits(null); setSpawnMsg(''); setSpawnedOk(false)
     try {
       // Local-only path (checkbox unchecked OR not signed in): no office, no AI
@@ -238,17 +291,22 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         if (!target) { setErr('Pick an office to generate the team into.'); setCreating(false); return }
       }
       setOffice(target)
-      const gt = (await window.api.officeGenerateTeam(target.id, desc.trim(), count)) as
-        { ok?: boolean; agents?: RosterAgent[]; error?: string }
+      // Template mode: send templateId + the box's text as free-text adjustments;
+      // Blank/custom: send nothing extra (the box is the purpose, as today).
+      const gt = (await window.api.officeGenerateTeam(
+        target.id, desc.trim(), count,
+        activeTemplate ? { templateId: activeTemplate.id, adjustments: desc.trim() } : undefined
+      )) as { ok?: boolean; agents?: RosterAgent[]; error?: string }
       if (gt?.error) { setErr(gt.error); setEdits([]); setCreating(false); return }
       // Seed each agent's editable name + model, defaulting the provider. Keep the
-      // office character id/slug so single-shared-folder mode can wire each one.
-      setEdits((gt.agents ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, emoji: a.emoji, color: a.color, provider: defaultProvider, model: defaultModelFor(defaults, defaultProvider) })))
+      // office character id/slug so single-shared-folder mode can wire each one, and
+      // carry the template/AI-assigned personality + skills so the roster can show them.
+      setEdits((gt.agents ?? []).map((a) => ({ id: a.id, slug: a.slug, name: a.name, role: a.role, emoji: a.emoji, color: a.color, personality: a.personality, skills: a.skills, provider: defaultProvider, model: defaultModelFor(defaults, defaultProvider) })))
     } catch (e: any) {
       setErr(e?.message || 'Something went wrong.')
     }
     setCreating(false)
-  }, [desc, count, defaultProvider, defaults, officeMode, selectedOfficeId, offices, loadOffices])
+  }, [desc, count, defaultProvider, defaults, officeMode, selectedOfficeId, offices, loadOffices, blankMode, activeTemplate])
 
   const patchEdit = (i: number, p: Partial<AgentEdit>): void =>
     setEdits((prev) => prev ? prev.map((e, k) => (k === i ? { ...e, ...p } : e)) : prev)
@@ -416,7 +474,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     window.api.openExternal(`${base.replace(/\/+$/, '')}/office/${office.slug}/setup`)
   }, [base, office])
 
-  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setSpawnTone('ok'); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false); setSpawnedOk(false) }, [])
+  const reset = useCallback(() => { setOffice(null); setEdits(null); setDesc(''); setErr(''); setSpawnMsg(''); setSpawnTone('ok'); setFolder(''); setSharedFolder(false); setFileBrowser(false); setWired(false); setSpawnedOk(false); setSelectedTemplateId(''); setAutoDesc('') }, [])
 
   // A2: step-2 → step-1 without wiping the form. Unlike reset() this KEEPS the
   // description, team size, selected office and chosen folder, so a "← Back" only
@@ -505,9 +563,31 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           {/* PRIMARY FUNNEL — describe → team → spawn (takes the slack). */}
           <div style={{ flex: '1 1 520px', minWidth: 0 }}>
-        <label style={labelStyle}>What do you want to build?</label>
+        {/* Template picker — only on the office path (templates are owner-authed &
+            office-backed). When the catalog is empty/unavailable we fall back to
+            the plain free-text funnel with a quiet note (no picker). Hidden once a
+            roster exists so step 2 stays focused on the team. */}
+        {officeMode && !edits && templates && templates.length > 0 && (
+          <TemplatePicker
+            templates={templates}
+            selectedId={selectedTemplateId}
+            onSelect={selectTemplate}
+            disabled={creating}
+          />
+        )}
+        {officeMode && !edits && templatesTried && templates && templates.length === 0 && (
+          <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-faint)', margin: '0 0 12px' }}>
+            No office templates available — just describe your app below.
+          </div>
+        )}
+
+        <label style={labelStyle}>
+          {templateSelected ? 'Adjustments — add, remove, or retune roles' : 'What do you want to build?'}
+        </label>
         <textarea className="makeapp-input" value={desc} onChange={(e) => setDesc(e.target.value)}
-          placeholder="e.g. A recipe app that suggests meals from ingredients I have at home"
+          placeholder={templateSelected
+            ? `Optional: tweak the “${activeTemplate?.name ?? 'template'}” team — e.g. “add a DBA, drop the designer, make the lead security-focused”`
+            : 'e.g. A recipe app that suggests meals from ingredients I have at home'}
           rows={4} style={{ ...inp, resize: 'vertical', minHeight: 90 }} disabled={creating} />
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
@@ -538,7 +618,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         {err && <div role="alert" style={{ color: 'var(--st-error-bright)', fontSize: 'var(--fs-desc)', margin: '10px 0 0' }}>{err}</div>}
 
         {!edits && (
-          <Button variant="primary" block style={{ marginTop: 12 }} disabled={creating || !desc.trim()} onClick={make}>
+          <Button variant="primary" block style={{ marginTop: 12 }} disabled={creating || (blankMode && !desc.trim())} onClick={make}>
             {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : <><Icon name="sparkle" size={12} /> Generate team</>}
           </Button>
         )}
@@ -557,7 +637,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                   selected office) and REPLACES the roster with a fresh AI team. Kept
                   next to the badge so it's reachable after the first generation, when
                   the big "🐣 Generate team" primary is no longer rendered. */}
-              <Button variant="secondary" size="sm" style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || !desc.trim()} onClick={make}
+              <Button variant="secondary" size="sm" style={{ marginLeft: 'auto', flex: '0 0 auto' }} disabled={creating || (blankMode && !desc.trim())} onClick={make}
                 title="Generate a fresh team from the current description, team size & office">
                 {creating ? (officeMode && selectedOfficeId === NEW_OFFICE ? 'Creating office…' : 'Assembling team…') : <><Icon name="refresh" size={12} /> Regenerate</>}
               </Button>
@@ -566,7 +646,8 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {edits.map((a, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px', background: 'var(--bg-panel)', border: '1px solid var(--bd-card)', borderRadius: 'var(--r-card)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span title={a.role} style={{ width: 30, height: 30, flex: '0 0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, fontSize: 16, background: `color-mix(in srgb, ${a.color || 'var(--swatch-fallback)'} 13%, transparent)`, border: `1px solid ${a.color || 'var(--swatch-fallback)'}` }}>{a.emoji || '🧑'}</span>
                   <input className="makeapp-input" value={a.name} onChange={(e) => patchEdit(i, { name: e.target.value })} aria-label={`Agent ${i + 1} name`}
                     style={{ ...inp, margin: 0, flex: '1 1 140px', minWidth: 100 }} disabled={spawning} />
@@ -583,6 +664,19 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
                     <datalist id={`models-${a.provider.split('-')[0]}`}>
                       {modelsForFamily(modelCatalog, a.provider).map((m) => <option key={m.id} value={m.id} />)}
                     </datalist>
+                  )}
+                  </div>
+                  {/* Template/AI-assigned identity — read-only context so the user sees
+                      what the roster produced (role · personality · skills). */}
+                  {(a.role || a.personality || (a.skills && a.skills.length > 0)) && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, paddingLeft: 38, fontSize: 'var(--fs-micro)', color: 'var(--tx-dim)', lineHeight: 1.4 }}>
+                      {a.role && <span style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{a.role}</span>}
+                      {a.personality && <span title={a.personality} style={{ fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>{a.personality}</span>}
+                      {a.skills?.slice(0, 5).map((s) => (
+                        <span key={s} style={{ padding: '1px 6px', borderRadius: 'var(--r-chip)', background: 'var(--bg-chip-idle)', border: '1px solid var(--bd-field)', color: 'var(--tx-2)', whiteSpace: 'nowrap' }}>{s}</span>
+                      ))}
+                      {a.skills && a.skills.length > 5 && <span>+{a.skills.length - 5}</span>}
+                    </div>
                   )}
                 </div>
               ))}
@@ -790,6 +884,68 @@ const warnBox: React.CSSProperties = {
   display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16, padding: '10px 12px',
   background: 'var(--st-error-soft)', border: '1px solid var(--st-error-bd)', borderRadius: 'var(--r-card)',
   fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)', lineHeight: 1.5
+}
+
+/**
+ * TemplatePicker — selectable office-template cards (icon + name + description)
+ * plus a "Blank / custom" option. Picking a template feeds its id into AI team-
+ * generation (roles/personalities/skills come from the template); "Blank / custom"
+ * is the current free-text-only behavior. Styling reuses the theme.css card tokens
+ * so it matches the roster + context-rail cards — no new UI system.
+ */
+function TemplatePicker({ templates, selectedId, onSelect, disabled }: {
+  templates: OfficeTemplate[]
+  selectedId: string
+  onSelect: (id: string) => void
+  disabled?: boolean
+}): JSX.Element {
+  const cards: Array<{ id: string; name: string; description?: string; icon?: string; count?: number }> = [
+    { id: '', name: 'Blank / custom', description: 'Describe your app in your own words — the AI designs the team from scratch.', icon: '✨' },
+    ...templates.map((t) => ({ id: t.id, name: t.name, description: t.description, icon: t.icon, count: t.default_count }))
+  ]
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{ ...labelStyle, marginBottom: 8 }}>Start from a template</label>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
+        {cards.map((c) => {
+          const active = selectedId === c.id
+          return (
+            <button
+              key={c.id || '__blank__'}
+              type="button"
+              aria-pressed={active}
+              disabled={disabled}
+              onClick={() => onSelect(c.id)}
+              title={c.description}
+              style={{
+                display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left',
+                padding: '10px 12px', cursor: disabled ? 'default' : 'pointer',
+                background: active ? 'var(--accent-tint)' : 'var(--bg-panel)',
+                border: `1px solid ${active ? 'var(--accent)' : 'var(--bd-card)'}`,
+                borderRadius: 'var(--r-card)',
+                boxShadow: active ? '0 0 0 1px var(--accent)' : 'none',
+                color: 'var(--tx-1)', fontFamily: 'var(--font-sans)',
+                opacity: disabled ? 0.6 : 1, transition: 'border-color .15s ease, background .15s ease'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--fs-body)', fontWeight: 600, color: active ? 'var(--tx-hi)' : 'var(--tx-1)' }}>
+                <span aria-hidden style={{ fontSize: 16 }}>{c.icon || '🏢'}</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+              </span>
+              {c.description && (
+                <span style={{ fontSize: 'var(--fs-micro)', color: 'var(--tx-dim)', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                  {c.description}
+                </span>
+              )}
+              {typeof c.count === 'number' && c.count > 0 && (
+                <span style={{ fontSize: 'var(--fs-micro)', color: 'var(--tx-faint)' }}>{c.count} agent{c.count === 1 ? '' : 's'}</span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 /**
