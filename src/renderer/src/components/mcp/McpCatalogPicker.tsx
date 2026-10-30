@@ -1,5 +1,5 @@
 import React from 'react'
-import { Icon, Pill } from '@renderer/ui'
+import { Icon, Pill, Modal } from '@renderer/ui'
 import {
   useMcpCatalog,
   groupCatalog,
@@ -20,6 +20,14 @@ import {
  *
  * It is presentation-only — it never touches .mcp.json itself. Reused by
  * SettingsView2 (Default MCP servers) and BulkMcpModal (per-folder add).
+ *
+ * Two presentations share ONE menu body (`McpCatalogMenu`):
+ *   • McpCatalogPicker     — a button + an absolute dropdown (inline affordance).
+ *   • McpServerPickerModal — the SAME menu inside a scrollable Modal, for use
+ *     INSIDE another scrolling modal body (where an absolute dropdown gets
+ *     clipped by the parent's `overflow:auto` and can't be scrolled — the bulk
+ *     office MCP flow). The Modal body owns the scroll, so the full list is
+ *     always reachable.
  */
 
 export interface McpPick {
@@ -66,25 +74,26 @@ const miniLabel: React.CSSProperties = {
   margin: '8px 0 3px'
 }
 
-export function McpCatalogPicker({
+/**
+ * McpCatalogMenu — the SELECTION body shared by the dropdown and the modal
+ * presentations. Owns its own menu/custom-form state; it is remounted fresh by
+ * each presentation on open (so no explicit reset is needed). Presentation-only:
+ * it never positions or scrolls itself — the parent (the dropdown container or
+ * the Modal body) owns layout + overflow. On a pick it fires `onPick` then
+ * `onClose`.
+ */
+function McpCatalogMenu({
   onPick,
+  onClose,
   exclude,
-  buttonLabel = 'Add server',
-  align = 'right',
   hideBuiltins = false
 }: {
   onPick: (pick: McpPick) => void
-  /** server ids/names already present — shown greyed with an "added" tag. */
+  onClose: () => void
   exclude?: Set<string>
-  buttonLabel?: string
-  align?: 'left' | 'right'
-  /** Drop the whole Built-in group from the menu — used where the 4 core built-ins
-   *  are already always-on (Settings → Default MCP servers) so offering them as
-   *  "addable" would contradict that. Common/Creative/Custom stay pickable. */
   hideBuiltins?: boolean
 }): React.JSX.Element {
   const { catalog } = useMcpCatalog()
-  const [open, setOpen] = React.useState(false)
   const [mode, setMode] = React.useState<'menu' | 'custom'>('menu')
 
   // Custom form state
@@ -108,17 +117,10 @@ export function McpCatalogPicker({
     [catalog, hideBuiltins]
   )
 
-  const reset = (): void => {
-    setMode('menu')
-    setCName(''); setCTransport('stdio'); setCCommand(''); setCArgs(''); setCEnv('')
-    setCUrl(''); setCHeaders(''); setCSse(false)
-  }
-  const close = (): void => { setOpen(false); reset() }
-
   const pickCatalog = (s: McpCatalogServer): void => {
     if (exclude?.has(s.id) || exclude?.has(s.name)) return
     onPick({ name: s.id, server: catalogServerSpec(s), kind: s.kind, id: s.id, label: s.name })
-    close()
+    onClose()
   }
 
   const parseKv = (raw: string): Record<string, string> => {
@@ -151,12 +153,151 @@ export function McpCatalogPicker({
             ...(cHeaders.trim() ? { headers: parseKv(cHeaders) } : {})
           }
     onPick({ name: cName.trim(), server, kind: 'custom' })
-    close()
+    onClose()
+  }
+
+  if (mode === 'menu') {
+    return (
+      <>
+        {groups.map((g) => (
+          <div key={g.kind} style={{ marginBottom: 4 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--tx-4)', padding: '6px 8px 3px' }}>
+              {g.label}
+            </div>
+            {g.servers.map((s) => {
+              const added = exclude?.has(s.id) || exclude?.has(s.name)
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  role="menuitem"
+                  disabled={added}
+                  onClick={() => pickCatalog(s)}
+                  style={{
+                    display: 'block',
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: 'var(--r-input)',
+                    padding: '7px 9px',
+                    cursor: added ? 'default' : 'pointer',
+                    opacity: added ? 0.5 : 1,
+                    color: 'var(--tx-1)'
+                  }}
+                  onMouseEnter={(e) => { if (!added) e.currentTarget.style.background = 'var(--bg-selected)' }}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{s.name}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--tx-4)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-chip)', padding: '0 4px' }}>
+                      {transportBadge(s)}
+                    </span>
+                    {s.experimental && <Pill variant="amber" radius="chip" mono>EXPERIMENTAL</Pill>}
+                    {added && <span style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--st-running)' }}>added</span>}
+                  </div>
+                  {s.description && (
+                    <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginTop: 2, lineHeight: 1.4 }}>{s.description}</div>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        ))}
+        <div style={{ borderTop: '1px solid var(--bd-2)', margin: '4px 0' }} />
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => setMode('custom')}
+          style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 'var(--r-input)', padding: '7px 9px', cursor: 'pointer', color: 'var(--tx-1)' }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-selected)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+        >
+          <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>Custom…</span>
+          <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginTop: 2 }}>A server the catalog doesn't list (stdio command or a remote URL).</div>
+        </button>
+      </>
+    )
   }
 
   return (
+    <div style={{ padding: '4px 6px 8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <button type="button" onClick={() => setMode('menu')} style={{ ...linkBtn, color: 'var(--tx-3)' }}>
+          <Icon name="chevron" size={12} /> Back
+        </button>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--tx-2)', marginLeft: 2 }}>Custom server</span>
+      </div>
+      <span style={miniLabel}>Name</span>
+      <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="my-server" spellCheck={false} style={fieldInput} />
+      <div style={{ display: 'inline-flex', marginTop: 8, borderRadius: 'var(--r-button)', border: '1px solid var(--bd-field)', overflow: 'hidden' }}>
+        {(['stdio', 'remote'] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setCTransport(t)}
+            style={{ padding: '4px 12px', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-desc)', fontWeight: cTransport === t ? 700 : 500, background: cTransport === t ? 'var(--accent)' : 'transparent', color: cTransport === t ? 'var(--tx-onaccent)' : 'var(--tx-3)' }}
+          >
+            {t === 'stdio' ? 'stdio' : 'remote'}
+          </button>
+        ))}
+      </div>
+      {cTransport === 'stdio' ? (
+        <>
+          <span style={miniLabel}>Command</span>
+          <input value={cCommand} onChange={(e) => setCCommand(e.target.value)} placeholder="npx" spellCheck={false} style={fieldInput} />
+          <span style={miniLabel}>Args (space-separated)</span>
+          <input value={cArgs} onChange={(e) => setCArgs(e.target.value)} placeholder="-y my-mcp-package" spellCheck={false} style={fieldInput} />
+          <span style={miniLabel}>Env (KEY=VALUE, one per line)</span>
+          <textarea value={cEnv} onChange={(e) => setCEnv(e.target.value)} placeholder="API_KEY=…" spellCheck={false} rows={2} style={{ ...fieldInput, resize: 'vertical' }} />
+        </>
+      ) : (
+        <>
+          <span style={miniLabel}>URL</span>
+          <input value={cUrl} onChange={(e) => setCUrl(e.target.value)} placeholder="https://host/mcp" spellCheck={false} style={fieldInput} />
+          <span style={miniLabel}>Headers (KEY=VALUE, one per line)</span>
+          <textarea value={cHeaders} onChange={(e) => setCHeaders(e.target.value)} placeholder="Authorization=Bearer …" spellCheck={false} rows={2} style={{ ...fieldInput, resize: 'vertical' }} />
+          <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, fontSize: 'var(--fs-desc)', color: 'var(--tx-3)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={cSse} onChange={(e) => setCSse(e.target.checked)} />
+            SSE transport (default is HTTP)
+          </label>
+        </>
+      )}
+      <button
+        type="button"
+        disabled={!customValid}
+        onClick={submitCustom}
+        style={{ marginTop: 12, width: '100%', padding: '7px 0', border: 'none', borderRadius: 'var(--r-button)', cursor: customValid ? 'pointer' : 'default', fontSize: 'var(--fs-body)', fontWeight: 600, background: customValid ? 'var(--accent)' : 'var(--bg-input)', color: customValid ? 'var(--tx-onaccent)' : 'var(--tx-4)' }}
+      >
+        Add custom server
+      </button>
+    </div>
+  )
+}
+
+export function McpCatalogPicker({
+  onPick,
+  exclude,
+  buttonLabel = 'Add server',
+  align = 'right',
+  hideBuiltins = false
+}: {
+  onPick: (pick: McpPick) => void
+  /** server ids/names already present — shown greyed with an "added" tag. */
+  exclude?: Set<string>
+  buttonLabel?: string
+  align?: 'left' | 'right'
+  /** Drop the whole Built-in group from the menu — used where the 4 core built-ins
+   *  are already always-on (Settings → Default MCP servers) so offering them as
+   *  "addable" would contradict that. Common/Creative/Custom stay pickable. */
+  hideBuiltins?: boolean
+}): React.JSX.Element {
+  const [open, setOpen] = React.useState(false)
+  const close = (): void => setOpen(false)
+
+  return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" style={linkBtn} onClick={() => (open ? close() : setOpen(true))} aria-haspopup="menu" aria-expanded={open}>
+      <button type="button" style={linkBtn} onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
         <Icon name="plus" size={11} />
         {buttonLabel}
       </button>
@@ -180,123 +321,45 @@ export function McpCatalogPicker({
               padding: 6
             }}
           >
-            {mode === 'menu' ? (
-              <>
-                {groups.map((g) => (
-                  <div key={g.kind} style={{ marginBottom: 4 }}>
-                    <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '.09em', textTransform: 'uppercase', color: 'var(--tx-4)', padding: '6px 8px 3px' }}>
-                      {g.label}
-                    </div>
-                    {g.servers.map((s) => {
-                      const added = exclude?.has(s.id) || exclude?.has(s.name)
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          role="menuitem"
-                          disabled={added}
-                          onClick={() => pickCatalog(s)}
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            textAlign: 'left',
-                            background: 'transparent',
-                            border: 'none',
-                            borderRadius: 'var(--r-input)',
-                            padding: '7px 9px',
-                            cursor: added ? 'default' : 'pointer',
-                            opacity: added ? 0.5 : 1,
-                            color: 'var(--tx-1)'
-                          }}
-                          onMouseEnter={(e) => { if (!added) e.currentTarget.style.background = 'var(--bg-selected)' }}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>{s.name}</span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--tx-4)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-chip)', padding: '0 4px' }}>
-                              {transportBadge(s)}
-                            </span>
-                            {s.experimental && <Pill variant="amber" radius="chip" mono>EXPERIMENTAL</Pill>}
-                            {added && <span style={{ marginLeft: 'auto', fontSize: 9.5, color: 'var(--st-running)' }}>added</span>}
-                          </div>
-                          {s.description && (
-                            <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginTop: 2, lineHeight: 1.4 }}>{s.description}</div>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ))}
-                <div style={{ borderTop: '1px solid var(--bd-2)', margin: '4px 0' }} />
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => setMode('custom')}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', borderRadius: 'var(--r-input)', padding: '7px 9px', cursor: 'pointer', color: 'var(--tx-1)' }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-selected)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <span style={{ fontSize: 'var(--fs-body)', fontWeight: 600 }}>Custom…</span>
-                  <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', marginTop: 2 }}>A server the catalog doesn't list (stdio command or a remote URL).</div>
-                </button>
-              </>
-            ) : (
-              <div style={{ padding: '4px 6px 8px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <button type="button" onClick={() => setMode('menu')} style={{ ...linkBtn, color: 'var(--tx-3)' }}>
-                    <Icon name="chevron" size={12} /> Back
-                  </button>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--tx-2)', marginLeft: 2 }}>Custom server</span>
-                </div>
-                <span style={miniLabel}>Name</span>
-                <input value={cName} onChange={(e) => setCName(e.target.value)} placeholder="my-server" spellCheck={false} style={fieldInput} />
-                <div style={{ display: 'inline-flex', marginTop: 8, borderRadius: 'var(--r-button)', border: '1px solid var(--bd-field)', overflow: 'hidden' }}>
-                  {(['stdio', 'remote'] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setCTransport(t)}
-                      style={{ padding: '4px 12px', border: 'none', cursor: 'pointer', fontSize: 'var(--fs-desc)', fontWeight: cTransport === t ? 700 : 500, background: cTransport === t ? 'var(--accent)' : 'transparent', color: cTransport === t ? 'var(--tx-onaccent)' : 'var(--tx-3)' }}
-                    >
-                      {t === 'stdio' ? 'stdio' : 'remote'}
-                    </button>
-                  ))}
-                </div>
-                {cTransport === 'stdio' ? (
-                  <>
-                    <span style={miniLabel}>Command</span>
-                    <input value={cCommand} onChange={(e) => setCCommand(e.target.value)} placeholder="npx" spellCheck={false} style={fieldInput} />
-                    <span style={miniLabel}>Args (space-separated)</span>
-                    <input value={cArgs} onChange={(e) => setCArgs(e.target.value)} placeholder="-y my-mcp-package" spellCheck={false} style={fieldInput} />
-                    <span style={miniLabel}>Env (KEY=VALUE, one per line)</span>
-                    <textarea value={cEnv} onChange={(e) => setCEnv(e.target.value)} placeholder="API_KEY=…" spellCheck={false} rows={2} style={{ ...fieldInput, resize: 'vertical' }} />
-                  </>
-                ) : (
-                  <>
-                    <span style={miniLabel}>URL</span>
-                    <input value={cUrl} onChange={(e) => setCUrl(e.target.value)} placeholder="https://host/mcp" spellCheck={false} style={fieldInput} />
-                    <span style={miniLabel}>Headers (KEY=VALUE, one per line)</span>
-                    <textarea value={cHeaders} onChange={(e) => setCHeaders(e.target.value)} placeholder="Authorization=Bearer …" spellCheck={false} rows={2} style={{ ...fieldInput, resize: 'vertical' }} />
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 8, fontSize: 'var(--fs-desc)', color: 'var(--tx-3)', cursor: 'pointer' }}>
-                      <input type="checkbox" checked={cSse} onChange={(e) => setCSse(e.target.checked)} />
-                      SSE transport (default is HTTP)
-                    </label>
-                  </>
-                )}
-                <button
-                  type="button"
-                  disabled={!customValid}
-                  onClick={submitCustom}
-                  style={{ marginTop: 12, width: '100%', padding: '7px 0', border: 'none', borderRadius: 'var(--r-button)', cursor: customValid ? 'pointer' : 'default', fontSize: 'var(--fs-body)', fontWeight: 600, background: customValid ? 'var(--accent)' : 'var(--bg-input)', color: customValid ? 'var(--tx-onaccent)' : 'var(--tx-4)' }}
-                >
-                  Add custom server
-                </button>
-              </div>
-            )}
+            <McpCatalogMenu onPick={onPick} onClose={close} exclude={exclude} hideBuiltins={hideBuiltins} />
           </div>
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * McpServerPickerModal — the picker's menu body inside a scrollable Modal.
+ *
+ * Use this (not the dropdown McpCatalogPicker) when the "choose a server" step
+ * is launched from INSIDE another scrolling modal body: an absolute dropdown is
+ * clipped there by the parent's `overflow:auto` and the lower rows can't be
+ * reached (the bulk-office MCP "Choose a server…" bug). The Modal body supplies
+ * a bounded, always-scrollable surface, so every catalog row — through Custom —
+ * stays reachable. Picking a server fires `onPick` and closes.
+ */
+export function McpServerPickerModal({
+  open,
+  onClose,
+  onPick,
+  exclude,
+  hideBuiltins = false,
+  title = 'Choose an MCP server',
+  subtitle
+}: {
+  open: boolean
+  onClose: () => void
+  onPick: (pick: McpPick) => void
+  exclude?: Set<string>
+  hideBuiltins?: boolean
+  title?: React.ReactNode
+  subtitle?: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <Modal open={open} onClose={onClose} title={title} subtitle={subtitle} width={440}>
+      <McpCatalogMenu onPick={onPick} onClose={onClose} exclude={exclude} hideBuiltins={hideBuiltins} />
+    </Modal>
   )
 }
 

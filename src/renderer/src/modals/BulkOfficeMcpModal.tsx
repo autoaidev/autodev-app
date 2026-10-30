@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, Icon, Pill } from '@renderer/ui'
 import { OfficeAgent } from '../components/office/officeTypes'
 import { providerFamilyOf } from '@renderer/services/identity'
-import { McpCatalogPicker, type McpPick } from '../components/mcp/McpCatalogPicker'
+import { McpServerPickerModal, type McpPick } from '../components/mcp/McpCatalogPicker'
 import { NativeSelect } from '@renderer/components/NativeSelect'
 import { type DetectedApp } from '../components/mcp/CreativeAppsSection'
 
@@ -88,8 +88,13 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
   const [prep, setPrep] = useState<Map<string, PrepState>>(new Map())
   const [preparing, setPreparing] = useState(false)
 
-  // ADD — a ready-to-apply catalog/custom pick from the shared picker.
+  // ADD — a ready-to-apply catalog/custom pick from the shared picker. The
+  // "choose a server" step opens that picker inside its OWN scrollable Modal
+  // (McpServerPickerModal) rather than an inline dropdown: nested in this modal's
+  // overflow:auto body an absolute dropdown gets clipped and its lower rows can't
+  // be scrolled to, so the server list is reused as a bounded, scrollable modal.
   const [pick, setPick] = useState<McpPick | null>(null)
+  const [pickerOpen, setPickerOpen] = useState(false)
 
   // REMOVE — the server name to remove + the union of names present across the
   // selection (quick-pick), lazily listed when the Remove tab is first shown.
@@ -118,7 +123,7 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     let alive = true
     const snapshot = agentsRef.current.slice()
     setWorkAgents(snapshot)
-    setOp('add'); setPick(null)
+    setOp('add'); setPick(null); setPickerOpen(false)
     setRemoveName(''); setRemoveNames([]); setRemoveLoaded(false)
     setApps([]); setAppId(''); setDetectErr(''); setCreativeAction('enable')
     setResults(new Map()); setPhase('config'); setBusy(false)
@@ -284,6 +289,7 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
   )
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -350,11 +356,10 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
             <div>
               <span style={label}>Server to add</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <McpCatalogPicker
-                  buttonLabel={pick ? 'Change server…' : 'Choose a server…'}
-                  align="left"
-                  onPick={(p) => setPick(p)}
-                />
+                <Button variant="secondary" size="sm" onClick={() => setPickerOpen(true)}>
+                  <Icon name="plus" size={11} />
+                  {pick ? 'Change server…' : 'Choose a server…'}
+                </Button>
                 {pick && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Pill variant="green" selected><Icon name="check" size={11} /> {pick.label ?? pick.name}</Pill>
@@ -541,6 +546,19 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
         </div>
       )}
     </Modal>
+
+    {/* "Choose a server" — the reused scrollable server picker (same catalog body
+        as the per-character McpEditorModal's "Add custom…" menu), presented in its
+        own Modal so its list always scrolls. Picking one sets the pending `pick`,
+        which the existing Apply-to-N fan-out then applies to every ready character. */}
+    <McpServerPickerModal
+      open={pickerOpen}
+      onClose={() => setPickerOpen(false)}
+      onPick={(p) => setPick(p)}
+      title="Choose a server to add"
+      subtitle={`Adds to ${readyCount} selected character${readyCount === 1 ? '' : 's'} on their next task`}
+    />
+    </>
   )
 }
 
