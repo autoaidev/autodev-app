@@ -48,8 +48,13 @@ export function McpEditorModal(props: {
   agentPath: string
   open: boolean
   onClose: () => void
+  /** When this editor is scoped to an office CHARACTER, these enable the one-click
+   *  PERMANENT SyntheticMem mint (the office mints against the character's api_key).
+   *  Absent for a LOCAL agent — SyntheticMem then keeps its paste/demo-key flow. */
+  officeSlug?: string
+  agentId?: string
 }): React.JSX.Element {
-  const { agentPath, open, onClose } = props
+  const { agentPath, open, onClose, officeSlug, agentId } = props
   const { catalog } = useMcpCatalog()
 
   // Remote servers that require a bearer key (SyntheticMem) can't be one-click
@@ -235,6 +240,8 @@ export function McpEditorModal(props: {
         agentPath={agentPath}
         catalog={catalog}
         current={current}
+        officeSlug={officeSlug}
+        agentId={agentId}
         onMcpChanged={() => {
           void loadList()
           void recheck()

@@ -29,7 +29,14 @@ import { type DetectedApp } from '../components/mcp/CreativeAppsSection'
  * (mirroring how this view treats a not-locally-operable character).
  */
 
-type OpKind = 'add' | 'remove' | 'creative'
+type OpKind = 'add' | 'remove' | 'creative' | 'synthmem'
+
+/** The syntheticmem remote-MCP catalog metadata (URL + bearer header name), used to
+ *  wire a freshly-minted permanent/demo key. Loaded once when the Memory op opens. */
+interface SynthMeta {
+  url: string
+  header: string
+}
 
 /** Per-character workspace resolution (a scratch dir prepared on demand). */
 interface PrepState {
@@ -56,8 +63,11 @@ const inputStyle: React.CSSProperties = {
 const OPS: ReadonlyArray<{ id: OpKind; label: string }> = [
   { id: 'add', label: 'Add server' },
   { id: 'remove', label: 'Remove server' },
-  { id: 'creative', label: 'Creative app' }
+  { id: 'creative', label: 'Creative app' },
+  { id: 'synthmem', label: 'Add memory' }
 ]
+
+const SYNTHETICMEM_ID = 'syntheticmem'
 
 export interface BulkOfficeMcpModalProps {
   open: boolean
@@ -103,6 +113,14 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
   const [removeLoaded, setRemoveLoaded] = useState(false)
   const [removeLoading, setRemoveLoading] = useState(false)
 
+  // SYNTHMEM — the one-click "add permanent memory" op. We only need the remote
+  // catalog metadata (URL + bearer header) to wire a freshly-minted key; the key
+  // itself is minted per-character at apply time (office permanent mint, with a
+  // per-character fall back to the free 24h demo key when the server has it off).
+  const [synthMeta, setSynthMeta] = useState<SynthMeta | null>(null)
+  const [synthLoading, setSynthLoading] = useState(false)
+  const [synthErr, setSynthErr] = useState('')
+
   // CREATIVE — detected apps (Blender / GIMP) + the chosen app/action.
   const [apps, setApps] = useState<DetectedApp[]>([])
   const [detecting, setDetecting] = useState(false)
@@ -125,6 +143,7 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     setWorkAgents(snapshot)
     setOp('add'); setPick(null); setPickerOpen(false)
     setRemoveName(''); setRemoveNames([]); setRemoveLoaded(false)
+    setSynthMeta(null); setSynthErr(''); setSynthLoading(false)
     setApps([]); setAppId(''); setDetectErr(''); setCreativeAction('enable')
     setResults(new Map()); setPhase('config'); setBusy(false)
     setPreparing(true); setPrep(new Map())
@@ -207,6 +226,34 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     return () => { alive = false }
   }, [open, op, preparing, readyAgents, prep, apps.length, detectErr])
 
+  // ── SYNTHMEM — load the remote catalog metadata (URL + bearer header) once when
+  //    the Memory op is first shown. Global catalog, so any one fetch is enough. ──
+  useEffect(() => {
+    if (!open || op !== 'synthmem' || synthMeta || synthLoading) return
+    let alive = true
+    setSynthLoading(true); setSynthErr('')
+    void (async () => {
+      try {
+        const r = (await window.api.mcpCatalog()) as { servers?: Array<{ id: string; kind: string; server?: { url?: string }; auth?: { header?: string } }>; error?: string }
+        if (!alive) return
+        if (r?.error) { setSynthErr(r.error); return }
+        const e = (r?.servers ?? []).find((s) => s.id === SYNTHETICMEM_ID && s.kind === 'remote')
+        if (!e) {
+          // Older bundled CLI without the remote catalog entry — the mint still
+          // returns an mcpUrl per character, so fall back to the public endpoint.
+          setSynthMeta({ url: 'https://syntheticmem.com/api/mcp', header: 'Authorization' })
+          return
+        }
+        setSynthMeta({ url: typeof e.server?.url === 'string' ? e.server.url : 'https://syntheticmem.com/api/mcp', header: e.auth?.header || 'Authorization' })
+      } catch (e) {
+        if (alive) setSynthErr(e instanceof Error ? e.message : 'Could not load the memory catalog.')
+      } finally {
+        if (alive) setSynthLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [open, op, synthMeta, synthLoading])
+
   const selectedApp = useMemo(() => apps.find((a) => a.id === appId) ?? null, [apps, appId])
 
   // Is the current op fully specified (so Apply is meaningful)?
@@ -215,8 +262,9 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     if (op === 'add') return !!pick
     if (op === 'remove') return removeName.trim().length > 0
     if (op === 'creative') return !!selectedApp && (creativeAction === 'disable' || selectedApp.installed)
+    if (op === 'synthmem') return !!synthMeta && !synthLoading
     return false
-  }, [readyCount, op, pick, removeName, selectedApp, creativeAction])
+  }, [readyCount, op, pick, removeName, selectedApp, creativeAction, synthMeta, synthLoading])
 
   // Removing / disabling a load-bearing server across many characters is
   // destructive — gate it behind the app's NATIVE confirm (window.confirm is a
@@ -228,6 +276,7 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     if (op === 'add') return pick ? `Add “${pick.label ?? pick.name}”` : 'Add a server'
     if (op === 'remove') return removeName.trim() ? `Remove “${removeName.trim()}”` : 'Remove a server'
     if (op === 'creative' && selectedApp) return `${creativeAction === 'enable' ? 'Enable' : 'Disable'} ${selectedApp.name} MCP`
+    if (op === 'synthmem') return 'Add SyntheticMem memory'
     return 'Creative app'
   }, [op, pick, removeName, selectedApp, creativeAction])
 
@@ -270,6 +319,29 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
             const r = await window.api.mcpApply({ path, op: 'remove', name: selectedApp.serverName })
             ok = r.ok; if (!r.ok) err = r.error || `Could not disable ${selectedApp.name}`
           }
+        } else if (op === 'synthmem' && synthMeta) {
+          // One-click permanent memory: mint a PERMANENT key for THIS character
+          // (office mints against the character's own api_key), then wire the remote
+          // server via the CLI seam. If the server has SyntheticMem off, fall back to
+          // a per-character free 24h demo key so the character still gets memory.
+          let memKey = ''
+          const mint = await window.api.syntheticMemProvision(a.officeSlug, a.id)
+          if ('ok' in mint && mint.ok) {
+            memKey = mint.key
+          } else if ('disabled' in mint && mint.disabled) {
+            const dk = (await window.api.runCli(['mcp', 'demo-key', '--json'], path)) as { stdout?: string; stderr?: string }
+            let parsed: { key?: string; error?: string } = {}
+            try { parsed = JSON.parse((dk?.stdout || '').trim()) } catch { /* fall through */ }
+            if (parsed.key) memKey = parsed.key
+            else err = parsed.error || 'Memory is off on this server and no demo key was available.'
+          } else {
+            err = ('error' in mint && mint.error) || 'Could not mint a memory key.'
+          }
+          if (memKey) {
+            const server = { type: 'http' as const, url: synthMeta.url, headers: { [synthMeta.header]: `Bearer ${memKey}` } }
+            const r = await window.api.mcpApply({ path, op: 'add', name: SYNTHETICMEM_ID, server })
+            ok = r.ok; if (!r.ok) err = r.error || 'Could not add SyntheticMem memory'
+          }
         }
         res.set(a.id, ok ? 'ok' : { error: err })
       } catch (e) {
@@ -279,7 +351,7 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
     }
     setBusy(false); setPhase('done')
     onApplied?.()
-  }, [readyAgents, canApply, isDestructive, prep, op, pick, removeName, selectedApp, creativeAction, onApplied])
+  }, [readyAgents, canApply, isDestructive, prep, op, pick, removeName, selectedApp, creativeAction, synthMeta, onApplied])
 
   const okCount = useMemo(() => [...results.values()].filter((r) => r === 'ok').length, [results])
   const failCount = useMemo(() => [...results.values()].filter((r) => r !== 'ok' && r !== 'pending' && r !== 'running').length, [results])
@@ -484,6 +556,28 @@ export function BulkOfficeMcpModal({ open, agents, onClose, onApplied }: BulkOff
                       : `Turns off ${selectedApp?.name ?? 'the app'}’s MCP server for all ${readyCount} selected character${readyCount === 1 ? '' : 's'} (its installed files stay in place).`}
                   </div>
                 </>
+              )}
+            </div>
+          )}
+
+          {/* ── ADD MEMORY (SyntheticMem permanent) ──────────────────────── */}
+          {op === 'synthmem' && (
+            <div>
+              <span style={label}>Permanent memory</span>
+              {synthLoading ? (
+                <div style={{ fontSize: 'var(--fs-meta)', color: 'var(--tx-4)' }}>Loading the memory catalog…</div>
+              ) : synthErr ? (
+                <div style={{ padding: '10px 12px', background: 'var(--st-error-wash)', border: '1px solid var(--st-error-bd)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)' }}>
+                  {synthErr}
+                </div>
+              ) : (
+                <div style={hint}>
+                  Mints a <b>permanent</b> SyntheticMem key for each of the {readyCount} selected
+                  character{readyCount === 1 ? '' : 's'} (the office mints it against each character’s
+                  own key) and wires the memory server via the AutoDev CLI, synced to every provider.
+                  A character where permanent memory is off on the server falls back to a free 24h demo
+                  key; a character already wired is refreshed. One character’s failure never aborts the rest.
+                </div>
               )}
             </div>
           )}

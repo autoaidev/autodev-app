@@ -660,6 +660,11 @@ ipcMain.handle('office:removeOffice', async (_e, officeSlug: string) => {
 // to [] so the UI degrades rather than crashes.
 ipcMain.handle('office:keyUsage', () => office.keyUsage())
 ipcMain.handle('office:steer', (_e, agentId: string, text: string) => office.steer(agentId, text))
+// One-click PERMANENT SyntheticMem memory: the office mints a permanent agent key
+// (authenticated with the character's own office api_key). Returns { key, mcpUrl }
+// on success, { disabled:true } when SyntheticMem is off on that server (caller
+// falls back to the 24h demo key), or { error }. The minted key is never logged.
+ipcMain.handle('office:syntheticMemProvision', (_e, officeSlug: string, agentId: string) => office.syntheticMemProvision(officeSlug, agentId))
 ipcMain.handle('office:messages', (_e, officeSlug: string, agentRef: string) => office.messages(officeSlug, agentRef))
 ipcMain.handle('office:agentEvents', (_e, officeSlug: string, agentRef: string, limit?: number, before?: number) => office.agentEvents(officeSlug, agentRef, limit, before))
 ipcMain.handle('office:events', (_e, officeSlug: string, limit?: number, before?: number) => office.officeEvents(officeSlug, limit, before))

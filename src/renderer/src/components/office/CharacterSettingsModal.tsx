@@ -241,7 +241,13 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
 
       {/* Reused per-agent MCP editor, scoped to the resolved workspace path. */}
       {mcpPath && (
-        <McpEditorModal agentPath={mcpPath} open={!!mcpPath} onClose={() => setMcpPath(null)} />
+        <McpEditorModal
+          agentPath={mcpPath}
+          open={!!mcpPath}
+          onClose={() => setMcpPath(null)}
+          officeSlug={agent?.officeSlug}
+          agentId={agent?.id}
+        />
       )}
     </Modal>
   )

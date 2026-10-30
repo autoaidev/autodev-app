@@ -948,6 +948,61 @@ export class PixelOfficeClient {
   }
 
   /**
+   * One-click PERMANENT SyntheticMem memory for an office character. The app can't
+   * hold SyntheticMem's server-only master key, so it asks the connected
+   * pixel-office to MINT a permanent agent key on the character's behalf:
+   *   POST {base}/api/agents/synthetic-mem/provision
+   *   Authorization: Bearer <that character's own office api_key>
+   * The agent api_key is fetched from the owner-only credentials endpoint (the same
+   * source operate()/ensureWorkspace() already read), so the renderer never has to
+   * hold it. Responses:
+   *   • 200 → { ok, key, mcpUrl, permanent }  (a permanent `agt_` key + MCP URL)
+   *   • 409 → { disabled:true }  (SyntheticMem not enabled on this server — the
+   *            caller falls back to the free 24h demo-key flow)
+   *   • 401 → { error }  (the character's office key was rejected)
+   * The minted key is returned ONLY so the caller can wire the server through the
+   * CLI seam; it is never logged.
+   */
+  async syntheticMemProvision(
+    officeSlug: string,
+    agentId: string
+  ): Promise<{ ok: true; key: string; mcpUrl: string; permanent: boolean } | { disabled: true } | { error: string }> {
+    if (!this._authed) return { error: 'Not connected to a pixel-office.' }
+    let apiKey: string | undefined
+    try {
+      const creds = (await this.getJson(`/api/offices/${encodeURIComponent(officeSlug)}/agents/${encodeURIComponent(agentId)}/credentials`))?.data ?? {}
+      apiKey = creds.apiKey as string | undefined
+    } catch (e) {
+      return { error: `Couldn't fetch this character's office key — ${String((e as Error)?.message ?? e)}` }
+    }
+    if (!apiKey) return { error: 'No office key for this character — it may lack office-MCP access.' }
+    try {
+      // Authenticated with the AGENT key (Bearer), not the session cookie — so no
+      // CSRF/cookie dance; a dedicated fetch keeps the agent key off the shared jar.
+      const r = await fetchT(`${this.base}/api/agents/synthetic-mem/provision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: '{}'
+      })
+      if (r.status === 409) return { disabled: true }
+      if (r.status === 401) return { error: 'This character’s office key was rejected (401) — reconnect it to the office.' }
+      const j = (await r.json().catch(() => ({}))) as { key?: string; mcp_url?: string; permanent?: boolean; disabled?: boolean; error?: string }
+      // Some servers answer "disabled" with a 200 body rather than a 409.
+      if (j && j.disabled) return { disabled: true }
+      if (!r.ok) return { error: j.error || `Memory provisioning failed (${r.status})` }
+      const key = typeof j.key === 'string' ? j.key.trim() : ''
+      if (!key) return { error: 'The office did not return a memory key.' }
+      // The MCP URL lives on SyntheticMem's own origin (not the office origin), so
+      // the same-origin safeMcpUrl check can't be used — require https and fall back
+      // to the public endpoint otherwise, so a bad value can't downgrade the link.
+      const mcpUrl = typeof j.mcp_url === 'string' && isSecureBaseUrl(j.mcp_url) ? j.mcp_url : 'https://syntheticmem.com/api/mcp'
+      return { ok: true, key, mcpUrl, permanent: j.permanent !== false }
+    } catch (e) {
+      return { error: String((e as Error)?.message ?? e) }
+    }
+  }
+
+  /**
    * Fetch an office character's conversation for the in-app Chat tab. The local
    * app only knows the agent's ENDPOINT SLUG (from its wsUrl `endpoint=<slug>`) —
    * not the numeric office-agent id the message/hook APIs key on — so resolve the

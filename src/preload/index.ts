@@ -184,6 +184,15 @@ const api = {
   // vault (Claude 5h+weekly, OpenRouter credit, Copilot). Fails soft to [].
   officeKeyUsage: (): Promise<KeyUsage[]> => ipcRenderer.invoke('office:keyUsage'),
   officeSteer: (agentId: string, text: string) => ipcRenderer.invoke('office:steer', agentId, text),
+  // One-click PERMANENT SyntheticMem memory for an office character — the office
+  // mints a permanent agent key (using the character's own office api_key). Returns
+  // { key, mcpUrl } to wire via the CLI seam, { disabled:true } when SyntheticMem is
+  // off on that server (fall back to the 24h demo key), or { error }.
+  syntheticMemProvision: (
+    officeSlug: string,
+    agentId: string
+  ): Promise<{ ok: true; key: string; mcpUrl: string; permanent: boolean } | { disabled: true } | { error: string }> =>
+    ipcRenderer.invoke('office:syntheticMemProvision', officeSlug, agentId),
   officeMessages: (officeSlug: string, agentRef: string) => ipcRenderer.invoke('office:messages', officeSlug, agentRef),
   officeAgentEvents: (officeSlug: string, agentRef: string, limit?: number, before?: number): Promise<{ ok: true; agentId: string; agentName: string; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; toolInput?: unknown; toolOutput?: unknown; raw?: Record<string, unknown> }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:agentEvents', officeSlug, agentRef, limit, before),
   officeEvents: (officeSlug: string, limit?: number, before?: number): Promise<{ ok: true; events: Array<{ id: string; at: number; evt: string; tool?: string; text: string; agentId: string; agentName: string; toolInput?: unknown; toolOutput?: unknown; raw?: Record<string, unknown> }>; nextBefore: number | null; hasMore: boolean; total: number } | { error: string }> => ipcRenderer.invoke('office:events', officeSlug, limit, before),
