@@ -1,5 +1,5 @@
 import React from 'react'
-import { Pill, Button } from '@renderer/ui'
+import { Pill, Button, Icon } from '@renderer/ui'
 import { identityTokens } from '@renderer/services/identity'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
 import { OfficeGroup, tickFor, TickState } from './officeTypes'
@@ -36,6 +36,10 @@ export interface OfficeCardProps {
    *  signal from OfficeView). Their rail segment tick breathes in the running hue so
    *  the rail — not just the open office — shows something is happening. */
   workingIds?: ReadonlySet<string>
+  /** The office has live characters but NONE run locally on this PC — a hint that
+   *  it's running on another machine (watch-only here), so the user isn't surprised
+   *  that its characters can't be operated from this machine. */
+  liveElsewhere?: boolean
 }
 
 export function OfficeCard({
@@ -47,7 +51,8 @@ export function OfficeCard({
   onSpawn,
   onStop,
   onOpenBrowser,
-  workingIds
+  workingIds,
+  liveElsewhere = false
 }: OfficeCardProps): React.JSX.Element {
   const total = group.agents.length
   const online = group.onlineCount
@@ -107,6 +112,17 @@ export function OfficeCard({
           {online}/{total} LIVE
         </Pill>
       </div>
+
+      {/* Live on another machine (online here, but no local session) — a quiet hint
+          that this office is watch-only from this PC. */}
+      {liveElsewhere && (
+        <div
+          title="This office's live characters are running on another machine — watch-only here"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}
+        >
+          <Icon name="external" size={10} /> on another PC
+        </div>
+      )}
 
       {/* per-character segment ticks — Advanced only (the LIVE count conveys it) */}
       {advanced && (

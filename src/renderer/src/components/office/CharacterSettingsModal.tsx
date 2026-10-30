@@ -44,8 +44,9 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
   const [family, setFamily] = useState<ProviderFamily>('claude')
   // grok runs two ways: the per-turn TUI (grok --continue) or the persistent ACP
   // session (grok-acp). The office stores the family for the other engines, but the
-  // grok RUNNER is a real behavioural choice, so it's a stored variant here.
-  const [grokAcp, setGrokAcp] = useState(false)
+  // grok RUNNER is a real behavioural choice, so it's a stored variant here. ACP is
+  // the default runner (persistent session) — only an explicit grok-tui opts out.
+  const [grokAcp, setGrokAcp] = useState(true)
   const [model, setModel] = useState('')
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
@@ -64,7 +65,10 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
     setStatus('')
     const fam = providerFamilyOf(agent.provider)
     setFamily(fam === 'unknown' ? 'claude' : fam)
-    setGrokAcp(String(agent.provider ?? '').toLowerCase() === 'grok-acp')
+    // Seed the runner from the stored provider: an explicit grok-tui stays TUI; a
+    // stored grok-acp stays ACP; a bare `grok` family (runner not pinned) or any
+    // unset value defaults to ACP — the persistent session is now the default runner.
+    setGrokAcp(String(agent.provider ?? '').toLowerCase() !== 'grok-tui')
     setModel(agent.model ?? '')
     setName(agent.name ?? '')
   }, [open, agent])
@@ -182,7 +186,7 @@ export function CharacterSettingsModal({ agent, open, onClose }: CharacterSettin
         <div style={{ marginBottom: 16 }}>
           <span style={label}>Grok runner</span>
           <div role="radiogroup" aria-label="Grok runner" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {([['tui', 'TUI', 'grok --continue, a fresh turn each time'], ['acp', 'ACP (persistent)', 'one long-lived ACP session across turns']] as const).map(([val, title, hint]) => {
+            {([['acp', 'ACP (persistent)', 'one long-lived ACP session across turns'], ['tui', 'TUI', 'grok --continue, a fresh turn each time']] as const).map(([val, title, hint]) => {
               const on = (val === 'acp') === grokAcp
               return (
                 <button

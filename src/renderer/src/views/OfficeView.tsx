@@ -11,6 +11,7 @@ import { BulkModelModal, type BulkModelAdapter } from '../modals/BulkModelModal'
 import { AgentStream } from '../components/office/AgentStream'
 import { EventsPanel } from '../components/office/EventsPanel'
 import { OfficeRoom } from '../components/office/OfficeRoom'
+import { OfficeChat } from '../components/office/OfficeChat'
 import { SignInForm } from '../components/office/SignInForm'
 import {
   OfficeAgent,
@@ -72,6 +73,17 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
 
   // ── office sub-view: the per-character "Team" workspace vs the unified "Room" ──
   const [officeTab, setOfficeTab] = useState<'team' | 'room'>('team')
+  // ── Team workspace layout: the CharacterCard grid ("cards") vs the chat-centric
+  //    sidebar + large chat pane ("chat"). Persisted per-viewer; defaults to cards
+  //    so existing users aren't surprised. localStorage is best-effort (private
+  //    windows throw), mirroring the Events-panel toggle above. ──
+  const [officeViewMode, setOfficeViewMode] = useState<'cards' | 'chat'>(() => {
+    try { return localStorage.getItem('autodev.officeViewMode') === 'chat' ? 'chat' : 'cards' } catch { return 'cards' }
+  })
+  const setViewMode = useCallback((m: 'cards' | 'chat') => {
+    setOfficeViewMode(m)
+    try { localStorage.setItem('autodev.officeViewMode', m) } catch { /* ignore */ }
+  }, [])
 
   // ── per-character SETTINGS editor (provider / model / name) ──
   const [settingsCharId, setSettingsCharId] = useState('')
@@ -174,10 +186,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // truthful "idle · Nm ago". A never-seen-transition agent (idle since app start) keeps
   // ts undefined → the card shows a plain "idle" with no fabricated time.
   const lastActivityRef = useRef<Map<string, { activity: string; ts?: number }>>(new Map())
-  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string }>>(new Map())
+  const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>>(new Map())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
-    const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string }>()
+    const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>()
     for (const a of localAgentsRef.current) {
       // Track when each agent entered 'working' so the card can show elapsed when no
       // narration is available; clear it the moment it stops working.
@@ -194,7 +206,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         since: workingSinceRef.current.get(a.path),
         lastActivity: lastActivityRef.current.get(a.path)?.ts,
         authMessage: a.authMessage,
-        authProvider: a.authProvider || a.provider
+        authProvider: a.authProvider || a.provider,
+        // The local workspace path (loop/operate cwd) so the Chat view can resolve
+        // this office character to a ChatTab without a second fleet lookup.
+        path: a.path
       }
       const k1 = a.officeAgentSlug?.toLowerCase()
       const k2 = a.officeAgentId?.toLowerCase()
@@ -392,6 +407,49 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     void tick()
     return () => { alive = false; if (timer) clearTimeout(timer) }
   }, [visible, officeTab, selectedSlugForEvents])
+
+  // ── Chat-view lookups (item: Cards ↔ Chat) — per-character, scoped to the selected
+  //    office. `localPathById` maps an office character → the LOCAL workspace path of a
+  //    loop/operate session THIS app tracks (so the Chat pane can mount a ChatTab for it;
+  //    absent → offer Connect & operate). `lastActivityById` is the witnessed-activity
+  //    clock reused for the sidebar row timestamp. Both fold from the same localByKey the
+  //    cards' working verdict uses — no new data path. ──
+  const chatAgents = selectedGroup?.agents ?? EMPTY_AGENTS
+  const localPathById = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const a of chatAgents) {
+      const e = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
+      if (e?.path) m.set(a.id, e.path)
+    }
+    return m
+  }, [chatAgents, localByKey])
+  const lastActivityById = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const a of chatAgents) {
+      const e = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
+      if (e?.lastActivity) m.set(a.id, e.lastActivity)
+    }
+    return m
+  }, [chatAgents, localByKey])
+
+  // ── live-elsewhere guard ────────────────────────────────────────────────
+  // Offices/characters are account-wide (shared across the user's machines), but
+  // Operate spawns a LOCAL session on THIS PC — and the office WS is last-wins per
+  // slug, so operating a character that's already live on ANOTHER machine would
+  // STEAL its session. `isLocalAgent` = this app tracks a local loop/operate session
+  // for the character (it appears in the fleet with a workspace path, folded into
+  // localByKey). `liveElsewhere` = the backend reports it online BUT we have no local
+  // session → it's running on another PC, so it must be WATCH-ONLY here (no Operate).
+  // Conservative by construction: true ONLY when confidently online AND confidently
+  // not-local; any uncertainty leaves it false → Operate stays offered (fail open).
+  const isLocalAgent = useCallback((a: OfficeAgent): boolean => {
+    const e = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
+    return !!e?.path
+  }, [localByKey])
+  const liveElsewhere = useCallback(
+    (a: OfficeAgent): boolean => !!a.online && !isLocalAgent(a),
+    [isLocalAgent]
+  )
 
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate
@@ -944,6 +1002,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               selected={g.slug === selectedGroup?.slug}
               running={g.onlineCount > 0 || spawnedOffices.has(g.slug)}
               busy={spawningOffice === g.slug ? 'spawning' : stoppingOffice === g.slug ? 'stopping' : ''}
+              // Office has live characters but none are local to THIS PC → a hint
+              // that it's running on another machine (watch-only here).
+              liveElsewhere={g.onlineCount > 0 && !g.agents.some(isLocalAgent)}
               onSelect={() => setSelectedSlug(g.slug)}
               onSpawn={() => spawnOffice(g)}
               onStop={() => stopOffice(g)}
@@ -997,6 +1058,36 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   </button>
                 ))}
               </div>
+              {/* Cards | Chat layout toggle — swaps the Team workspace between the
+                  CharacterCard grid and the chat-centric sidebar + large chat pane.
+                  Only meaningful in the Team sub-view (Room is its own stream), so it
+                  rides alongside the Team | Room toggle there. Choice persists. */}
+              {officeTab === 'team' && (
+                <div role="tablist" aria-label="Team layout" style={{ display: 'flex', gap: 2, padding: 2, background: 'var(--bg-input)', border: '1px solid var(--bd-1)', borderRadius: 'var(--r-card)' }}>
+                  {(['cards', 'chat'] as const).map((m) => (
+                    <button
+                      key={m}
+                      role="tab"
+                      aria-selected={officeViewMode === m}
+                      onClick={() => setViewMode(m)}
+                      style={{
+                        padding: '4px 12px',
+                        borderRadius: 'var(--r-input)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: officeViewMode === m ? 'var(--bg-panel)' : 'transparent',
+                        color: officeViewMode === m ? 'var(--tx-hi)' : 'var(--tx-4)',
+                        fontFamily: 'var(--font-sans)',
+                        fontSize: 'var(--fs-meta)',
+                        fontWeight: 600,
+                        boxShadow: officeViewMode === m ? 'inset 0 0 0 1px var(--bd-panel-sel)' : undefined
+                      }}
+                    >
+                      {m === 'cards' ? 'Cards' : 'Chat'}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div style={{ flex: 1 }} />
               {steerToast && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-desc)', color: steerToast === 'delivered' ? 'var(--st-running)' : 'var(--st-error)', whiteSpace: 'nowrap' }}>
@@ -1021,7 +1112,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               {/* Icon-only so the header row stays on one line even with many buttons.
                   The eye/eye-off glyph flips with state; title + aria-label carry the
                   full "Hide/Show events" meaning for hover + screen readers. */}
-              {officeTab === 'team' && (
+              {officeTab === 'team' && officeViewMode === 'cards' && (
                 <IconButton
                   label={showEvents ? 'Hide events' : 'Show events'}
                   icon={showEvents ? 'eye' : 'eye-off'}
@@ -1060,7 +1151,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 (Add one character, Set model across the selection). A Team-view concern. */}
             <div
               style={{
-                display: officeTab === 'team' ? 'flex' : 'none',
+                display: officeTab === 'team' && officeViewMode === 'cards' ? 'flex' : 'none',
                 alignItems: 'center',
                 gap: 10,
                 padding: '10px 18px 0',
@@ -1106,7 +1197,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
             {/* character grid — a Team-view concern (hidden in the Room stream) */}
             <div
               style={{
-                display: officeTab === 'team' ? 'grid' : 'none',
+                display: officeTab === 'team' && officeViewMode === 'cards' ? 'grid' : 'none',
                 gridTemplateColumns: 'repeat(4, 1fr)',
                 gap: 16,
                 padding: '12px 18px',
@@ -1124,6 +1215,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   selected={a.id === focusedChar?.id}
                   busy={operatingId === a.officeSlug + a.id}
                   running={!!liveOpTermId(a.officeSlug, a.id)}
+                  liveElsewhere={liveElsewhere(a)}
                   working={work.working}
                   activityText={work.text}
                   workingSince={work.since}
@@ -1166,7 +1258,10 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 The Team container is kept MOUNTED (display-toggled) so switching to the
                 Room tab never unmounts — and SIGKILLs — a live Operate PTY. */}
             <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
-              <div style={{ display: officeTab === 'team' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
+              {/* Team CARDS lower area — focused stream / live Operate terminals. Kept
+                  MOUNTED (display-toggled) in Chat mode too so switching layouts never
+                  unmounts — and SIGKILLs — a live Operate PTY. */}
+              <div style={{ display: officeTab === 'team' && officeViewMode === 'cards' ? 'flex' : 'none', flex: 1, flexDirection: 'column', minHeight: 0, minWidth: 0 }}>
                 {/* Keep every office's terminals mounted; show only the selected office's.
                     Each bucket carries a stable `term-<slug>` key (offices that churned
                     out of the poll keep their own bucket) so switching/polling never
@@ -1177,6 +1272,11 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   <AgentStream
                     agent={focusedChar}
                     messages={messages.filter((m) => m.role === 'assistant' || m.role === 'system')}
+                    // A live-elsewhere character stays watch + MESSAGE: the composer
+                    // routes through the OFFICE BACKEND steer (officeService.steer →
+                    // /api/agents/{id}/steer), delivered to whichever PC runs it. Only
+                    // local Operate (takeover) is withheld — see the card gating. So the
+                    // composer is disabled only when the character is genuinely offline.
                     disabled={!focusedChar.online}
                     onSend={(t) => steer(focusedChar.id, t)}
                     onOpenAgent={() => openAgentTab(focusedChar)}
@@ -1191,8 +1291,35 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   calls / narration / status straight from the office's authoritative
                   hook_events (the same feed the web "Events" tab shows). Lets the user
                   WATCH a working agent's real activity instead of trusting the badge. */}
-              {officeTab === 'team' && showEvents && (
+              {officeTab === 'team' && officeViewMode === 'cards' && showEvents && (
                 <EventsPanel agent={focusedChar ?? null} officeSlug={selectedGroup.slug} active={visible && officeTab === 'team'} />
+              )}
+
+              {/* Team CHAT layout — scrollable all-characters sidebar + the dominant
+                  reused ChatTab. Shown only in the Team sub-view's Chat mode; the cards
+                  lower area above stays mounted (display:none) to keep live PTYs alive. */}
+              {officeTab === 'team' && officeViewMode === 'chat' && (
+                <OfficeChat
+                  agents={selectedGroup.agents}
+                  selectedId={focusedChar?.id ?? ''}
+                  onSelect={setFocusedId}
+                  previews={latestByAgent}
+                  lastActivity={lastActivityById}
+                  localPaths={localPathById}
+                  onOperate={(a) => operate(a)}
+                  operatingId={operatingId}
+                  isLiveElsewhere={liveElsewhere}
+                  // Backend-sourced read-only watch (no local session needed) for a
+                  // character running on another PC — the SAME focused-character
+                  // conversation the cards view streams.
+                  watchMessages={messages.filter((m) => m.role === 'assistant' || m.role === 'system')}
+                  advanced={advanced}
+                  onOpenAgent={openAgentTab}
+                  // Live instant-message to a watched character — routes through the
+                  // office backend (officeService.steer → /api/agents/{id}/steer), so a
+                  // character running on another PC is still messageable from here.
+                  onSteer={steer}
+                />
               )}
 
               {officeTab === 'room' && (

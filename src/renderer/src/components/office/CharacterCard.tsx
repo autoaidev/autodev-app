@@ -44,6 +44,13 @@ export interface CharacterCardProps {
    * loop this app cannot stop per-character).
    */
   running?: boolean
+  /**
+   * The character is LIVE on ANOTHER machine — the backend reports it online but THIS
+   * app owns no local session for it. Operating here would steal that remote session
+   * (the office WS is last-wins per slug), so the card goes WATCH-ONLY: no Operate
+   * button, an "On another PC" badge, and a Watch affordance (focus → read-only
+   * stream). Ignored while this app runs a local session (`running`). */
+  liveElsewhere?: boolean
   /** Stop this app's Operate session for the character (kills its PTY). */
   onStop?: () => void
   /** Restart it — stop the live Operate session, then connect & operate again. */
@@ -138,6 +145,7 @@ export function CharacterCard({
   onSelect,
   onOperate,
   running,
+  liveElsewhere = false,
   onStop,
   onRestart,
   onSettings,
@@ -159,6 +167,9 @@ export function CharacterCard({
   lastActivity
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
+  // Live on ANOTHER PC (online, but this app owns no local session) → watch-only.
+  // A local Operate session (`running`) always wins — it's ours to control.
+  const elsewhere = liveElsewhere && !running
   // A grok character whose loop paused for re-auth gets a provider-aware "sign in"
   // affordance; other providers keep the generic needs-you attention line.
   const isGrok = /grok/i.test(authProvider || agent.provider || '')
@@ -589,6 +600,35 @@ export function CharacterCard({
             )
           }
         />
+      ) : elsewhere ? (
+        // Watch-only: this character is live on another machine. NO Operate (it would
+        // steal the remote session) — an "On another PC" badge + a Watch affordance
+        // that focuses the card so its read-only office stream shows below.
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span
+            title="This character is running on another machine — watch-only here"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '2px 8px', borderRadius: 'var(--r-pill)',
+              background: 'var(--bg-input)', border: '1px solid var(--bd-1)',
+              color: 'var(--tx-4)', fontSize: 'var(--fs-tiny)', fontWeight: 600
+            }}
+          >
+            <Icon name="external" size={10} /> On another PC
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onSelect() }}
+            aria-label={`Watch ${agent.name} (read-only)`}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5, padding: 0,
+              background: 'transparent', border: 'none', color: 'var(--accent)',
+              fontFamily: 'var(--font-sans)', fontSize: 'var(--fs-desc)', fontWeight: 600, cursor: 'pointer'
+            }}
+          >
+            <Icon name="clock" size={11} /> Watch
+          </button>
+        </div>
       ) : (
         (advanced || !connected) && (
           <button

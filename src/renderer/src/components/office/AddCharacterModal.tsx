@@ -147,7 +147,11 @@ export function AddCharacterModal({
         return
       }
       // Persist the chosen engine + model on the new row (createCharacter sets neither).
-      const r = await officeService.updateCharacter(created.id, { provider: family, model })
+      // grok runs two ways — default a NEW grok character to the persistent ACP runner
+      // (grok-acp) rather than the bare family (which would operate as TUI); every other
+      // family stores its bare family (the runner, where it has one, is chosen later).
+      const providerId = family === 'grok' ? 'grok-acp' : family
+      const r = await officeService.updateCharacter(created.id, { provider: providerId, model })
       if ('error' in r) {
         // The character exists — only the engine write failed; surface it but still
         // hand the row back so the roster shows it.
@@ -165,7 +169,7 @@ export function AddCharacterModal({
         slug: String(created.slug ?? ''),
         online: false,
         status: 'just added',
-        provider: family,
+        provider: providerId,
         model,
         avatarIndex,
         color,
