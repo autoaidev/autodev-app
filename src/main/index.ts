@@ -323,6 +323,9 @@ ptys.on('exit', (d) => {
 // The installed app version (electron-builder stamps package.json → app.getVersion()).
 ipcMain.handle('app:version', () => app.getVersion())
 ipcMain.handle('agents:list', () => manager.list())
+// Same-host loops NOT in the registry (Part A): lets the renderer mark a locally-
+// running office loop this app didn't spawn as LOCAL, not "on another PC".
+ipcMain.handle('agents:discoverLocal', () => manager.discoverLocalLoops())
 ipcMain.handle('agents:add', (_e, path: string) => manager.add(path))
 ipcMain.handle('workspace:info', (_e, path: string) => manager.workspaceInfo(path))
 ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); return true })

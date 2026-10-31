@@ -78,6 +78,11 @@ const api = {
   // The installed app version string, e.g. '0.3.1'.
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
   listAgents: () => ipcRenderer.invoke('agents:list'),
+  // Same-host autodev loops NOT in the registry (Part A of the "on another PC"
+  // fix) — each carries { path, officeAgentSlug?, officeAgentId? } so the office
+  // view can fold them into its local-agent match. Linux-only; [] elsewhere.
+  discoverLocalLoops: (): Promise<Array<{ path: string; officeAgentSlug?: string; officeAgentId?: string }>> =>
+    ipcRenderer.invoke('agents:discoverLocal'),
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
   workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
   removeAgent: (path: string) => ipcRenderer.invoke('agents:remove', path),

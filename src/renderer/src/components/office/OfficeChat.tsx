@@ -53,8 +53,9 @@ export interface OfficeChatProps {
   onOperate: (a: OfficeAgent) => void
   /** `officeSlug + id` of the character currently being operated (busy spinner). */
   operatingId: string
-  /** The character is LIVE on another PC (online, no local session) → watch-only
-   *  here; Operate is withheld (it would steal the remote session). */
+  /** The character is online but not managed from this app (no local session, and no
+   *  same-host loop matched) → watch-only here; Operate is withheld (it could steal a
+   *  live session). */
   isLiveElsewhere: (a: OfficeAgent) => boolean
   /** The selected character's backend conversation (assistant/system turns) for the
    *  read-only watch view — the SAME stream the cards view shows, no local session. */
@@ -64,8 +65,8 @@ export interface OfficeChatProps {
   /** Jump the character into the Agents tab (AgentStream's "Open agent"). */
   onOpenAgent: (a: OfficeAgent) => void
   /** Live instant-message a character via the OFFICE BACKEND (officeService.steer),
-   *  so a character running on another PC is still messageable — only local Operate
-   *  (takeover) is withheld for it. */
+   *  so a character not managed from this app is still messageable — only local
+   *  Operate (takeover) is withheld for it. */
   onSteer: (agentId: string, text: string) => void
 }
 
@@ -177,7 +178,7 @@ export function OfficeChat({
   // empty while the office has characters (mirrors the cards view's focus default).
   const selected = agents.find((a) => a.id === selectedId) ?? agents[0]
   const localPath = selected ? localPaths.get(selected.id) : undefined
-  // Watch-only when live on another PC AND not tracked locally here.
+  // Watch-only when online but not managed from this app AND not tracked locally here.
   const elsewhere = !!selected && !localPath && isLiveElsewhere(selected)
   const busy = !!selected && operatingId === selected.officeSlug + selected.id
 
@@ -242,11 +243,11 @@ export function OfficeChat({
             Select a character to chat.
           </div>
         ) : elsewhere ? (
-          // WATCH + MESSAGE — the character is live on another machine. Reuse
-          // AgentStream (the backend-sourced stream); its composer stays ENABLED and
-          // routes through onSteer (office backend → delivered to whichever PC runs
-          // it), so it's readable AND messageable from here. Only local Operate
-          // (takeover) is withheld for it — operating here would steal its session.
+          // WATCH + MESSAGE — the character is online but not managed from this app.
+          // Reuse AgentStream (the backend-sourced stream); its composer stays ENABLED
+          // and routes through onSteer (office backend → delivered to whichever machine
+          // runs it), so it's readable AND messageable from here. Only local Operate
+          // (takeover) is withheld for it — operating here could steal its session.
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <div
               role="status"
@@ -263,7 +264,7 @@ export function OfficeChat({
             >
               <Icon name="external" size={12} />
               <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <strong style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{selected.name}</strong> is running on another PC — watch and message it here; it can&rsquo;t be operated from this machine.
+                <strong style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{selected.name}</strong> is online, but not managed from this app — watch and message it here; it can&rsquo;t be operated from this machine.
               </span>
             </div>
             <AgentStream

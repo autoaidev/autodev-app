@@ -36,9 +36,10 @@ export interface OfficeCardProps {
    *  signal from OfficeView). Their rail segment tick breathes in the running hue so
    *  the rail — not just the open office — shows something is happening. */
   workingIds?: ReadonlySet<string>
-  /** The office has live characters but NONE run locally on this PC — a hint that
-   *  it's running on another machine (watch-only here), so the user isn't surprised
-   *  that its characters can't be operated from this machine. */
+  /** The office has live characters but NONE are managed from this app (no local
+   *  session, and same-host loop discovery matched none) — a neutral hint that it's
+   *  watch-only here (not an assertion it's on another machine), so the user isn't
+   *  surprised its characters can't be operated from this app. */
   liveElsewhere?: boolean
 }
 
@@ -113,14 +114,16 @@ export function OfficeCard({
         </Pill>
       </div>
 
-      {/* Live on another machine (online here, but no local session) — a quiet hint
-          that this office is watch-only from this PC. */}
+      {/* Online here, but none of this office's live characters are managed from this
+          app (no local session, and same-host loop discovery matched none) — a quiet,
+          neutral hint that it's watch-only from this PC (NOT an assertion it's on
+          another machine). */}
       {liveElsewhere && (
         <div
-          title="This office's live characters are running on another machine — watch-only here"
+          title="Online, but not managed from this app — watch-only here"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 'var(--fs-tiny)', color: 'var(--tx-dim)' }}
         >
-          <Icon name="external" size={10} /> on another PC
+          <Icon name="external" size={10} /> online · not managed here
         </div>
       )}
 
@@ -161,11 +164,11 @@ export function OfficeCard({
           ("Open map" in Advanced) wraps to a second line instead of being clipped.
           minWidth:0 lets each button's label shrink rather than push past the card. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }} onClick={(e) => e.stopPropagation()}>
-        {/* Stop + Spawn operate on loops running on THIS machine. When the office
-            is live on another PC (liveElsewhere), it's watch-only here — hide both
-            so you can't try to stop or double-spawn an office this app doesn't run.
-            A fully-offline office has liveElsewhere=false, so "Spawn office" to
-            start it locally still shows. */}
+        {/* Stop + Spawn operate on loops running on THIS machine. When the office is
+            online but not managed from this app (liveElsewhere), it's watch-only here
+            — hide both so you can't try to stop or double-spawn an office this app
+            doesn't run. A fully-offline office has liveElsewhere=false, so "Spawn
+            office" to start it locally still shows. */}
         {running && !liveElsewhere && (
           <div style={{ flex: '1 1 calc(50% - 3px)', minWidth: 0 }}>
             <Button

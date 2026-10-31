@@ -189,6 +189,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // ts undefined → the card shows a plain "idle" with no fabricated time.
   const lastActivityRef = useRef<Map<string, { activity: string; ts?: number }>>(new Map())
   const [localByKey, setLocalByKey] = useState<Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>>(new Map())
+  // Same-host loop keys (Part A): office-agent slugs/ids of autodev loops RUNNING ON
+  // THIS MACHINE that the app never spawned/added (a terminal `autodev office`, an
+  // app office-spawn, a loop under another user, or an operated row dropped on
+  // restart). Discovered by scanning /proc in the main process — distinct from
+  // `localByKey` (registry-tracked workspaces) and carrying NO activity, so it only
+  // answers "is this character local?" without overriding its working/idle verdict.
+  const [localLoopKeys, setLocalLoopKeys] = useState<Set<string>>(new Set())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
     const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>()
@@ -229,6 +236,22 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         localAgentsRef.current = Array.isArray(list) ? list : []
         rebuildLocal()
       } catch { /* not fatal — the card falls back to office presence */ }
+      // Part A: fold in same-host loops this app didn't spawn (discovered via /proc)
+      // so a genuinely-local office character is marked LOCAL, not "on another PC".
+      // Best-effort and independent of the registry fetch above — a failure (or a
+      // non-Linux host returning []) just leaves the Part B softened copy in place.
+      try {
+        const loops = await window.api.discoverLocalLoops?.()
+        if (!alive) return
+        const ks = new Set<string>()
+        if (Array.isArray(loops)) {
+          for (const l of loops) {
+            if (l?.officeAgentSlug) ks.add(l.officeAgentSlug.toLowerCase())
+            if (l?.officeAgentId) ks.add(String(l.officeAgentId).toLowerCase())
+          }
+        }
+        setLocalLoopKeys(ks)
+      } catch { /* discovery best-effort — Part B copy covers any miss */ }
     }
     void loadAll()
     // A single agent transitioned (fast, ~1s): patch it in place and rebuild.
@@ -440,14 +463,23 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // slug, so operating a character that's already live on ANOTHER machine would
   // STEAL its session. `isLocalAgent` = this app tracks a local loop/operate session
   // for the character (it appears in the fleet with a workspace path, folded into
-  // localByKey). `liveElsewhere` = the backend reports it online BUT we have no local
-  // session → it's running on another PC, so it must be WATCH-ONLY here (no Operate).
-  // Conservative by construction: true ONLY when confidently online AND confidently
-  // not-local; any uncertainty leaves it false → Operate stays offered (fail open).
+  // localByKey) OR same-host loop discovery (Part A) matched a loop running on THIS
+  // machine that the app never spawned/added. `liveElsewhere` = the backend reports
+  // it online BUT it is not local by either test → NOT managed from this app, so it
+  // must be WATCH-ONLY here (no Operate). Conservative by construction: true ONLY when
+  // confidently online AND confidently not-local; any uncertainty leaves it false →
+  // Operate stays offered (fail open). The copy stays neutral ("not managed here"),
+  // never asserting "another PC", for the truly-unknown case discovery can't place.
   const isLocalAgent = useCallback((a: OfficeAgent): boolean => {
     const e = localByKey.get(a.slug?.toLowerCase() ?? '') ?? localByKey.get(String(a.id).toLowerCase())
-    return !!e?.path
-  }, [localByKey])
+    if (e?.path) return true
+    // Also LOCAL when a same-host loop (Part A) is bound to this character — a loop
+    // running on THIS machine that the app never spawned/added (terminal `autodev
+    // office`, app office-spawn, or under another user). Keyed by the SAME office
+    // slug/id the card is matched on, so an untracked-but-local character flips from
+    // "on another PC" to a normal, operable local character.
+    return localLoopKeys.has(a.slug?.toLowerCase() ?? '') || localLoopKeys.has(String(a.id).toLowerCase())
+  }, [localByKey, localLoopKeys])
   const liveElsewhere = useCallback(
     (a: OfficeAgent): boolean => !!a.online && !isLocalAgent(a),
     [isLocalAgent]
@@ -1013,8 +1045,9 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               selected={g.slug === selectedGroup?.slug}
               running={g.onlineCount > 0 || spawnedOffices.has(g.slug)}
               busy={spawningOffice === g.slug ? 'spawning' : stoppingOffice === g.slug ? 'stopping' : ''}
-              // Office has live characters but none are local to THIS PC → a hint
-              // that it's running on another machine (watch-only here).
+              // Office has live characters but none are local to THIS app (neither
+              // tracked nor matched by same-host loop discovery) → a neutral hint
+              // that it's watch-only here (not an assertion it's on another machine).
               liveElsewhere={g.onlineCount > 0 && !g.agents.some(isLocalAgent)}
               onSelect={() => setSelectedSlug(g.slug)}
               onSpawn={() => spawnOffice(g)}

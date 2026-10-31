@@ -45,11 +45,13 @@ export interface CharacterCardProps {
    */
   running?: boolean
   /**
-   * The character is LIVE on ANOTHER machine — the backend reports it online but THIS
-   * app owns no local session for it. Operating here would steal that remote session
-   * (the office WS is last-wins per slug), so the card goes WATCH-ONLY: no Operate
-   * button, an "On another PC" badge, and a Watch affordance (focus → read-only
-   * stream). Ignored while this app runs a local session (`running`). */
+   * The character is online but THIS app has no local session for it AND same-host
+   * loop discovery didn't match it as a local loop — so it is NOT managed from here
+   * (it may be a loop on another machine, or simply one this app doesn't own).
+   * Operating here could steal a live session (the office WS is last-wins per slug),
+   * so the card goes WATCH-ONLY: no Operate button, a neutral "online · not managed
+   * here" badge, and a Watch affordance (focus → read-only stream). Ignored while
+   * this app runs a local session (`running`). */
   liveElsewhere?: boolean
   /** Stop this app's Operate session for the character (kills its PTY). */
   onStop?: () => void
@@ -167,8 +169,8 @@ export function CharacterCard({
   lastActivity
 }: CharacterCardProps): React.JSX.Element {
   const connected = agent.online
-  // Live on ANOTHER PC (online, but this app owns no local session) → watch-only.
-  // A local Operate session (`running`) always wins — it's ours to control.
+  // Online but not managed from this app (no local session, and no same-host loop
+  // matched) → watch-only. A local Operate session (`running`) always wins.
   const elsewhere = liveElsewhere && !running
   // A grok character whose loop paused for re-auth gets a provider-aware "sign in"
   // affordance; other providers keep the generic needs-you attention line.
@@ -601,12 +603,15 @@ export function CharacterCard({
           }
         />
       ) : elsewhere ? (
-        // Watch-only: this character is live on another machine. NO Operate (it would
-        // steal the remote session) — an "On another PC" badge + a Watch affordance
-        // that focuses the card so its read-only office stream shows below.
+        // Watch-only: this character is online but THIS app has no local session for
+        // it. It MIGHT be a loop on another machine, or simply one we don't manage
+        // here (and same-host loop discovery didn't match) — so we DON'T assert
+        // "another PC". NO Operate (it could steal a live session) — a neutral
+        // "not managed here" badge + a Watch affordance that focuses the card so its
+        // read-only office stream shows below.
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span
-            title="This character is running on another machine — watch-only here"
+            title="Online, but not managed from this app — watch-only here"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 5,
               padding: '2px 8px', borderRadius: 'var(--r-pill)',
@@ -614,7 +619,7 @@ export function CharacterCard({
               color: 'var(--tx-4)', fontSize: 'var(--fs-tiny)', fontWeight: 600
             }}
           >
-            <Icon name="external" size={10} /> On another PC
+            <Icon name="external" size={10} /> online · not managed here
           </span>
           <button
             type="button"

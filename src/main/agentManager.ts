@@ -182,6 +182,28 @@ export interface AgentState {
   authProvider?: string
 }
 
+/** A same-host `autodev start <dir>` loop discovered by scanning THIS machine's
+ *  processes (Part A of the "on another PC" fix). It is a locally-running office
+ *  loop this app did NOT spawn and that is NOT in the agents registry — started
+ *  from a terminal, `autodev office <slug>`, the app's own office-spawn, or running
+ *  under another user. Carries just enough office identity for the renderer to
+ *  positively mark the matching office character as LOCAL instead of falsely
+ *  labelling it "on another PC". Linux-only (reads /proc). */
+export interface DiscoveredLoop {
+  /** The loop's workspace dir — the `start <dir>` arg from its cmdline, absolute. */
+  path: string
+  /** The office-agent SLUG the renderer compares to OfficeAgent.slug: the endpoint
+   *  slug from the workspace wsUrl when its settings.json is readable, else the
+   *  workspace dir BASENAME. The office spawn names the dir `safeSeg(agent.slug)`
+   *  (identity for the slug charset), so basename === slug for realistic slugs —
+   *  the reliable fallback when settings.json belongs to another user (unreadable). */
+  officeAgentSlug?: string
+  /** The office-agent id (compared to String(OfficeAgent.id)), resolved from live
+   *  office presence by slug — undefined until the office is connected/polled, which
+   *  is fine: a slug match alone already marks the character LOCAL. */
+  officeAgentId?: string
+}
+
 /** In-memory identity for a locally-operated office character (Change 1). Stored
  *  only while its Operate PTY is live — never persisted to the agents registry. */
 interface OperateMeta {
@@ -405,6 +427,9 @@ export class AgentManager extends EventEmitter {
   // so the app reflects reality instead of showing a live agent as "Stopped".
   // Linux-only (no /proc elsewhere) and cached briefly so readState stays cheap.
   private _extPidCache = new Map<string, { pid: number | null; at: number }>()
+  /** Brief cache for the same-host loop discovery scan (Part A) so the renderer's
+   *  existing office poll can call it cheaply. */
+  private _discoverCache: { at: number; loops: DiscoveredLoop[] } | null = null
   /**
    * Attach-tail bookkeeping: the output file this app is currently streaming for
    * an EXTERNAL loop (one it did not spawn) and the byte offset already emitted.
@@ -473,6 +498,67 @@ export class AgentManager extends EventEmitter {
       }
     } catch { /* /proc unreadable — treat as not running externally */ }
     return pids
+  }
+
+  /**
+   * Discover same-host autodev loops that are NOT in the agents registry (Part A
+   * of the "on another PC" fix). The registry only knows workspaces THIS app
+   * spawned/operated/added, so a genuinely-local loop started another way (a
+   * terminal `autodev office`, the app's own office-spawn, a deployer/VM agent on
+   * this box, or an operated session whose registry row was dropped on restart) is
+   * online-but-untracked and gets wrongly painted "on another PC". This scans
+   * /proc for every `… autodev(.js) start <dir> …` process — INCLUDING ones under
+   * other users, whose `/proc/<pid>/cwd` symlink is unreadable but whose `cmdline`
+   * (and thus the `start <dir>` arg) is — and derives each loop's office identity
+   * so the renderer can positively mark the matching character LOCAL.
+   *
+   * Correlation key = the office-agent SLUG. Preferred source: the endpoint slug
+   * parsed from the workspace's `settings.json` wsUrl (the SAME `_endpointSlug`
+   * the renderer compares to OfficeAgent.slug). Fallback when that file is
+   * unreadable (a cross-user loop): the workspace dir BASENAME — the office spawn
+   * names the dir `safeSeg(agent.slug)`, which is identity for the slug charset, so
+   * basename === slug === endpoint slug === OfficeAgent.slug.
+   *
+   * Linux-only (reads /proc); every other platform returns [] so the renderer
+   * degrades gracefully to the softened "online · not managed here" copy (Part B) —
+   * no crash, no false "local". Cached briefly to keep the office poll cheap.
+   */
+  discoverLocalLoops(): DiscoveredLoop[] {
+    if (process.platform !== 'linux') return []
+    const now = Date.now()
+    if (this._discoverCache && now - this._discoverCache.at < 3000) return this._discoverCache.loops
+    const byPath = new Map<string, DiscoveredLoop>()
+    try {
+      for (const ent of readdirSync('/proc')) {
+        if (!/^\d+$/.test(ent)) continue
+        let raw: string
+        try { raw = readFileSync(`/proc/${ent}/cmdline`, 'utf8') } catch { continue }
+        // cmdline is NUL-delimited; keep args intact so a path with spaces survives.
+        const args = raw.split('\0').filter(Boolean)
+        // Tight signature: the autodev CLI entry (`…/bin/autodev.js`, or a bare
+        // `autodev` launcher) IMMEDIATELY followed by the `start` subcommand. This
+        // rejects an unrelated process whose path merely contains "autodev" and that
+        // also happens to take a `start` verb (e.g. a tool launched from /home/autodev).
+        const si = args.findIndex((a, i) => a === 'start' && i > 0 && /(?:^|[\\/])autodev(?:\.js)?$/.test(args[i - 1]))
+        if (si < 0) continue
+        // The workspace dir is the first non-flag arg after `start`.
+        let dir: string | undefined
+        for (let i = si + 1; i < args.length; i++) { if (!args[i].startsWith('-')) { dir = args[i]; break } }
+        if (!dir) continue
+        let abs = dir
+        try { abs = realpathSync(dir) } catch { /* cross-user / gone — use the raw path */ }
+        if (byPath.has(abs)) continue
+        // Prefer the endpoint slug from a readable settings.json wsUrl; fall back to
+        // the dir basename (== the agent slug by construction) for a cross-user loop.
+        const settings = this._readJson(join(dir, '.autodev', 'settings.json'))
+        const slug = this._endpointSlug(settings?.wsUrl) || settings?.agentId || basename(dir)
+        const presence = slug ? this._officeOnline.get(String(slug).toLowerCase()) : undefined
+        byPath.set(abs, { path: abs, officeAgentSlug: slug || undefined, officeAgentId: presence?.agentId })
+      }
+    } catch { /* /proc unreadable — degrade to [] (renderer falls back to Part B copy) */ }
+    const loops = [...byPath.values()]
+    this._discoverCache = { at: now, loops }
+    return loops
   }
 
   /**
