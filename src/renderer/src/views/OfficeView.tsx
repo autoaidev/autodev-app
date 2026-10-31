@@ -485,6 +485,35 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     [isLocalAgent]
   )
 
+  // ── office-rail GROUPING ──────────────────────────────────────────────────
+  // Local offices ALWAYS sit on top, regardless of the activity Sort — a remote
+  // office with recent activity must never float above the user's own machine.
+  // Partition the ALREADY-SORTED list (so intra-group order still honors the Sort
+  // control) into three fixed-order buckets, each office landing in exactly ONE
+  // (first match wins, local highest precedence):
+  //   • local     — at least one agent is local to THIS app (same `isLocalAgent`
+  //                 the OfficeCard's `liveElsewhere` negates: tracked workspace in
+  //                 localByKey OR a same-host loop from `localLoopKeys`).
+  //   • elsewhere — online but no local agent (the "running elsewhere" case; the
+  //                 exact condition the card's `liveElsewhere` prop already uses).
+  //   • offline   — no online characters.
+  // Memoized like sortedOffices; empty buckets are dropped at render (no header).
+  const officeSections = useMemo(() => {
+    const local: OfficeGroup[] = []
+    const elsewhere: OfficeGroup[] = []
+    const offline: OfficeGroup[] = []
+    for (const g of sortedOffices) {
+      if (g.agents.some(isLocalAgent)) local.push(g)
+      else if (g.onlineCount > 0) elsewhere.push(g)
+      else offline.push(g)
+    }
+    return [
+      { key: 'local', label: 'On this machine', offices: local },
+      { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere },
+      { key: 'offline', label: 'Offline', offices: offline }
+    ]
+  }, [sortedOffices, isLocalAgent])
+
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate
   // officeAgents() will re-hit the auth error and officeService resolves it (soft
@@ -1038,24 +1067,46 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               </Button>
             </div>
           )}
-          {sortedOffices.map((g) => (
-            <OfficeCard
-              key={g.slug}
-              group={g}
-              selected={g.slug === selectedGroup?.slug}
-              running={g.onlineCount > 0 || spawnedOffices.has(g.slug)}
-              busy={spawningOffice === g.slug ? 'spawning' : stoppingOffice === g.slug ? 'stopping' : ''}
-              // Office has live characters but none are local to THIS app (neither
-              // tracked nor matched by same-host loop discovery) → a neutral hint
-              // that it's watch-only here (not an assertion it's on another machine).
-              liveElsewhere={g.onlineCount > 0 && !g.agents.some(isLocalAgent)}
-              onSelect={() => setSelectedSlug(g.slug)}
-              onSpawn={() => spawnOffice(g)}
-              onStop={() => stopOffice(g)}
-              onOpenBrowser={openBrowser}
-              workingIds={workingAgentIds}
-            />
-          ))}
+          {/* Grouped rail: LOCAL offices on top, then "running elsewhere", then
+              offline — a fixed order the Sort control can't override. Within each
+              group the existing officeSort order is preserved (sortedOffices is
+              partitioned in place). Empty groups omit their header entirely. */}
+          {officeSections.map((section) =>
+            section.offices.length === 0 ? null : (
+              <React.Fragment key={section.key}>
+                <div
+                  style={{
+                    padding: '4px 2px 0',
+                    fontSize: 'var(--fs-section)',
+                    fontWeight: 600,
+                    letterSpacing: 'var(--ls-section)',
+                    textTransform: 'uppercase',
+                    color: 'var(--tx-dim)'
+                  }}
+                >
+                  {section.label}
+                </div>
+                {section.offices.map((g) => (
+                  <OfficeCard
+                    key={g.slug}
+                    group={g}
+                    selected={g.slug === selectedGroup?.slug}
+                    running={g.onlineCount > 0 || spawnedOffices.has(g.slug)}
+                    busy={spawningOffice === g.slug ? 'spawning' : stoppingOffice === g.slug ? 'stopping' : ''}
+                    // Office has live characters but none are local to THIS app (neither
+                    // tracked nor matched by same-host loop discovery) → a neutral hint
+                    // that it's watch-only here (not an assertion it's on another machine).
+                    liveElsewhere={g.onlineCount > 0 && !g.agents.some(isLocalAgent)}
+                    onSelect={() => setSelectedSlug(g.slug)}
+                    onSpawn={() => spawnOffice(g)}
+                    onStop={() => stopOffice(g)}
+                    onOpenBrowser={openBrowser}
+                    workingIds={workingAgentIds}
+                  />
+                ))}
+              </React.Fragment>
+            )
+          )}
         </div>
       </div>
 
