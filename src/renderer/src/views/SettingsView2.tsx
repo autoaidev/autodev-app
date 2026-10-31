@@ -212,6 +212,17 @@ export function SettingsView2(): JSX.Element {
   const [skillSyncSaved, setSkillSyncSaved] = useState(false)
   const skillSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- MCP sync from Pixel Office by default (app preference) ------------------
+  // Stored in app-settings.json. Default TRUE (ON). When on, agents the app
+  // launches/operates start with the CLI's per-agent `mcpUpdateEnabled` gate on,
+  // so MCP servers pushed to them in Pixel Office are applied automatically (the CLI
+  // honors office MCP-update frames). A UI seed only — the app conveys it per agent at
+  // create/spawn/operate; existing agents are untouched. `mcpSyncSaved` briefly flags
+  // the just-persisted write.
+  const [mcpSync, setMcpSync] = useState(true)
+  const [mcpSyncSaved, setMcpSyncSaved] = useState(false)
+  const mcpSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Windows shell integration ("Open as AutoDev agent" right-click) --------
   // Whether the Explorer folder right-click menu is registered. `shellIntegWin`
   // gates the whole row off entirely on Linux/mac (hidden); `shellIntegAvail` is
@@ -270,7 +281,7 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
@@ -279,6 +290,7 @@ export function SettingsView2(): JSX.Element {
       setDesktopNotif(cfg.desktopNotifications === true)
       setAlwaysOpen(cfg.alwaysOpenSessions !== false)
       setSkillSync(cfg.skillSyncByDefault !== false)
+      setMcpSync(cfg.mcpSyncByDefault !== false)
       const rn = typeof cfg.resetSessionEveryNTurns === 'number' && cfg.resetSessionEveryNTurns > 0 ? Math.floor(cfg.resetSessionEveryNTurns) : 0
       setResetTurns(rn)
       if (rn > 0) setResetDraft(String(rn))
@@ -300,6 +312,7 @@ export function SettingsView2(): JSX.Element {
       if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
       if (alwaysOpenTimer.current) clearTimeout(alwaysOpenTimer.current)
       if (skillSyncTimer.current) clearTimeout(skillSyncTimer.current)
+      if (mcpSyncTimer.current) clearTimeout(mcpSyncTimer.current)
       if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
       offShell()
     }
@@ -339,6 +352,19 @@ export function SettingsView2(): JSX.Element {
       setSkillSyncSaved(true)
       if (skillSyncTimer.current) clearTimeout(skillSyncTimer.current)
       skillSyncTimer.current = setTimeout(() => setSkillSyncSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
+    }
+  }, [])
+
+  // Toggle the MCP-sync-by-default preference — optimistic, then persist + flash Saved.
+  const toggleMcpSync = useCallback(async (next: boolean) => {
+    setMcpSync(next) // optimistic; a failed write is corrected on next open
+    try {
+      await window.api.setSettings({ mcpSyncByDefault: next })
+      setMcpSyncSaved(true)
+      if (mcpSyncTimer.current) clearTimeout(mcpSyncTimer.current)
+      mcpSyncTimer.current = setTimeout(() => setMcpSyncSaved(false), 1600)
     } catch {
       /* leave the optimistic value; the next open re-reads truth */
     }
@@ -1004,6 +1030,76 @@ export function SettingsView2(): JSX.Element {
                         height: 14,
                         borderRadius: '50%',
                         background: skillSync ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* MCP sync from Pixel Office by default — ON by default. When on, agents
+                the app launches/operates start with the CLI's `mcpUpdateEnabled` gate
+                on, so MCP servers pushed to them in Pixel Office are applied
+                automatically. A UI seed only — existing agents are untouched. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Enable MCP sync from Pixel Office by default
+                  {mcpSyncSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  New agents the app launches or operates accept MCP servers pushed to
+                  them in Pixel Office automatically. On by default; applies to agents
+                  you create after changing this — existing agents are untouched.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={mcpSync}
+                  aria-label="Enable MCP sync from Pixel Office by default"
+                  disabled={!loaded}
+                  onClick={() => void toggleMcpSync(!mcpSync)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: loaded ? 'pointer' : 'default'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: mcpSync ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {mcpSync ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: mcpSync ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${mcpSync ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: mcpSync ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: mcpSync ? 'var(--tx-onaccent)' : 'var(--tx-4)',
                         transition: 'left .12s ease'
                       }}
                     />

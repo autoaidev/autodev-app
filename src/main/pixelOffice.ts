@@ -10,7 +10,7 @@ import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
 // is only ever used inside function bodies (never at module top level) on both
 // sides, so the cycle resolves before either is called.
-import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns, getSkillSyncByDefault } from './appSettings'
+import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns, getSkillSyncByDefault, getMcpSyncByDefault } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
 import { buildOperateCommand, buildLoopOperateCommand, isLoopProvider } from './operateCommand'
@@ -1347,6 +1347,10 @@ export class PixelOfficeClient {
       // (TUI branch) and the ACP loop (grok-acp branch) both read `skillUpdateEnabled`
       // from this dir's `.autodev/settings.json`. Merge-write; best-effort.
       this.writeSkillUpdateEnabled(dir)
+      // …and the MCP-sync-by-default preference (Settings, default ON) so this operate
+      // character honors office MCP-update frames: both branches read `mcpUpdateEnabled`
+      // from this dir's `.autodev/settings.json`. Merge-write; best-effort.
+      this.writeMcpUpdateEnabled(dir)
 
       // LOOP/ACP PROVIDER ROUTING (grok-acp, …): a persistent ACP engine driven by
       // the CLI task loop does NOT fit a self-driving TUI pane. Instead of launching
@@ -1595,6 +1599,34 @@ export class PixelOfficeClient {
   }
 
   /**
+   * Seed the "MCP sync from Pixel Office by default" preference (Settings toggle,
+   * default ON) into a spawned loop's `<dir>/.autodev/settings.json` so the CLI reads
+   * `mcpUpdateEnabled` at loop start. When on, the CLI accepts the office's MCP-update
+   * WS frames and applies the MCP servers pushed to this character in Pixel Office
+   * automatically. The CLI's own default for the gate is `false`, so without this seed
+   * an app-spawned office loop would silently ignore pushed MCP servers. The renderer
+   * create flows do this via `autodev config set mcpUpdateEnabled true`, but this
+   * app-only "⚡ Spawn office" path materializes settings.json entirely in-process, so
+   * the toggle would otherwise never reach it. MERGE-write (mirrors
+   * writeSkillUpdateEnabled); writes the resolved boolean either way (on ⇒ true, off ⇒
+   * false ⇒ CLI default). Best-effort.
+   */
+  private writeMcpUpdateEnabled(dir: string): void {
+    try {
+      const want = getMcpSyncByDefault() === true
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if (s.mcpUpdateEnabled === want) return
+      s.mcpUpdateEnabled = want
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
    * Prepare EVERY character in an office to run as a TRACKED autodev-cli LOOP.
    * BLOCKS (with no side effects) if ANY character is already online — returns
    * `{ error, online:[names] }` — so we never double-drive a live character.
@@ -1684,6 +1716,9 @@ export class PixelOfficeClient {
         // Seed the skill-sync-by-default preference (Settings, default ON) so the CLI
         // reads skillUpdateEnabled at loop start and honors office skill_update frames.
         this.writeSkillUpdateEnabled(dir)
+        // Seed the mcp-sync-by-default preference (Settings, default ON) so the CLI
+        // reads mcpUpdateEnabled at loop start and honors office MCP-update frames.
+        this.writeMcpUpdateEnabled(dir)
         // Pre-accept Claude Code's folder-trust dialog for this app-owned scratch
         // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
         // repos) so a loop / interactive claude here never blocks on the prompt.

@@ -494,7 +494,7 @@ ipcMain.handle('office:ping', (_e, baseUrl: string) => office.ping(baseUrl))
 // Read live by office.status(), so a changed base takes effect on the NEXT
 // connect from any login form without a process restart.
 ipcMain.handle('settings:get', () => appSettings.getSettings())
-ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean }) => appSettings.updateSettings(patch ?? {}))
+ipcMain.handle('settings:set', (_e, patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: appSettings.DefaultMcpEntry[]; advancedMode?: boolean; theme?: 'system' | 'dark' | 'light'; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }) => appSettings.updateSettings(patch ?? {}))
 // --- Windows shell integration ("Open as AutoDev agent" right-click) ---------
 // Status the Settings toggle / tray checkbox reflect on load: whether the entries
 // are registered AND whether this build can register them (Windows + packaged).
