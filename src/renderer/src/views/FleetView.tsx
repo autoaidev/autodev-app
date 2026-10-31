@@ -35,13 +35,15 @@ const api = (): any => (window as unknown as { api: any }).api
 
 const plural = (n: number): string => (n === 1 ? '' : 's')
 
-// Flat provider list for the "Switch provider…" picker (mirrors App.tsx PROVIDER_GROUPS).
+// Flat provider list for the "Switch provider…" picker. Grok leads (grok-acp first,
+// then the other Grok runners), matching the canonical PROVIDER_GROUPS display order;
+// the remaining vendors keep their prior relative order.
 const PROVIDER_OPTIONS: Array<{ id: string; label: string }> = [
-  { id: 'claude-tui', label: 'Claude — interactive' },
-  { id: 'claude-cli', label: 'Claude — headless CLI' },
+  { id: 'grok-acp', label: 'Grok — ACP (persistent)' },
   { id: 'grok-tui', label: 'Grok — interactive' },
   { id: 'grok-cli', label: 'Grok — CLI' },
-  { id: 'grok-acp', label: 'Grok — ACP (persistent)' },
+  { id: 'claude-tui', label: 'Claude — interactive' },
+  { id: 'claude-cli', label: 'Claude — headless CLI' },
   { id: 'opencode-cli', label: 'OpenCode — CLI' },
   { id: 'opencode-sdk', label: 'OpenCode — SDK' },
   { id: 'copilot-cli', label: 'Copilot — CLI' },

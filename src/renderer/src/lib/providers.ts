@@ -22,8 +22,30 @@ export interface ProviderGroup {
   options: ProviderOption[]
 }
 
-/** The canonical grouped provider list (vendor → interactive/headless/SDK variants). */
+/**
+ * The canonical grouped provider list (vendor → interactive/headless/SDK variants).
+ *
+ * DISPLAY ORDER: Grok leads every provider picker — `grok-acp` (the persistent ACP
+ * session) is the first option shown app-wide, then the other Grok runners, then the
+ * remaining vendors in their prior relative order. This order drives every dropdown
+ * that maps PROVIDER_GROUPS (Make-app, Settings, the bulk "Convert all to" list) plus
+ * ENGINE_FAMILIES. It is DISPLAY-only: the per-family default provider is pinned
+ * explicitly in FAMILY_DEFAULT_PROVIDER below, so leading with grok-acp does NOT make
+ * it the Grok family default — `defaultProviderIdForFamily('grok')` still resolves to
+ * grok-cli. Reorder freely for presentation; change the default only there.
+ */
 export const PROVIDER_GROUPS: ProviderGroup[] = [
+  {
+    vendor: 'Grok',
+    options: [
+      // grok-acp leads the whole app's provider ordering (the persistent ACP session).
+      // This is DISPLAY order only — the Grok family default stays grok-cli, pinned in
+      // FAMILY_DEFAULT_PROVIDER (NOT derived from options[0]).
+      { id: 'grok-acp', label: 'Grok — ACP (persistent)' },
+      { id: 'grok-cli', label: 'Grok — CLI' },
+      { id: 'grok-tui', label: 'Grok — interactive' }
+    ]
+  },
   {
     vendor: 'Claude',
     options: [
@@ -44,18 +66,20 @@ export const PROVIDER_GROUPS: ProviderGroup[] = [
       { id: 'opencode-cli', label: 'OpenCode — CLI' },
       { id: 'opencode-sdk', label: 'OpenCode — SDK' }
     ]
-  },
-  {
-    vendor: 'Grok',
-    options: [
-      // NOTE: grok-cli stays options[0] — it is the Grok family default that
-      // defaultProviderIdForFamily('grok') resolves to; do not reorder.
-      { id: 'grok-cli', label: 'Grok — CLI' },
-      { id: 'grok-tui', label: 'Grok — interactive' },
-      { id: 'grok-acp', label: 'Grok — ACP (persistent)' }
-    ]
   }
 ]
+
+/**
+ * Per-family default provider id — the concrete variant a bare family choice persists
+ * as, kept EXPLICIT so reordering PROVIDER_GROUPS for display can't silently change it.
+ * Only families whose default must differ from their first-listed option need an entry;
+ * everything else falls back to the family's first grouped variant. Grok is pinned to
+ * `grok-cli` (the deliberate, reliable-resume family default) even though grok-acp now
+ * leads the Grok group visually.
+ */
+export const FAMILY_DEFAULT_PROVIDER: Record<string, string> = {
+  grok: 'grok-cli'
+}
 
 /** Flat list of every provider id (for validation / lookups). */
 export const ALL_PROVIDER_IDS: string[] = PROVIDER_GROUPS.flatMap((g) => g.options.map((o) => o.id))
@@ -101,6 +125,10 @@ export const defaultProviderIdForFamily = (family: string): string => {
   // family default would silently swap `grok-tui`→`grok-cli`. Pass those through.
   if (ALL_PROVIDER_IDS.includes(family)) return family
   const fam = vendorOf(family)
+  // Explicit pin first (keeps the Grok family default at grok-cli regardless of the
+  // display order that now leads the Grok group with grok-acp); else the family's
+  // first grouped variant; else the family itself when unrecognized.
+  if (FAMILY_DEFAULT_PROVIDER[fam]) return FAMILY_DEFAULT_PROVIDER[fam]
   const g = PROVIDER_GROUPS.find((grp) => vendorOf(grp.options[0].id) === fam)
   return g?.options[0].id ?? family
 }

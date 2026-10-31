@@ -42,9 +42,12 @@ const PROVIDERS: Array<{ id: string; vendor: string; variant: Variant }> = [
   { id: 'grok-tui', vendor: 'grok', variant: 'interactive' },
   { id: 'grok-acp', vendor: 'grok', variant: 'acp' }
 ]
+// Grok leads the vendor picker (its ACP runner is the app-wide first provider); the
+// rest keep their prior relative order. Display order only — the modal seeds vendor
+// 'claude' as the default selection (see state init), so this doesn't change defaults.
 const VENDORS: Array<{ id: string; label: string }> = [
-  { id: 'claude', label: 'Claude' }, { id: 'copilot', label: 'GitHub Copilot' },
-  { id: 'opencode', label: 'OpenCode' }, { id: 'grok', label: 'Grok' }
+  { id: 'grok', label: 'Grok' }, { id: 'claude', label: 'Claude' },
+  { id: 'copilot', label: 'GitHub Copilot' }, { id: 'opencode', label: 'OpenCode' }
 ]
 const VARIANTS: Array<{ id: Variant; label: string }> = [
   { id: 'interactive', label: 'Interactive' }, { id: 'headless', label: 'Headless CLI' }, { id: 'sdk', label: 'SDK · API' }, { id: 'acp', label: 'ACP' }

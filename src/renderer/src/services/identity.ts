@@ -60,10 +60,14 @@ export function identityTokens(key: string): IdentityTokens {
 
 export type ProviderFamily = 'claude' | 'grok' | 'opencode' | 'copilot' | 'unknown'
 
-/** The four first-class providers, in a stable display order. */
+/** The four first-class providers, in a stable display order. Grok leads every
+ *  provider picker app-wide (the office family radiogroups resolve `grok` to the
+ *  persistent grok-acp runner), so it is listed first; the rest keep their prior
+ *  relative order. This is display order only — the modals seed their own default
+ *  selection, so leading with grok does not change which family is pre-selected. */
 export const PROVIDER_FAMILIES: Exclude<ProviderFamily, 'unknown'>[] = [
-  'claude',
   'grok',
+  'claude',
   'opencode',
   'copilot'
 ]
