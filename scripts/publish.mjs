@@ -12,6 +12,7 @@
 // Usage:
 //   node scripts/publish.mjs              # build, then stage + re-pin
 //   node scripts/publish.mjs --skip-build # stage + re-pin from the existing dist/
+//   node scripts/publish.mjs --distribute # also push to PROD + the autoaidev mirror
 //   AUTODEV_DOWNLOAD_DIR=/path node scripts/publish.mjs   # override download dir
 //
 // It does NOT git-commit or `npm publish` — it prints exactly what to run next, so
@@ -31,6 +32,7 @@ const KEEP_RELEASES = 2;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skipBuild = process.argv.includes('--skip-build');
+const runDistribute = process.argv.includes('--distribute');
 
 const say = (m) => process.stdout.write(`${m}\n`);
 const die = (m) => { process.stderr.write(`\npublish: ${m}\n`); process.exit(1); };
@@ -176,9 +178,15 @@ say(`\nNext (review, then run):`);
 say(`  (autodev-app)  npm test && git add npm dist/*.yml && git commit`);
 say(`  (npm publish)  cd npm && npm publish --access public`);
 say(`  (pixel-office) git add public/download && git commit   # if /download is tracked`);
-say(`  (prod + mirror) after staging the prod download dir + autoaidev releases,`);
-say(`                  prune them too: node scripts/prune-downloads.mjs <dir> ${KEEP_RELEASES}`);
-say(`  (autoaidev.com) REFRESH the stable download-button aliases or the self-host`);
-say(`                  page serves the PREVIOUS build (fresh install then prompts to`);
-say(`                  update). Run on the release server, after versioned files land:`);
-say(`                  ~/refresh-latest-aliases.sh   (repo: autoaidev.com/scripts/)`);
+say(`  (prod + mirror) npm run distribute   (or re-run this with --distribute):`);
+say(`                  rsync v${VERSION} → the prod /download dir + the autoaidev`);
+say(`                  release mirror, refresh the stable download-button aliases`);
+say(`                  (${'~/refresh-latest-aliases.sh'}), prune both to keep-${KEEP_RELEASES}, then verify`);
+say(`                  prod + mirror both serve ${VERSION}. See scripts/distribute.mjs.`);
+
+// ── 7. Optionally push the staged build outward (--distribute) ────────────────
+if (runDistribute) {
+  say(`\n• --distribute: pushing v${VERSION} to PROD + the autoaidev mirror…`);
+  const { distribute } = await import('./distribute.mjs');
+  distribute();
+}

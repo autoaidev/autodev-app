@@ -24,7 +24,18 @@ function cmpSemver(a, b) {
   return 0;
 }
 
-export function pruneDownloads(dir, keep = 2, log = () => {}) {
+// Mac zips ship on a different cadence than linux/win (built rarely via
+// `dist:mac`), so the newest-2 *linux/win* versions are almost never the
+// versions whose mac zip the live latest-mac.yml still points at. A blunt
+// semver prune that matched a `AutoDev-<old>-*-mac.zip` would therefore 404 the
+// mac auto-update feed. `preserveMacZips` keeps any `*-mac.zip`(+`.blockmap`)
+// regardless of version — a no-op for the current `AutoAIDev-desktop-*-mac.zip`
+// naming (which already falls outside the AutoDev- regex), but defense-in-depth
+// if a future build ever emits mac zips under the canonical AutoDev- name.
+const MAC_ZIP_RE = /-mac\.zip(\.blockmap)?$/;
+
+export function pruneDownloads(dir, keep = 2, log = () => {}, opts = {}) {
+  const { preserveMacZips = false } = opts;
   if (!fs.existsSync(dir)) return { kept: [], deleted: 0, dir };
   const files = fs.readdirSync(dir);
   const versions = new Set();
@@ -38,6 +49,7 @@ export function pruneDownloads(dir, keep = 2, log = () => {}) {
   for (const f of files) {
     const m = RE.exec(f);
     if (m && !keepSet.has(m[1])) {
+      if (preserveMacZips && MAC_ZIP_RE.test(f)) continue;
       fs.rmSync(path.join(dir, f), { force: true });
       deleted++;
     }

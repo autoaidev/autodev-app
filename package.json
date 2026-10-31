@@ -23,7 +23,8 @@
     "dist:win": "npm run bundle:cli && npm run build && bash scripts/build-win.sh",
     "dist:mac": "npm run bundle:cli && npm run build && npx electron-builder --mac zip --x64 --arm64 --publish never -c.npmRebuild=false",
     "bundle:cli": "node scripts/bundle-cli.mjs",
-    "publish:app": "node scripts/publish.mjs"
+    "publish:app": "node scripts/publish.mjs",
+    "distribute": "node scripts/distribute.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
