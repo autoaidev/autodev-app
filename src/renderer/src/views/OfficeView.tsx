@@ -1207,7 +1207,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
               {/* Icon-only so the header row stays on one line even with many buttons.
                   The eye/eye-off glyph flips with state; title + aria-label carry the
                   full "Hide/Show events" meaning for hover + screen readers. */}
-              {officeTab === 'team' && officeViewMode === 'cards' && (
+              {officeTab === 'team' && (
                 <IconButton
                   label={showEvents ? 'Hide events' : 'Show events'}
                   icon={showEvents ? 'eye' : 'eye-off'}
@@ -1391,14 +1391,6 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 ))}
               </div>
 
-              {/* Live server-side event stream for the focused character — tool
-                  calls / narration / status straight from the office's authoritative
-                  hook_events (the same feed the web "Events" tab shows). Lets the user
-                  WATCH a working agent's real activity instead of trusting the badge. */}
-              {officeTab === 'team' && officeViewMode === 'cards' && showEvents && (
-                <EventsPanel agent={focusedChar ?? null} officeSlug={selectedGroup.slug} active={visible && officeTab === 'team'} />
-              )}
-
               {/* Team CHAT layout — scrollable all-characters sidebar + the dominant
                   reused ChatTab. Shown only in the Team sub-view's Chat mode; the cards
                   lower area above stays mounted (display:none) to keep live PTYs alive. */}
@@ -1434,6 +1426,17 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   loading={room.loading}
                   onSend={(agentId, t) => steer(agentId, t)}
                 />
+              )}
+
+              {/* Live server-side event stream for the focused character — tool
+                  calls / narration / status straight from the office's authoritative
+                  hook_events (the same feed the web "Events" tab shows). Lets the user
+                  WATCH a working agent's real activity instead of trusting the badge.
+                  Rendered LAST so this fixed 320px rail (flex:none, borderLeft) is the
+                  rightmost flex child in BOTH Cards and Chat layouts. Shown in Team view
+                  regardless of Cards/Chat mode whenever the user keeps events on. */}
+              {officeTab === 'team' && showEvents && (
+                <EventsPanel agent={focusedChar ?? null} officeSlug={selectedGroup.slug} active={visible && officeTab === 'team'} />
               )}
             </div>
           </>
