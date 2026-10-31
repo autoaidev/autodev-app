@@ -221,6 +221,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
         const s = await window.api.getSettings()
         if (s.cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
         if (s.resetSessionEveryNTurns > 0) await window.api.runCli(['config', 'set', 'resetSessionEveryNTurns', String(s.resetSessionEveryNTurns), path])
+        // Skill sync from Pixel Office by default (Settings, default ON) — the CLI
+        // reads `skillUpdateEnabled` here and then honors office skill_update frames.
+        if (s.skillSyncByDefault !== false) await window.api.runCli(['config', 'set', 'skillUpdateEnabled', 'true', path])
       }
       const added = await window.api.addAgent(path) as { error?: string }
       if (added?.error) { setExistingErr(added.error); return }
@@ -382,6 +385,9 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
     const seedSettings = await window.api.getSettings()
     const seedCozempic = seedSettings.cozempicAutoInit === true
     const seedResetTurns = seedSettings.resetSessionEveryNTurns > 0 ? seedSettings.resetSessionEveryNTurns : 0
+    // Skill sync from Pixel Office by default (Settings, default ON) — seeded per
+    // workspace so the CLI reads `skillUpdateEnabled` and honors office skill_update.
+    const seedSkillSync = seedSettings.skillSyncByDefault !== false
     let ok = 0
     let started = 0
     let bound = 0
@@ -399,6 +405,7 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
       if (seedCozempic) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
       if (seedResetTurns > 0) await window.api.runCli(['config', 'set', 'resetSessionEveryNTurns', String(seedResetTurns), path])
+      if (seedSkillSync) await window.api.runCli(['config', 'set', 'skillUpdateEnabled', 'true', path])
       const added = await window.api.addAgent(path)
       const addErr = (added as { error?: string })?.error
       if (addErr) { fails.push(`${e.name}: ${addErr}`); continue }
@@ -460,7 +467,12 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
       // even if init wrote a .gitignore or the folder shifted underneath us.
       await window.api.officeWriteSharedMcp(path, office.slug, edits!.map((e) => ({ id: e.id, slug: e.slug, name: e.name })), fileBrowser)
       if (fileBrowser) await window.api.runCli(['config', 'set', 'enableFileBrowser', 'true', path])
-      if ((await window.api.getSettings()).cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
+      {
+        const s = await window.api.getSettings()
+        if (s.cozempicAutoInit) await window.api.runCli(['config', 'set', 'cozempicAutoInit', 'true', path])
+        // Skill sync from Pixel Office by default (Settings, default ON).
+        if (s.skillSyncByDefault !== false) await window.api.runCli(['config', 'set', 'skillUpdateEnabled', 'true', path])
+      }
       const added = await window.api.addAgent(path)
       if ((added as { error?: string })?.error) { setSpawnTone('error'); setSpawnMsg((added as { error: string }).error); return }
       setSpawnedOk(true)

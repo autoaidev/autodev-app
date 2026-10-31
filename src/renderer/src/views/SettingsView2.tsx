@@ -201,6 +201,17 @@ export function SettingsView2(): JSX.Element {
   const [alwaysOpenSaved, setAlwaysOpenSaved] = useState(false)
   const alwaysOpenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Skill sync from Pixel Office by default (app preference) ----------------
+  // Stored in app-settings.json. Default TRUE (ON). When on, agents the app
+  // launches/operates start with the CLI's per-agent `skillUpdateEnabled` gate on,
+  // so skills assigned to them in Pixel Office are delivered automatically (the CLI
+  // writes `.claude/skills/<slug>/SKILL.md` from office `skill_update` frames). A UI
+  // seed only — the app conveys it per agent at create/spawn/operate; existing
+  // agents are untouched. `skillSyncSaved` briefly flags the just-persisted write.
+  const [skillSync, setSkillSync] = useState(true)
+  const [skillSyncSaved, setSkillSyncSaved] = useState(false)
+  const skillSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- Windows shell integration ("Open as AutoDev agent" right-click) --------
   // Whether the Explorer folder right-click menu is registered. `shellIntegWin`
   // gates the whole row off entirely on Linux/mac (hidden); `shellIntegAvail` is
@@ -259,7 +270,7 @@ export function SettingsView2(): JSX.Element {
   // Load the persisted URL once.
   useEffect(() => {
     void (async () => {
-      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
+      const cfg = (await window.api.getSettings()) as { officeBaseUrl: string; cozempicAutoInit?: boolean; desktopNotifications?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean }
       const v = cfg.officeBaseUrl || ''
       setBase(v)
       setSavedBase(v)
@@ -267,6 +278,7 @@ export function SettingsView2(): JSX.Element {
       setCozempic(cfg.cozempicAutoInit === true)
       setDesktopNotif(cfg.desktopNotifications === true)
       setAlwaysOpen(cfg.alwaysOpenSessions !== false)
+      setSkillSync(cfg.skillSyncByDefault !== false)
       const rn = typeof cfg.resetSessionEveryNTurns === 'number' && cfg.resetSessionEveryNTurns > 0 ? Math.floor(cfg.resetSessionEveryNTurns) : 0
       setResetTurns(rn)
       if (rn > 0) setResetDraft(String(rn))
@@ -287,6 +299,7 @@ export function SettingsView2(): JSX.Element {
       if (resetTimer.current) clearTimeout(resetTimer.current)
       if (desktopNotifTimer.current) clearTimeout(desktopNotifTimer.current)
       if (alwaysOpenTimer.current) clearTimeout(alwaysOpenTimer.current)
+      if (skillSyncTimer.current) clearTimeout(skillSyncTimer.current)
       if (shellIntegTimer.current) clearTimeout(shellIntegTimer.current)
       offShell()
     }
@@ -313,6 +326,19 @@ export function SettingsView2(): JSX.Element {
       setAlwaysOpenSaved(true)
       if (alwaysOpenTimer.current) clearTimeout(alwaysOpenTimer.current)
       alwaysOpenTimer.current = setTimeout(() => setAlwaysOpenSaved(false), 1600)
+    } catch {
+      /* leave the optimistic value; the next open re-reads truth */
+    }
+  }, [])
+
+  // Toggle the Skill-sync-by-default preference — optimistic, then persist + flash Saved.
+  const toggleSkillSync = useCallback(async (next: boolean) => {
+    setSkillSync(next) // optimistic; a failed write is corrected on next open
+    try {
+      await window.api.setSettings({ skillSyncByDefault: next })
+      setSkillSyncSaved(true)
+      if (skillSyncTimer.current) clearTimeout(skillSyncTimer.current)
+      skillSyncTimer.current = setTimeout(() => setSkillSyncSaved(false), 1600)
     } catch {
       /* leave the optimistic value; the next open re-reads truth */
     }
@@ -906,6 +932,78 @@ export function SettingsView2(): JSX.Element {
                         height: 14,
                         borderRadius: '50%',
                         background: alwaysOpen ? 'var(--tx-onaccent)' : 'var(--tx-4)',
+                        transition: 'left .12s ease'
+                      }}
+                    />
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Skill sync from Pixel Office by default — ON by default. When on, agents
+                the app launches/operates start with the CLI's `skillUpdateEnabled` gate
+                on, so skills assigned to them in Pixel Office are delivered automatically
+                (written to `.claude/skills/<slug>/SKILL.md`). A UI seed only — existing
+                agents are untouched. */}
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18, padding: '14px 0', borderTop: '1px solid var(--bd-2)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Enable skill sync from Pixel Office by default
+                  {skillSyncSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>
+                  New agents the app launches or operates accept skills assigned to them
+                  in Pixel Office automatically, synced into <code>.claude/skills/</code>.
+                  On by default; applies to agents you create after changing this —
+                  existing agents are untouched.
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={skillSync}
+                  aria-label="Enable skill sync from Pixel Office by default"
+                  disabled={!loaded}
+                  onClick={() => void toggleSkillSync(!skillSync)}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 9,
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    cursor: loaded ? 'pointer' : 'default'
+                  }}
+                >
+                  <span style={{ fontSize: 11.5, color: skillSync ? 'var(--st-running)' : 'var(--tx-4)', fontWeight: 600 }}>
+                    {skillSync ? 'On' : 'Off'}
+                  </span>
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'relative',
+                      width: 34,
+                      height: 18,
+                      borderRadius: 'var(--r-pill)',
+                      background: skillSync ? 'var(--accent)' : 'var(--bg-input)',
+                      border: `1px solid ${skillSync ? 'var(--accent)' : 'var(--bd-1)'}`,
+                      transition: 'background .12s ease'
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: 1,
+                        left: skillSync ? 17 : 1,
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        background: skillSync ? 'var(--tx-onaccent)' : 'var(--tx-4)',
                         transition: 'left .12s ease'
                       }}
                     />

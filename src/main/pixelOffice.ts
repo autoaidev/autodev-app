@@ -10,7 +10,7 @@ import { humanizeFetchError } from './netError'
 // NOTE: appSettings imports DEFAULT_OFFICE_BASE from this module; the dependency
 // is only ever used inside function bodies (never at module top level) on both
 // sides, so the cycle resolves before either is called.
-import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns } from './appSettings'
+import { getOfficeBaseUrl, getCozempicAutoInit, getResetSessionEveryNTurns, getSkillSyncByDefault } from './appSettings'
 import { markGrokFolderTrusted } from './grokTrust'
 import { removeCozempicHooks } from './cozempicClean'
 import { buildOperateCommand, buildLoopOperateCommand, isLoopProvider } from './operateCommand'
@@ -1342,6 +1342,11 @@ export class PixelOfficeClient {
       markFolderTrusted(dir) // pre-accept the folder-trust dialog for this app-owned dir (claude)
       markGrokFolderTrusted(dir) // …and for grok — always launch in trust/auto mode
       this.recordProvisioned(dir) // track for key-purge on logout
+      // Seed the skill-sync-by-default preference (Settings, default ON) so this
+      // operate character honors office skill_update frames: the mcp-operate bridge
+      // (TUI branch) and the ACP loop (grok-acp branch) both read `skillUpdateEnabled`
+      // from this dir's `.autodev/settings.json`. Merge-write; best-effort.
+      this.writeSkillUpdateEnabled(dir)
 
       // LOOP/ACP PROVIDER ROUTING (grok-acp, …): a persistent ACP engine driven by
       // the CLI task loop does NOT fit a self-driving TUI pane. Instead of launching
@@ -1562,6 +1567,34 @@ export class PixelOfficeClient {
   }
 
   /**
+   * Seed the "Skill sync from Pixel Office by default" preference (Settings toggle,
+   * default ON) into a spawned loop's `<dir>/.autodev/settings.json` so the CLI reads
+   * `skillUpdateEnabled` at loop start. When on, the CLI accepts the office's
+   * `skill_update` WS frames and writes `.claude/skills/<slug>/SKILL.md`, so skills
+   * assigned to this character in Pixel Office are delivered automatically. The CLI's
+   * own default for the gate is `false`, so without this seed an app-spawned office
+   * loop would silently ignore pushed skills. The renderer create flows do this via
+   * `autodev config set skillUpdateEnabled true`, but this app-only "⚡ Spawn office"
+   * path materializes settings.json entirely in-process, so the toggle would otherwise
+   * never reach it. MERGE-write (mirrors writeCozempicAutoInit); writes the resolved
+   * boolean either way (on ⇒ true, off ⇒ false ⇒ CLI default). Best-effort.
+   */
+  private writeSkillUpdateEnabled(dir: string): void {
+    try {
+      const want = getSkillSyncByDefault() === true
+      const adir = join(dir, '.autodev')
+      mkdirSync(adir, { recursive: true })
+      const sfile = join(adir, 'settings.json')
+      let s: Record<string, any> = {}
+      try { const j = JSON.parse(readFileSync(sfile, 'utf8')); if (j && typeof j === 'object') s = j } catch { /* none/invalid → fresh */ }
+      if (s.skillUpdateEnabled === want) return
+      s.skillUpdateEnabled = want
+      writeFileSync(sfile, JSON.stringify(s, null, 2), { mode: 0o600 })
+      try { chmodSync(sfile, 0o600) } catch { /* best effort */ }
+    } catch { /* best effort */ }
+  }
+
+  /**
    * Prepare EVERY character in an office to run as a TRACKED autodev-cli LOOP.
    * BLOCKS (with no side effects) if ANY character is already online — returns
    * `{ error, online:[names] }` — so we never double-drive a live character.
@@ -1648,6 +1681,9 @@ export class PixelOfficeClient {
         // Seed the optional session-reset interval (Settings) so the CLI reads
         // resetSessionEveryNTurns at loop start (default 0 = always resume).
         this.writeResetSessionEveryNTurns(dir)
+        // Seed the skill-sync-by-default preference (Settings, default ON) so the CLI
+        // reads skillUpdateEnabled at loop start and honors office skill_update frames.
+        this.writeSkillUpdateEnabled(dir)
         // Pre-accept Claude Code's folder-trust dialog for this app-owned scratch
         // dir (bindWorkspaceToOffice deliberately does NOT, since it also wires real
         // repos) so a loop / interactive claude here never blocks on the prompt.

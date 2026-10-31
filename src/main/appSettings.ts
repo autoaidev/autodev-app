@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -185,6 +185,29 @@ export function setAlwaysOpenSessions(on: boolean): boolean {
   return getAlwaysOpenSessions()
 }
 
+/**
+ * "Skill sync from Pixel Office by default" — whether agents the app launches/
+ * operates start with the CLI's per-agent `skillUpdateEnabled` gate ON, so skills
+ * assigned to them in Pixel Office are delivered automatically (the CLI accepts the
+ * office's `skill_update` WS frames and writes `.claude/skills/<slug>/SKILL.md`).
+ * DEFAULT TRUE (ON): the CLI's own default for the gate is `false`, so without this
+ * app-side default a brand-new app-managed agent would silently ignore pushed skills.
+ * A UI seed only — like `cozempicAutoInit`, the app conveys it per agent (renderer
+ * create flows run `autodev config set skillUpdateEnabled true`; the app-only "⚡
+ * Spawn office" path materializes `.autodev/settings.json` in-process). Nothing here
+ * mutates an existing agent or the global CLI. Only an explicitly persisted `false`
+ * turns it off; absent/true = ON (so a new default is always ON).
+ */
+export function getSkillSyncByDefault(): boolean {
+  return load().skillSyncByDefault !== false
+}
+
+/** Persist the skill-sync-by-default flag (a plain boolean UI preference). */
+export function setSkillSyncByDefault(on: boolean): boolean {
+  persist({ ...load(), skillSyncByDefault: !!on })
+  return getSkillSyncByDefault()
+}
+
 /** The persisted theme preference (system | dark | light). Defaults 'system'. */
 export function getTheme(): ThemePref {
   const t = load().theme
@@ -233,8 +256,8 @@ export function setShellIntegration(on: boolean): boolean {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault() }
 }
 
 /**
@@ -282,8 +305,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -319,6 +342,9 @@ export function updateSettings(
     if ('alwaysOpenSessions' in patch) {
       setAlwaysOpenSessions(patch.alwaysOpenSessions === true)
     }
+    if ('skillSyncByDefault' in patch) {
+      setSkillSyncByDefault(patch.skillSyncByDefault === true)
+    }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault() }
 }
