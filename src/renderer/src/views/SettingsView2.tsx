@@ -243,6 +243,13 @@ export function SettingsView2(): JSX.Element {
   const [savedVendor, setSavedVendor] = useState<string | null>(null)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // --- Global default provider — a single provider id (e.g. `claude-tui`,
+  // `grok-acp`) the new-agent/office spawn flows pre-select. '' / unset falls back
+  // to 'claude-tui' at each seed point. A UI seed only; existing agents are untouched.
+  const [defaultProvider, setDefaultProvider] = useState('claude-tui')
+  const [defaultProviderSaved, setDefaultProviderSaved] = useState(false)
+  const defaultProviderTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   // --- REAL, live connection signal for the Pixel Office card header ----------
   const [status, setStatus] = useState<OfficeStatus | null>(null)
   const [officeCount, setOfficeCount] = useState<number | null>(null)
@@ -485,10 +492,33 @@ export function SettingsView2(): JSX.Element {
   }, [status?.connected])
 
   // Per-provider default models — read once; each change persists on select.
+  // The global default provider is read in the same pass (fallback 'claude-tui').
   useEffect(() => {
     void fetchDefaultModels().then(setDefaultModels)
+    void (async () => {
+      try {
+        const s = (await window.api.getSettings()) as { defaultProvider?: string }
+        if (typeof s?.defaultProvider === 'string' && s.defaultProvider) setDefaultProvider(s.defaultProvider)
+      } catch {
+        /* keep the 'claude-tui' fallback */
+      }
+    })()
     return () => {
       if (savedTimer.current) clearTimeout(savedTimer.current)
+      if (defaultProviderTimer.current) clearTimeout(defaultProviderTimer.current)
+    }
+  }, [])
+
+  // Persist the global default provider — optimistic, then persist + flash Saved.
+  const saveDefaultProvider = useCallback(async (id: string) => {
+    setDefaultProvider(id)
+    try {
+      await window.api.setSettings({ defaultProvider: id })
+      setDefaultProviderSaved(true)
+      if (defaultProviderTimer.current) clearTimeout(defaultProviderTimer.current)
+      defaultProviderTimer.current = setTimeout(() => setDefaultProviderSaved(false), 1600)
+    } catch {
+      /* a failed write leaves the optimistic value; the next open re-reads truth */
     }
   }, [])
 
@@ -1432,6 +1462,44 @@ export function SettingsView2(): JSX.Element {
             title="Default models"
             subtitle="A house model per provider, pre-selected when you create a new agent (single-agent Setup, Make-app teams, and add-a-folder). Leave a provider on “Provider default” to let it pick its own. Existing agents are unaffected — and you can still override the model per agent."
           >
+            {/* Global default provider — seeds the provider picker in every new-agent
+                / office spawn flow (still editable per agent). Above the per-provider
+                model rows so "which engine" is chosen before "which model". */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 18,
+                padding: '0 0 14px',
+                borderBottom: '1px solid var(--bd-2)'
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={S.rowLabel}>
+                  Default provider for new agents
+                  {defaultProviderSaved && (
+                    <span style={{ marginLeft: 8, display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, color: 'var(--st-running)' }} role="status">
+                      Saved <Icon name="check" size={9} strokeWidth={2} />
+                    </span>
+                  )}
+                </div>
+                <div style={S.rowDesc}>Pre-selected when you create an office or add an agent — still editable per agent.</div>
+              </div>
+              <div style={{ width: 240, flexShrink: 0, position: 'relative' }}>
+                <select
+                  className="sv2-select"
+                  aria-label="Default provider for new agents"
+                  value={defaultProvider}
+                  onChange={(e) => void saveDefaultProvider(e.target.value)}
+                  style={S.select}
+                >
+                  {PROVIDER_GROUPS.map((g) => <optgroup key={g.vendor} label={g.vendor}>{g.options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</optgroup>)}
+                </select>
+                <span style={S.selectCaret}>
+                  <Icon name="chevron" size={13} />
+                </span>
+              </div>
+            </div>
             {DEFAULT_MODEL_VENDORS.map((v, i) => (
               <div
                 key={v.key}

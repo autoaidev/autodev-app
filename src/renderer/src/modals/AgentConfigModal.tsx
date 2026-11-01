@@ -164,14 +164,24 @@ function AgentConfigModal(props: {
   }, [open, agentPath, provider, isNew])
 
   // #8 — 'new' mode: load the per-provider default-model preference on open and
-  // pre-select it for the starting vendor (Claude). changeVendor re-seeds it when
-  // the vendor changes. Seeds only — the user can still override the Model field.
+  // pre-select it. The provider itself is seeded from the global Default-provider
+  // setting (fallback 'claude-tui'), then the model from THAT vendor's house default.
+  // changeVendor re-seeds the model when the vendor changes. Seeds only — the user can
+  // still override both fields; an EXISTING agent (edit mode) is never touched here.
   useEffect(() => {
     if (!open || !isNew) return
-    void fetchDefaultModels().then((d) => {
+    void (async () => {
+      const d = await fetchDefaultModels()
       setDefaults(d)
-      setModel(defaultModelFor(d, 'claude'))
-    })
+      let seedProvider = 'claude-tui'
+      try {
+        const s = (await window.api.getSettings()) as { defaultProvider?: string }
+        if (typeof s?.defaultProvider === 'string' && s.defaultProvider) seedProvider = s.defaultProvider
+      } catch { /* keep 'claude-tui' */ }
+      const pr = parse(seedProvider)
+      setVendor(pr.vendor); setVariant(pr.variant)
+      setModel(defaultModelFor(d, pr.vendor))
+    })()
     void fetchDefaultMcp().then(setDefaultMcp)
   }, [open, isNew])
 

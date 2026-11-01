@@ -50,7 +50,7 @@ export interface DefaultMcpEntry {
   kind?: 'builtin' | 'common' | 'creative' | 'custom'
 }
 
-interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }
+interface AppSettings { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultProvider?: string; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }
 
 const FILE = join(app.getPath('userData'), 'app-settings.json')
 let cache: AppSettings | null = null
@@ -92,6 +92,27 @@ export function getOfficeBaseUrl(): string {
 export function getDefaultModels(): Record<string, string> {
   const m = load().defaultModels
   return m && typeof m === 'object' ? { ...m } : {}
+}
+
+/**
+ * The global default provider id the new-agent/office spawn flows pre-select
+ * (e.g. `grok-acp`, `claude-tui`). `''` when unset — callers fall back to their
+ * own default (`claude-tui`). A UI seed only; nothing here changes an existing agent.
+ */
+export function getDefaultProvider(): string {
+  const v = load().defaultProvider
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+/** Persist the global default provider id. An empty value clears it (back to the
+ *  caller's own fallback). */
+export function setDefaultProvider(id: string): string {
+  const val = String(id ?? '').trim()
+  const next = { ...load() }
+  if (val) next.defaultProvider = val
+  else delete next.defaultProvider
+  persist(next)
+  return getDefaultProvider()
 }
 
 /** The default-MCP seed list (a fresh copy; `[]` when none configured). */
@@ -279,8 +300,8 @@ export function setShellIntegration(on: boolean): boolean {
 }
 
 /** Always-resolved settings for the renderer (never returns undefined fields). */
-export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean; mcpSyncByDefault: boolean } {
-  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault(), mcpSyncByDefault: getMcpSyncByDefault() }
+export function getSettings(): { officeBaseUrl: string; defaultModels: Record<string, string>; defaultProvider: string; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean; mcpSyncByDefault: boolean } {
+  return { officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultProvider: getDefaultProvider(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault(), mcpSyncByDefault: getMcpSyncByDefault() }
 }
 
 /**
@@ -328,8 +349,8 @@ export function setDefaultModels(patch: Record<string, string>): Record<string, 
  * from "left untouched"). Returns the fully-resolved settings.
  */
 export function updateSettings(
-  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }
-): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean; mcpSyncByDefault: boolean } | { error: string } {
+  patch: { officeBaseUrl?: string; defaultModels?: Record<string, string>; defaultProvider?: string; defaultMcp?: DefaultMcpEntry[]; advancedMode?: boolean; theme?: ThemePref; cozempicAutoInit?: boolean; desktopNotifications?: boolean; shellIntegration?: boolean; resetSessionEveryNTurns?: number; alwaysOpenSessions?: boolean; skillSyncByDefault?: boolean; mcpSyncByDefault?: boolean }
+): { ok: true; officeBaseUrl: string; defaultModels: Record<string, string>; defaultProvider: string; defaultMcp: DefaultMcpEntry[]; advancedMode: boolean; theme: ThemePref; cozempicAutoInit: boolean; desktopNotifications: boolean; shellIntegration: boolean; resetSessionEveryNTurns: number; alwaysOpenSessions: boolean; skillSyncByDefault: boolean; mcpSyncByDefault: boolean } | { error: string } {
   if (patch && typeof patch === 'object') {
     if ('officeBaseUrl' in patch) {
       const r = setOfficeBaseUrl(patch.officeBaseUrl ?? '')
@@ -337,6 +358,9 @@ export function updateSettings(
     }
     if ('defaultModels' in patch && patch.defaultModels && typeof patch.defaultModels === 'object') {
       setDefaultModels(patch.defaultModels)
+    }
+    if ('defaultProvider' in patch) {
+      setDefaultProvider(patch.defaultProvider ?? '')
     }
     if ('defaultMcp' in patch && Array.isArray(patch.defaultMcp)) {
       setDefaultMcp(patch.defaultMcp)
@@ -372,5 +396,5 @@ export function updateSettings(
       setMcpSyncByDefault(patch.mcpSyncByDefault === true)
     }
   }
-  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault(), mcpSyncByDefault: getMcpSyncByDefault() }
+  return { ok: true, officeBaseUrl: getOfficeBaseUrl(), defaultModels: getDefaultModels(), defaultProvider: getDefaultProvider(), defaultMcp: getDefaultMcp(), advancedMode: getAdvancedMode(), theme: getTheme(), cozempicAutoInit: getCozempicAutoInit(), desktopNotifications: getDesktopNotifications(), shellIntegration: getShellIntegration(), resetSessionEveryNTurns: getResetSessionEveryNTurns(), alwaysOpenSessions: getAlwaysOpenSessions(), skillSyncByDefault: getSkillSyncByDefault(), mcpSyncByDefault: getMcpSyncByDefault() }
 }

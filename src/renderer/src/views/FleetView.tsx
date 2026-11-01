@@ -212,6 +212,16 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   const [taskText, setTaskText] = useState('')
   const [provModal, setProvModal] = useState<{ paths: string[] } | null>(null)
   const [provChoice, setProvChoice] = useState('claude-tui')
+  // Seed the "Switch provider…" default from the global Default-provider setting
+  // (Settings → Default models). Falls back to 'claude-tui' when unset.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = (await api().getSettings()) as { defaultProvider?: string }
+        if (typeof s?.defaultProvider === 'string' && s.defaultProvider) setProvChoice(s.defaultProvider)
+      } catch { /* keep the 'claude-tui' fallback */ }
+    })()
+  }, [])
   // Bulk "Set model…" over the current selection (reuses the shared BulkModelModal,
   // which handles the mixed-provider apply). Non-null = the modal is open.
   const [modelModal, setModelModal] = useState<{ paths: string[] } | null>(null)

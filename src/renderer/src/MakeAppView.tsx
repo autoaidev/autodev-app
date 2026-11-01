@@ -102,6 +102,16 @@ export default function MakeAppView({ initialFolder }: { initialFolder?: string 
   // generated agent's model so a fresh team inherits the house model.
   const [defaults, setDefaults] = useState<Record<string, string>>({})
   useEffect(() => { void fetchDefaultModels().then(setDefaults) }, [])
+  // Seed the provider picker from the global Default-provider setting (Settings →
+  // Default models). Falls back to the 'claude-tui' initial state when unset.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const s = (await window.api.getSettings()) as { defaultProvider?: string }
+        if (typeof s?.defaultProvider === 'string' && s.defaultProvider) setDefaultProvider(s.defaultProvider)
+      } catch { /* keep the 'claude-tui' fallback */ }
+    })()
+  }, [])
   const [creating, setCreating] = useState(false)
   const [office, setOffice] = useState<{ slug: string; id: number; name: string } | null>(null)
   const [edits, setEdits] = useState<AgentEdit[] | null>(null)
