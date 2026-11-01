@@ -1,12 +1,12 @@
-version: 0.3.110
+version: 0.3.111
 files:
-  - url: AutoDev-0.3.110-x86_64.AppImage
-    sha512: tdMgSUP8sb9qb+jZMnu86v7x7WYUIT+1SrJKhc7U9riCJ+WSet78Q0f35ub3Sj2TfbaS0OnZxyYP6MDAfGWDng==
-    size: 129496377
-    blockMapSize: 136525
-  - url: AutoDev-0.3.110-amd64.deb
-    sha512: MgxvjQxCaO4rsp5r+LbuufiOWORpcT+EJNwc6AAcdkWSvFa/60EiJzPOcUC3tdbVwEs3LZlhq4oyfvXdFPq2sQ==
-    size: 85508944
-path: AutoDev-0.3.110-x86_64.AppImage
-sha512: tdMgSUP8sb9qb+jZMnu86v7x7WYUIT+1SrJKhc7U9riCJ+WSet78Q0f35ub3Sj2TfbaS0OnZxyYP6MDAfGWDng==
-releaseDate: '2026-11-01T12:19:55.765Z'
+  - url: AutoDev-0.3.111-x86_64.AppImage
+    sha512: N6Cr2v1YEgPmVFBM626yRVyZyVxflZ12VfEZS/5KGQoxlQRHgIf3d2FNXQt18uQ1+knBm2pOjHiyz5WnJGSj+w==
+    size: 129496354
+    blockMapSize: 136502
+  - url: AutoDev-0.3.111-amd64.deb
+    sha512: mdgtQsHAhyQxjUPVuqwetzkSGQ2kKIZUeNXLK9AWCkLEBQDSjxTVmphfkSVeMKTD26BM1RWyRtizpP11q/ncpQ==
+    size: 85512074
+path: AutoDev-0.3.111-x86_64.AppImage
+sha512: N6Cr2v1YEgPmVFBM626yRVyZyVxflZ12VfEZS/5KGQoxlQRHgIf3d2FNXQt18uQ1+knBm2pOjHiyz5WnJGSj+w==
+releaseDate: '2026-11-01T14:51:26.198Z'

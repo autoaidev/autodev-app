@@ -237,17 +237,16 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   }, [])
   useEffect(() => {
     let alive = true
-    const loadAll = async (): Promise<void> => {
-      try {
-        const list = (await window.api.listAgents()) as AgentState[]
-        if (!alive) return
-        localAgentsRef.current = Array.isArray(list) ? list : []
-        rebuildLocal()
-      } catch { /* not fatal — the card falls back to office presence */ }
-      // Part A: fold in same-host loops this app didn't spawn (discovered via /proc)
-      // so a genuinely-local office character is marked LOCAL, not "on another PC".
-      // Best-effort and independent of the registry fetch above — a failure (or a
-      // non-Linux host returning []) just leaves the Part B softened copy in place.
+    // Part A: fold in same-host loops this app didn't spawn (discovered via /proc)
+    // so a genuinely-local office character is marked LOCAL, not "on another PC".
+    // Extracted from loadAll so a steady interval can keep it FRESH on its own:
+    // office presence can flip a character 'online' (via the pixel-office WS) WITHOUT
+    // emitting onAgentsChanged, so without an independent rescan a just-spawned local
+    // loop stays unmatched and its card wrongly reads "online · not managed here"
+    // (fail-CLOSED — Stop hidden) until some unrelated refetch happens. A light /proc
+    // rescan every few seconds closes that window. Best-effort: a failure (or a
+    // non-Linux host returning []) just leaves the Part B softened copy in place.
+    const refreshLoops = async (): Promise<void> => {
       try {
         const loops = await window.api.discoverLocalLoops?.()
         if (!alive) return
@@ -268,7 +267,21 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         setLocalLoopOwners(ks)
       } catch { /* discovery best-effort — Part B copy covers any miss */ }
     }
+    const loadAll = async (): Promise<void> => {
+      try {
+        const list = (await window.api.listAgents()) as AgentState[]
+        if (!alive) return
+        localAgentsRef.current = Array.isArray(list) ? list : []
+        rebuildLocal()
+      } catch { /* not fatal — the card falls back to office presence */ }
+      await refreshLoops()
+    }
     void loadAll()
+    // Keep same-host discovery fresh independently of registry events, so an
+    // online-but-untracked LOCAL loop stops reading "not managed here" within one
+    // cycle instead of persisting until the next onAgentsChanged (the main-process
+    // discoverLocalLoops result is itself cached ~3s, so this stays cheap).
+    const loopTimer = window.setInterval(() => { if (alive) void refreshLoops() }, 4000)
     // A single agent transitioned (fast, ~1s): patch it in place and rebuild.
     const offUpdated = window.api.onAgentUpdated((s: AgentState) => {
       if (!s?.path) return
@@ -281,7 +294,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     })
     // The tracked set changed (added / removed / office presence merge): full refetch.
     const offChanged = window.api.onAgentsChanged(() => void loadAll())
-    return () => { alive = false; offUpdated?.(); offChanged?.() }
+    return () => { alive = false; window.clearInterval(loopTimer); offUpdated?.(); offChanged?.() }
   }, [rebuildLocal])
 
   /** Merge the office character with its immediate local signal → the card's
