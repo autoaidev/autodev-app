@@ -544,8 +544,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   //                  (the app can't operate into its home dir — display grouping only).
   //                  One section per owning user, between "On this machine" and
   //                  "Running elsewhere".
-  //   • elsewhere  — online but no same-host local loop at all.
-  //   • offline    — no online characters.
+  //   • elsewhere  — ONLINE but no same-host local loop at all (running on another
+  //                  machine / "not managed here").
+  // An OFFLINE office (no online characters) that isn't a foreign other-account one
+  // is one of YOUR OWN offices — it belongs under "On this machine" (you're logged
+  // in here and can spawn it here), NOT a separate bucket below everything. So it
+  // folds into `local` rather than its own trailing "Offline" section. Only a
+  // genuinely-remote office (online elsewhere) stays under "Running elsewhere".
   // The current-vs-foreign decision is the pure classifyOfficeLocality (unit-tested);
   // `isTrackedLocal`/`loopOwnerFor` are the two local signals it reads. Memoized like
   // sortedOffices; empty buckets are dropped at render (no header).
@@ -558,7 +563,6 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     const local: OfficeGroup[] = []
     const foreignByUser = new Map<string, OfficeGroup[]>()
     const elsewhere: OfficeGroup[] = []
-    const offline: OfficeGroup[] = []
     for (const g of sortedOffices) {
       const loc = classifyOfficeLocality(g, isTrackedLocal, loopOwnerFor)
       if (loc.kind === 'current') local.push(g)
@@ -567,7 +571,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         arr.push(g)
         foreignByUser.set(loc.user, arr)
       } else if (g.onlineCount > 0) elsewhere.push(g)
-      else offline.push(g)
+      // Offline + not foreign → your own office → "On this machine".
+      else local.push(g)
     }
 
     const foreignUsers = [...foreignByUser.keys()].sort((a, b) => a.localeCompare(b))
@@ -582,8 +587,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     return [
       { key: 'local', label: 'On this machine', offices: local },
       ...foreignSections,
-      { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere },
-      { key: 'offline', label: 'Offline', offices: offline }
+      { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere }
     ]
   }, [sortedOffices, localByKey, localLoopOwners])
 
