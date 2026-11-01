@@ -29,6 +29,7 @@ import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
 import { useAppActions } from '../services/appActions'
 import { useAdvancedMode } from '../services/advancedMode'
+import { usePinnedAgents } from '../services/pinnedAgents'
 import { useModelCatalog, modelLabel } from '@renderer/lib/providers'
 import { providerFamily, type AgentState } from '@renderer/services/model'
 
@@ -399,6 +400,24 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     () => selectedGroup?.agents.find((a) => a.id === focusedId) ?? selectedGroup?.agents[0],
     [selectedGroup, focusedId]
   )
+
+  // ── pinned / favourite characters (client-side, per-user, per-office) ───────
+  // A viewer preference persisted to localStorage (no backend / IPC): pinned cards
+  // float to the TOP of this office's grid AND the Chat sidebar (both consume
+  // `orderedAgents`). Keyed on the selected office's slug so each office keeps its
+  // own set; '' when nothing is selected reads a stable empty set.
+  const { pinned: pinnedAgents, isPinned, toggle: togglePin } = usePinnedAgents(selectedGroup?.slug ?? '')
+  // Pinned-first STABLE partition: pinned characters keep their existing relative
+  // order, then the rest in their existing order — pinning only lifts a card to the
+  // top, it never reshuffles the groups. Used for the card grid and the Chat list so
+  // the star state and the ordering can never disagree.
+  const orderedAgents = useMemo(() => {
+    const list = selectedGroup?.agents ?? EMPTY_AGENTS
+    if (!pinnedAgents.size) return list
+    const pinnedList = list.filter((a) => pinnedAgents.has(a.id))
+    if (!pinnedList.length) return list
+    return [...pinnedList, ...list.filter((a) => !pinnedAgents.has(a.id))]
+  }, [selectedGroup, pinnedAgents])
 
   // Keep selection valid as the list changes.
   useEffect(() => {
@@ -1364,13 +1383,15 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                 overflow: 'auto'
               }}
             >
-              {selectedGroup.agents.map((a) => {
+              {orderedAgents.map((a) => {
                 const work = workingFor(a)
                 return (
                 <CharacterCard
                   key={a.id}
                   agent={a}
                   selected={a.id === focusedChar?.id}
+                  pinned={isPinned(a.id)}
+                  onTogglePin={() => togglePin(a.id)}
                   busy={operatingId === a.officeSlug + a.id}
                   running={!!liveOpTermId(a.officeSlug, a.id)}
                   liveElsewhere={liveElsewhere(a)}
@@ -1450,7 +1471,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
                   lower area above stays mounted (display:none) to keep live PTYs alive. */}
               {officeTab === 'team' && officeViewMode === 'chat' && (
                 <OfficeChat
-                  agents={selectedGroup.agents}
+                  agents={orderedAgents}
                   selectedId={focusedChar?.id ?? ''}
                   onSelect={setFocusedId}
                   previews={latestByAgent}

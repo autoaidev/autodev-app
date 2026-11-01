@@ -89,6 +89,13 @@ export interface CharacterCardProps {
   /** The character's effective model as a friendly label (e.g. "Grok 4"), shown as a
    *  muted line so a set (or bulk-set) model is confirmable at a glance. Empty = hidden. */
   modelLabel?: string
+  /**
+   * This character is PINNED (a client-side per-user favourite) — drives the filled
+   * accent star and lifts the card to the top of the office's grid. Purely a viewer
+   * preference (localStorage), independent of the focus `selected` / bulk `checked`. */
+  pinned?: boolean
+  /** Toggle this character's pinned state. Absent → the star is hidden. */
+  onTogglePin?: () => void
   /** When true, show a bulk-selection checkbox (independent of the focus `selected`). */
   selectable?: boolean
   /** Whether this card is in the bulk selection. */
@@ -160,6 +167,8 @@ export function CharacterCard({
   authProvider,
   onSignIn,
   modelLabel,
+  pinned = false,
+  onTogglePin,
   selectable,
   checked,
   onToggleSelect,
@@ -335,6 +344,23 @@ export function CharacterCard({
         </div>
         {/* ROW 2 — action controls on their own row so ROW 1's name is never clipped. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+        {/* PIN / favourite star — client-side per-user preference. Filled accent when
+            pinned (which also lifts the card to the top of the grid), hollow outline
+            when not. stopPropagation so toggling the pin never selects the card. */}
+        {onTogglePin && (
+          <IconButton
+            label={pinned ? `Unpin ${agent.name}` : `Pin ${agent.name} to top`}
+            icon={pinned ? 'star-fill' : 'star'}
+            size={22}
+            iconSize={13}
+            active={pinned}
+            iconColor={pinned ? 'var(--accent)' : undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              onTogglePin()
+            }}
+          />
+        )}
         {onOpenEvents && (
           <IconButton
             label={`Events for ${agent.name}`}
