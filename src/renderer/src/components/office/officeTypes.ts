@@ -106,6 +106,82 @@ export function sortOffices(groups: readonly OfficeGroup[], sort: OfficeSort): O
   return out
 }
 
+/**
+ * Owner of a same-host `autodev start` loop, as surfaced by the main process's
+ * /proc scan (discoverLocalLoops). `foreign` = the loop runs under a DIFFERENT
+ * Linux account than the app, so its office/home dir is outside the app's reach.
+ * A foreign loop STILL counts as same-host/local — this only drives which sidebar
+ * section the office lands in.
+ */
+export interface LocalLoopOwner {
+  ownerUid?: number
+  ownerUser?: string
+  foreign: boolean
+}
+
+/** Where an office's same-host local loops place it in the rail:
+ *   • current — ≥1 local signal under the CURRENT account (tracked or a non-foreign
+ *               loop) → the normal "On this machine" bucket.
+ *   • foreign — local ONLY via loops owned by ANOTHER account; `user` is the
+ *               predominant owning username → its own "other account" section.
+ *   • none    — no same-host local signal (fall through to elsewhere/offline). */
+export type OfficeLocality =
+  | { kind: 'current' }
+  | { kind: 'foreign'; user: string }
+  | { kind: 'none' }
+
+/** Most-frequent string (mode); ties broken alphabetically for a stable label. */
+function predominant(xs: string[]): string {
+  const counts = new Map<string, number>()
+  for (const x of xs) counts.set(x, (counts.get(x) ?? 0) + 1)
+  let best = xs[0]
+  let bestN = -1
+  for (const [x, n] of counts) {
+    if (n > bestN || (n === bestN && x.localeCompare(best) < 0)) {
+      best = x
+      bestN = n
+    }
+  }
+  return best
+}
+
+/**
+ * Pure bucket-decision for one office: decide whether its same-host local loops
+ * belong to the current account, to a foreign account, or whether it has no local
+ * loop at all. `isTrackedLocal` reports a workspace this app spawned/operates (always
+ * the current account); `loopOwnerFor` returns the /proc-scan owner of an untracked
+ * same-host loop bound to a character, or undefined when none is bound.
+ *
+ * Rule: an office is "other account" ONLY when it has at least one foreign-owned
+ * loop AND no current-account signal at all. Any current-account signal (a tracked
+ * workspace OR a non-foreign loop, incl. a loop whose owner was unreadable → not
+ * foreign) keeps it in the current "On this machine" bucket.
+ */
+export function classifyOfficeLocality(
+  group: Pick<OfficeGroup, 'agents'>,
+  isTrackedLocal: (a: OfficeAgent) => boolean,
+  loopOwnerFor: (a: OfficeAgent) => LocalLoopOwner | undefined
+): OfficeLocality {
+  let hasCurrent = false
+  const foreignUsers: string[] = []
+  for (const a of group.agents) {
+    if (isTrackedLocal(a)) {
+      hasCurrent = true
+      continue
+    }
+    const owner = loopOwnerFor(a)
+    if (!owner) continue
+    if (owner.foreign) {
+      foreignUsers.push(owner.ownerUser || (owner.ownerUid != null ? `uid:${owner.ownerUid}` : 'other account'))
+    } else {
+      hasCurrent = true
+    }
+  }
+  if (hasCurrent) return { kind: 'current' }
+  if (foreignUsers.length) return { kind: 'foreign', user: predominant(foreignUsers) }
+  return { kind: 'none' }
+}
+
 /** A live conversation message (`officeMessages().messages`). */
 export interface ChatMessage {
   id: string

@@ -21,7 +21,9 @@ import {
   OfficeSort,
   OFFICE_SORTS,
   sortOffices,
-  characterWorking
+  characterWorking,
+  classifyOfficeLocality,
+  type LocalLoopOwner
 } from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
 import * as termRegistry from '../services/termRegistry'
@@ -195,7 +197,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // restart). Discovered by scanning /proc in the main process — distinct from
   // `localByKey` (registry-tracked workspaces) and carrying NO activity, so it only
   // answers "is this character local?" without overriding its working/idle verdict.
-  const [localLoopKeys, setLocalLoopKeys] = useState<Set<string>>(new Set())
+  //
+  // Each key now also carries the OWNER of the loop process ({ ownerUid, ownerUser,
+  // foreign }) so an office whose only same-host loops belong to ANOTHER Linux
+  // account can be split into its own sidebar section. A foreign loop still counts
+  // as local/same-host (the Map's `.has` drives the same "is this character local?"
+  // verdict as the old Set did) — the tag is purely for DISPLAY grouping.
+  const [localLoopOwners, setLocalLoopOwners] = useState<Map<string, LocalLoopOwner>>(new Map())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
     const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>()
@@ -243,14 +251,21 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
       try {
         const loops = await window.api.discoverLocalLoops?.()
         if (!alive) return
-        const ks = new Set<string>()
+        const ks = new Map<string, LocalLoopOwner>()
         if (Array.isArray(loops)) {
           for (const l of loops) {
-            if (l?.officeAgentSlug) ks.add(l.officeAgentSlug.toLowerCase())
-            if (l?.officeAgentId) ks.add(String(l.officeAgentId).toLowerCase())
+            const owner: LocalLoopOwner = {
+              ownerUid: l?.ownerUid,
+              ownerUser: l?.ownerUser,
+              // A loop whose owner was unreadable (foreign undefined) is treated as
+              // current-account — the pre-existing behavior (no foreign bucket).
+              foreign: l?.foreign === true
+            }
+            if (l?.officeAgentSlug) ks.set(l.officeAgentSlug.toLowerCase(), owner)
+            if (l?.officeAgentId) ks.set(String(l.officeAgentId).toLowerCase(), owner)
           }
         }
-        setLocalLoopKeys(ks)
+        setLocalLoopOwners(ks)
       } catch { /* discovery best-effort — Part B copy covers any miss */ }
     }
     void loadAll()
@@ -478,8 +493,8 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     // office`, app office-spawn, or under another user). Keyed by the SAME office
     // slug/id the card is matched on, so an untracked-but-local character flips from
     // "on another PC" to a normal, operable local character.
-    return localLoopKeys.has(a.slug?.toLowerCase() ?? '') || localLoopKeys.has(String(a.id).toLowerCase())
-  }, [localByKey, localLoopKeys])
+    return localLoopOwners.has(a.slug?.toLowerCase() ?? '') || localLoopOwners.has(String(a.id).toLowerCase())
+  }, [localByKey, localLoopOwners])
   const liveElsewhere = useCallback(
     (a: OfficeAgent): boolean => !!a.online && !isLocalAgent(a),
     [isLocalAgent]
@@ -489,30 +504,56 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // Local offices ALWAYS sit on top, regardless of the activity Sort — a remote
   // office with recent activity must never float above the user's own machine.
   // Partition the ALREADY-SORTED list (so intra-group order still honors the Sort
-  // control) into three fixed-order buckets, each office landing in exactly ONE
+  // control) into fixed-order buckets, each office landing in exactly ONE
   // (first match wins, local highest precedence):
-  //   • local     — at least one agent is local to THIS app (same `isLocalAgent`
-  //                 the OfficeCard's `liveElsewhere` negates: tracked workspace in
-  //                 localByKey OR a same-host loop from `localLoopKeys`).
-  //   • elsewhere — online but no local agent (the "running elsewhere" case; the
-  //                 exact condition the card's `liveElsewhere` prop already uses).
-  //   • offline   — no online characters.
-  // Memoized like sortedOffices; empty buckets are dropped at render (no header).
+  //   • local      — ≥1 agent local to THIS app under the CURRENT Linux account
+  //                  (tracked workspace in localByKey OR a NON-foreign same-host loop).
+  //   • foreign:<u> — local ONLY via same-host loops owned by ANOTHER account <u>
+  //                  (the app can't operate into its home dir — display grouping only).
+  //                  One section per owning user, between "On this machine" and
+  //                  "Running elsewhere".
+  //   • elsewhere  — online but no same-host local loop at all.
+  //   • offline    — no online characters.
+  // The current-vs-foreign decision is the pure classifyOfficeLocality (unit-tested);
+  // `isTrackedLocal`/`loopOwnerFor` are the two local signals it reads. Memoized like
+  // sortedOffices; empty buckets are dropped at render (no header).
   const officeSections = useMemo(() => {
+    const isTrackedLocal = (a: OfficeAgent): boolean =>
+      !!(localByKey.get(a.slug?.toLowerCase() ?? '')?.path || localByKey.get(String(a.id).toLowerCase())?.path)
+    const loopOwnerFor = (a: OfficeAgent): LocalLoopOwner | undefined =>
+      localLoopOwners.get(a.slug?.toLowerCase() ?? '') ?? localLoopOwners.get(String(a.id).toLowerCase())
+
     const local: OfficeGroup[] = []
+    const foreignByUser = new Map<string, OfficeGroup[]>()
     const elsewhere: OfficeGroup[] = []
     const offline: OfficeGroup[] = []
     for (const g of sortedOffices) {
-      if (g.agents.some(isLocalAgent)) local.push(g)
-      else if (g.onlineCount > 0) elsewhere.push(g)
+      const loc = classifyOfficeLocality(g, isTrackedLocal, loopOwnerFor)
+      if (loc.kind === 'current') local.push(g)
+      else if (loc.kind === 'foreign') {
+        const arr = foreignByUser.get(loc.user) ?? []
+        arr.push(g)
+        foreignByUser.set(loc.user, arr)
+      } else if (g.onlineCount > 0) elsewhere.push(g)
       else offline.push(g)
     }
+
+    const foreignUsers = [...foreignByUser.keys()].sort((a, b) => a.localeCompare(b))
+    const foreignSections = foreignUsers.map((u) => ({
+      key: `foreign:${u}`,
+      // One foreign account → keep it visibly part of "on this machine"; several →
+      // a per-user header so the rail stays unambiguous.
+      label: foreignUsers.length === 1 ? `On this machine · other account (${u})` : `${u} · other account`,
+      offices: foreignByUser.get(u) as OfficeGroup[]
+    }))
+
     return [
       { key: 'local', label: 'On this machine', offices: local },
+      ...foreignSections,
       { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere },
       { key: 'offline', label: 'Offline', offices: offline }
     ]
-  }, [sortedOffices, isLocalAgent])
+  }, [sortedOffices, localByKey, localLoopOwners])
 
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate

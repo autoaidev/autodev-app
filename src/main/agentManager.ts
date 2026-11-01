@@ -3,7 +3,7 @@ import { augmentPath } from './spawnEnv'
 import { EventEmitter } from 'events'
 import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, statSync, openSync, readSync, closeSync, watch, FSWatcher, readdirSync, readlinkSync, realpathSync, rmSync } from 'fs'
 import { join, basename, dirname, resolve, sep, delimiter as pathDelimiter } from 'path'
-import { homedir } from 'os'
+import { homedir, userInfo } from 'os'
 import { app } from 'electron'
 import { resolveCliJs, nodeRunner } from './cli'
 import { killTree } from './killTree'
@@ -202,6 +202,18 @@ export interface DiscoveredLoop {
    *  office presence by slug — undefined until the office is connected/polled, which
    *  is fine: a slug match alone already marks the character LOCAL. */
   officeAgentId?: string
+  /** The uid that OWNS the loop process (`stat('/proc/<pid>').uid`, with a
+   *  `/proc/<pid>/status` `Uid:` fallback). Undefined only when the owner was
+   *  unreadable — the renderer then treats the loop as current-account. */
+  ownerUid?: number
+  /** Display name for `ownerUid` — the current user via `os.userInfo()`, a foreign
+   *  uid resolved from `/etc/passwd`, else `uid:<n>`. */
+  ownerUser?: string
+  /** True when `ownerUid` differs from the app's own uid — i.e. the loop runs under
+   *  a DIFFERENT Linux account (its home/office dir is outside this app's reach).
+   *  The loop still counts as same-host/local; this flag only drives DISPLAY
+   *  grouping into a separate "other account" section. */
+  foreign?: boolean
 }
 
 /** In-memory identity for a locally-operated office character (Change 1). Stored
@@ -430,6 +442,10 @@ export class AgentManager extends EventEmitter {
   /** Brief cache for the same-host loop discovery scan (Part A) so the renderer's
    *  existing office poll can call it cheaply. */
   private _discoverCache: { at: number; loops: DiscoveredLoop[] } | null = null
+  /** uid→username map parsed ONCE from /etc/passwd (never shell out per-pid). Null
+   *  until first needed; an unreadable /etc/passwd caches an empty map so we don't
+   *  re-read it on every poll. */
+  private _passwdCache: Map<number, string> | null = null
   /**
    * Attach-tail bookkeeping: the output file this app is currently streaming for
    * an EXTERNAL loop (one it did not spawn) and the byte offset already emitted.
@@ -553,12 +569,72 @@ export class AgentManager extends EventEmitter {
         const settings = this._readJson(join(dir, '.autodev', 'settings.json'))
         const slug = this._endpointSlug(settings?.wsUrl) || settings?.agentId || basename(dir)
         const presence = slug ? this._officeOnline.get(String(slug).toLowerCase()) : undefined
-        byPath.set(abs, { path: abs, officeAgentSlug: slug || undefined, officeAgentId: presence?.agentId })
+        // Capture the loop process owner's uid so the renderer can split offices
+        // whose only same-host loops belong to ANOTHER Linux account into their own
+        // section. uid unreadable → leave owner fields undefined (renderer treats it
+        // as current-account, i.e. the pre-existing behavior).
+        const ownerUid = this._procUid(ent)
+        const selfUid = typeof process.getuid === 'function' ? process.getuid() : undefined
+        const owner: { ownerUid?: number; ownerUser?: string; foreign?: boolean } = {}
+        if (ownerUid !== undefined) {
+          owner.ownerUid = ownerUid
+          owner.foreign = selfUid !== undefined && ownerUid !== selfUid
+          owner.ownerUser =
+            owner.foreign ? this._uidToUser(ownerUid) : userInfo().username
+        }
+        byPath.set(abs, {
+          path: abs,
+          officeAgentSlug: slug || undefined,
+          officeAgentId: presence?.agentId,
+          ...owner
+        })
       }
     } catch { /* /proc unreadable — degrade to [] (renderer falls back to Part B copy) */ }
     const loops = [...byPath.values()]
     this._discoverCache = { at: now, loops }
     return loops
+  }
+
+  /**
+   * The uid that owns `/proc/<pid>` — the loop process's real owner. Primary source
+   * is `statSync('/proc/<pid>').uid`; if that throws (rare perms edge), fall back to
+   * parsing the `Uid:` line of `/proc/<pid>/status` (first field = real uid).
+   * Returns undefined when neither is readable — the caller then leaves the loop
+   * untagged (treated as current-account).
+   */
+  private _procUid(pid: string): number | undefined {
+    try {
+      return statSync(`/proc/${pid}`).uid
+    } catch { /* fall through to status parse */ }
+    try {
+      const status = readFileSync(`/proc/${pid}/status`, 'utf8')
+      const m = status.match(/^Uid:\s*(\d+)/m)
+      if (m) return Number(m[1])
+    } catch { /* unreadable — undefined */ }
+    return undefined
+  }
+
+  /**
+   * Resolve a FOREIGN uid to a display username by parsing /etc/passwd ONCE (cached;
+   * never shells out per-pid). Falls back to `uid:<n>` when the uid isn't present
+   * (or /etc/passwd is unreadable). The current user's own name comes from
+   * `os.userInfo()` at the call site, so this is only hit for other accounts.
+   */
+  private _uidToUser(uid: number): string {
+    if (!this._passwdCache) {
+      const map = new Map<number, string>()
+      try {
+        for (const line of readFileSync('/etc/passwd', 'utf8').split('\n')) {
+          const parts = line.split(':')
+          if (parts.length >= 3) {
+            const u = Number(parts[2])
+            if (Number.isFinite(u) && parts[0]) map.set(u, parts[0])
+          }
+        }
+      } catch { /* unreadable — empty map, every lookup falls back to uid:<n> */ }
+      this._passwdCache = map
+    }
+    return this._passwdCache.get(uid) ?? `uid:${uid}`
   }
 
   /**

@@ -81,8 +81,18 @@ const api = {
   // Same-host autodev loops NOT in the registry (Part A of the "on another PC"
   // fix) — each carries { path, officeAgentSlug?, officeAgentId? } so the office
   // view can fold them into its local-agent match. Linux-only; [] elsewhere.
-  discoverLocalLoops: (): Promise<Array<{ path: string; officeAgentSlug?: string; officeAgentId?: string }>> =>
-    ipcRenderer.invoke('agents:discoverLocal'),
+  discoverLocalLoops: (): Promise<
+    Array<{
+      path: string
+      officeAgentSlug?: string
+      officeAgentId?: string
+      // Owner of the loop process (Linux uid), its display name, and whether it runs
+      // under a DIFFERENT account than this app — drives the "other account" section.
+      ownerUid?: number
+      ownerUser?: string
+      foreign?: boolean
+    }>
+  > => ipcRenderer.invoke('agents:discoverLocal'),
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
   workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
   removeAgent: (path: string) => ipcRenderer.invoke('agents:remove', path),
