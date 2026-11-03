@@ -121,6 +121,142 @@ async function probeRemoteMcp(url: string, headers: Record<string, string>): Pro
   } finally { clearTimeout(timer) }
 }
 
+/** The advertised-tools shape returned by mcpTools — just name + optional
+ *  description, never arguments/schemas/secrets. */
+export interface McpToolInfo { name: string; description?: string }
+type McpToolsResult = { tools?: McpToolInfo[]; error?: string }
+
+/** Normalise a JSON-RPC `tools/list` result into the public {name, description}
+ *  shape, dropping anything without a string name. */
+function parseToolsList(result: any): McpToolInfo[] {
+  const raw = result?.tools
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((t: any) => t && typeof t.name === 'string')
+    .map((t: any) => ({ name: t.name as string, description: typeof t.description === 'string' ? t.description : undefined }))
+}
+
+/** Extract the JSON-RPC envelope from an MCP HTTP response body, handling both
+ *  `application/json` and `text/event-stream` (SSE `data:` frames). */
+function extractRpcEnvelope(text: string, contentType: string): any | null {
+  if ((contentType || '').toLowerCase().includes('text/event-stream')) {
+    const datas = text
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith('data:'))
+      .map((l) => l.slice(5).trim())
+      .filter(Boolean)
+    for (let i = datas.length - 1; i >= 0; i--) {
+      try { return JSON.parse(datas[i]) } catch { /* try the previous frame */ }
+    }
+    return null
+  }
+  try { return JSON.parse(text) } catch { return null }
+}
+
+/** `tools/list` against a REMOTE (http/sse) MCP endpoint: the same initialize
+ *  handshake probeRemoteMcp does (shared body/headers), then a tools/list call
+ *  carrying any `Mcp-Session-Id` the server handed back. ~15s budget. */
+async function remoteMcpTools(url: string, headers: Record<string, string>): Promise<McpToolsResult> {
+  const f = (globalThis as any).fetch as typeof fetch | undefined
+  if (!f) return { error: 'fetch unavailable' }
+  const base = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...headers }
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(), 15000)
+  const rpc = (id: number, method: string, params?: unknown): string =>
+    JSON.stringify({ jsonrpc: '2.0', id, method, params: params ?? {} })
+  try {
+    const initRes = await f(url, {
+      method: 'POST',
+      headers: base,
+      body: rpc(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'autodev-app', version: '1' } }),
+      signal: ctl.signal
+    })
+    if (!initRes.ok) return { error: `HTTP ${initRes.status}` }
+    const sessionId = initRes.headers.get('mcp-session-id') || initRes.headers.get('Mcp-Session-Id') || ''
+    await initRes.text().catch(() => '') // drain the init body
+    const withSession = sessionId ? { ...base, 'Mcp-Session-Id': sessionId } : base
+    // Best-effort initialized notification (servers that ignore it are fine).
+    try {
+      await f(url, { method: 'POST', headers: withSession, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }), signal: ctl.signal })
+    } catch { /* ignore */ }
+    const listRes = await f(url, { method: 'POST', headers: withSession, body: rpc(2, 'tools/list'), signal: ctl.signal })
+    if (!listRes.ok) return { error: `HTTP ${listRes.status}` }
+    const env = extractRpcEnvelope(await listRes.text(), listRes.headers.get('content-type') || '')
+    if (env?.error) return { error: env.error?.message ?? 'tools/list failed' }
+    if (!env?.result) return { error: 'server returned no tools/list result' }
+    return { tools: parseToolsList(env.result) }
+  } catch (e: any) {
+    return { error: e?.name === 'AbortError' ? 'timeout' : (e?.message ?? 'network error') }
+  } finally { clearTimeout(timer) }
+}
+
+/** `tools/list` against a STDIO MCP server: spawn `command [...args]` with the
+ *  agent env (augmented PATH + the server's own env), speak newline-delimited
+ *  JSON-RPC — initialize → notifications/initialized → tools/list — then reap the
+ *  child. Mirrors the StdioMcpClient handshake in ../autodev-cli/src/mcpEmailTest.ts
+ *  (reimplemented here; no cross-package import). ~15s budget; the child is always
+ *  killed (stdin end + kill + killTree) on success/error/timeout. */
+function stdioMcpTools(command: string, args: string[], env: Record<string, string>): Promise<McpToolsResult> {
+  return new Promise<McpToolsResult>((resolve) => {
+    let child: ChildProcess
+    const fullEnv = { ...process.env, ...env, PATH: augmentPath(process.env.PATH) }
+    try {
+      child = spawn(command, args, { env: fullEnv, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] })
+    } catch (e: any) {
+      resolve({ error: `spawn failed: ${e?.message ?? command}` }); return
+    }
+    let settled = false
+    let buf = ''
+    let stderr = ''
+    const pending = new Map<number, (msg: any) => void>()
+    const finish = (r: McpToolsResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      try { child.stdin?.end() } catch { /* ignore */ }
+      try { child.kill() } catch { /* ignore */ }
+      killTree(child.pid)
+      resolve(r)
+    }
+    const timer = setTimeout(
+      () => finish({ error: `timeout after 15s${stderr ? ` (stderr: ${stderr.trim().slice(-200)})` : ''}` }),
+      15000
+    )
+    const send = (obj: unknown): void => { try { child.stdin?.write(JSON.stringify(obj) + '\n') } catch { /* ignore */ } }
+
+    child.on('error', (e: any) => finish({ error: `spawn failed: ${e?.message ?? command}` }))
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (c: string) => { stderr += c })
+    child.on('close', () => { if (!settled) finish({ error: `process exited before tools/list${stderr ? `: ${stderr.trim().slice(-200)}` : ''}` }) })
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      buf += chunk
+      let nl: number
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl).trim()
+        buf = buf.slice(nl + 1)
+        if (!line) continue
+        let msg: any
+        try { msg = JSON.parse(line) } catch { continue }
+        const id = msg?.id
+        if (typeof id === 'number' && pending.has(id)) { const cb = pending.get(id)!; pending.delete(id); cb(msg) }
+      }
+    })
+
+    // initialize → (on reply) notifications/initialized + tools/list → (on reply) resolve.
+    pending.set(1, (initMsg) => {
+      if (initMsg?.error) { finish({ error: `initialize failed: ${initMsg.error?.message ?? 'error'}` }); return }
+      send({ jsonrpc: '2.0', method: 'notifications/initialized' })
+      pending.set(2, (listMsg) => {
+        if (listMsg?.error) { finish({ error: `tools/list failed: ${listMsg.error?.message ?? 'error'}` }); return }
+        finish({ tools: parseToolsList(listMsg?.result) })
+      })
+      send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+    })
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'autodev-app', version: '1' } } })
+  })
+}
+
 export interface AgentState {
   path: string
   name: string
@@ -1579,6 +1715,33 @@ export class AgentManager extends EventEmitter {
     }))
     servers.sort((a, b) => a.name.localeCompare(b.name))
     return { servers }
+  }
+
+  /**
+   * List the tools a single configured MCP server ADVERTISES — the live
+   * `tools/list` surface, so the app can show what an agent can actually call.
+   * Reads `<path>/.mcp.json`, finds `mcpServers[name]`, then:
+   *   - remote (has `url`): MCP initialize handshake + tools/list over HTTP/SSE.
+   *   - stdio (has `command`): spawn the runner with the agent env and speak
+   *     newline-delimited JSON-RPC (initialize → initialized → tools/list).
+   * A disabled server is never spawned/probed. Never returns secrets — only each
+   * tool's name + optional description. Failures surface as `{ error }`.
+   */
+  async mcpTools(path: string, name: string): Promise<McpToolsResult> {
+    let cfg: { mcpServers?: Record<string, any> }
+    try {
+      const p = join(path, '.mcp.json')
+      cfg = existsSync(p) ? JSON.parse(readFileSync(p, 'utf8')) : {}
+    } catch (e: any) { return { error: e?.message ?? 'Failed to read .mcp.json' } }
+
+    const e = cfg.mcpServers?.[name]
+    if (!e) return { error: `Server "${name}" not found in .mcp.json` }
+    if (e?.enabled === false) return { error: 'Server is disabled.' }
+
+    const remote = typeof e?.url === 'string' && e.url.length > 0
+    if (remote) return remoteMcpTools(e.url, e.headers ?? {})
+    if (!e?.command) return { error: `Server "${name}" has no command or url` }
+    return stdioMcpTools(e.command, Array.isArray(e.args) ? e.args : [], e.env ?? {})
   }
 
   // --- CLI passthrough (init/config/connect/export/import/status) ----------

@@ -1,5 +1,5 @@
 import React from 'react'
-import { Modal, Button, Icon, InfoTip, AdvancedSection } from '@renderer/ui'
+import { Modal, Button, Icon, InfoTip, ContextMenu, SegmentedTabs, type ContextMenuEntry } from '@renderer/ui'
 import { ServerRow } from '../components/mcp/ServerRow'
 import { JsonCodeBlock } from '../components/mcp/JsonCodeBlock'
 import { McpCatalogList } from '../components/mcp/McpCatalogList'
@@ -20,10 +20,18 @@ import { useMcpCatalog, type McpListEntry, type McpJsonEntry } from '@renderer/l
  * preset/raw-save path did, and it skipped provider-sync. A "Custom…" entry in the
  * picker covers servers the catalog doesn't list.
  *
- * Below it: a live CONNECTIVITY check (ServerRow, from agentMcpStatus), the
- * detected CREATIVE APPS section (Blender/GIMP, CLI-driven auto-detect), and — as
- * an ADVANCED, collapsed, READ-ONLY view — the raw .mcp.json (JsonCodeBlock). All
- * edits happen through the picker; the raw view is reference only.
+ * The body is split across three TABS (SegmentedTabs) so each section fits inside
+ * the modal's own scroll instead of stacking into one over-tall column:
+ *   - Servers      — the add/toggle surface (catalog picker + list + creative apps
+ *                    + SyntheticMem).
+ *   - Connectivity — the live ServerRow status list + the per-server `⋯` menu
+ *                    (enable/disable/remove/recheck/list-tools) and its inline
+ *                    advertised-tools panel.
+ *   - Raw JSON     — the read-only .mcp.json view (JsonCodeBlock) with the
+ *                    failing-server cross-highlight.
+ * The header (Recheck) and footer (notice + Restart + Done) stay OUTSIDE the tabs
+ * since they apply to all. All tab panels stay mounted (hidden via `display`) so
+ * switching tabs never loses state (detect results, open tool panels, scroll).
  */
 
 const sectionLabel: React.CSSProperties = {
@@ -35,6 +43,8 @@ const sectionLabel: React.CSSProperties = {
   color: 'var(--tx-4)'
 }
 
+type TabId = 'servers' | 'connectivity' | 'raw'
+
 /** locate a server's line in the raw JSON for the failing cross-highlight. */
 function findServerLine(json: string, name?: string): number | undefined {
   if (!name) return undefined
@@ -42,6 +52,94 @@ function findServerLine(json: string, name?: string): number | undefined {
   const needle = `"${name}"`
   for (let i = 0; i < lines.length; i++) if (lines[i].includes(needle)) return i + 1
   return undefined
+}
+
+type ToolInfo = { name: string; description?: string }
+
+/** Inline advertised-tools panel shown under a server row in the Connectivity
+ *  tab — loading spinner, a clear error, or the tool count + each tool's name
+ *  (mono) and truncated description (muted). */
+function ToolsPanel({
+  name,
+  loading,
+  error,
+  tools
+}: {
+  name: string
+  loading: boolean
+  error?: string
+  tools?: ToolInfo[]
+}): React.JSX.Element {
+  return (
+    <div
+      style={{
+        margin: '-2px 10px 6px',
+        background: 'var(--bg-panel-alt)',
+        border: '1px solid var(--bd-card)',
+        borderRadius: 'var(--r-input)',
+        padding: '9px 11px'
+      }}
+    >
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>
+          <Icon name="refresh" size={11} />
+          Probing “{name}” for tools…
+        </div>
+      ) : error ? (
+        <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)' }}>{error}</div>
+      ) : !tools || tools.length === 0 ? (
+        <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)' }}>This server advertises no tools.</div>
+      ) : (
+        <>
+          <div
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--fs-micro)',
+              letterSpacing: '.06em',
+              textTransform: 'uppercase',
+              color: 'var(--tx-dim)',
+              marginBottom: 7
+            }}
+          >
+            {tools.length} tool{tools.length === 1 ? '' : 's'}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {tools.map((t) => (
+              <div key={t.name} style={{ display: 'flex', alignItems: 'baseline', gap: 9, minWidth: 0 }}>
+                <span
+                  style={{
+                    flex: 'none',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '10.5px',
+                    color: 'var(--tx-1)',
+                    fontWeight: 600
+                  }}
+                >
+                  {t.name}
+                </span>
+                {t.description && (
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      fontSize: 'var(--fs-desc)',
+                      color: 'var(--tx-4)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}
+                    title={t.description}
+                  >
+                    {t.description}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 export function McpEditorModal(props: {
@@ -71,6 +169,16 @@ export function McpEditorModal(props: {
   const [notice, setNotice] = React.useState<string | null>(null)
   const [running, setRunning] = React.useState(false)
   const [restarting, setRestarting] = React.useState(false)
+  const [tab, setTab] = React.useState<TabId>('servers')
+
+  // ── Per-server `⋯` menu (which server + its anchor element) ──────────────
+  const [menu, setMenu] = React.useState<{ server: McpServerStatus; anchor: HTMLElement } | null>(null)
+
+  // ── "List tools…" inline panels, keyed by server name ────────────────────
+  const [toolsOpen, setToolsOpen] = React.useState<Record<string, boolean>>({})
+  const [toolsByName, setToolsByName] = React.useState<Record<string, ToolInfo[]>>({})
+  const [toolsLoading, setToolsLoading] = React.useState<Record<string, boolean>>({})
+  const [toolsError, setToolsError] = React.useState<Record<string, string>>({})
 
   const fileName = React.useMemo(() => {
     const base = agentPath.split('/').filter(Boolean).pop() || agentPath
@@ -113,6 +221,13 @@ export function McpEditorModal(props: {
   React.useEffect(() => {
     if (!open) return
     setNotice(null)
+    setMenu(null)
+    setTab('servers')
+    // A fresh open starts with no stale tool panels from a previous agent.
+    setToolsOpen({})
+    setToolsByName({})
+    setToolsLoading({})
+    setToolsError({})
     void loadList()
     void recheck()
   }, [open, loadList, recheck])
@@ -138,6 +253,26 @@ export function McpEditorModal(props: {
     [agentPath, loadList, recheck, running]
   )
 
+  // "List tools…" — probe the server's advertised tools and show them inline.
+  const listTools = React.useCallback(
+    async (name: string): Promise<void> => {
+      setTab('connectivity')
+      setToolsOpen((o) => ({ ...o, [name]: true }))
+      setToolsError((e) => { const n = { ...e }; delete n[name]; return n })
+      setToolsLoading((l) => ({ ...l, [name]: true }))
+      try {
+        const r = await window.api.mcpTools(agentPath, name)
+        if (r?.error) setToolsError((e) => ({ ...e, [name]: r.error! }))
+        else setToolsByName((m) => ({ ...m, [name]: r.tools ?? [] }))
+      } catch (e) {
+        setToolsError((er) => ({ ...er, [name]: e instanceof Error ? e.message : 'Failed to list tools' }))
+      } finally {
+        setToolsLoading((l) => ({ ...l, [name]: false }))
+      }
+    },
+    [agentPath]
+  )
+
   const restart = React.useCallback(async (): Promise<void> => {
     setRestarting(true)
     try {
@@ -158,6 +293,37 @@ export function McpEditorModal(props: {
   const summaryText = statusError
     ? 'connectivity unavailable'
     : `${counts.ready} ready · ${counts.failing} failing${counts.disabled ? ` · ${counts.disabled} disabled` : ''}`
+
+  // Menu items for the active server. Enable/Disable toggles on `enabled`; Remove
+  // is hidden for built-ins (the catalog manages those via enable/disable only).
+  const menuItems = (srv: McpServerStatus): ContextMenuEntry[] => {
+    const items: ContextMenuEntry[] = [
+      srv.enabled
+        ? { label: 'Disable', icon: 'stop', onClick: () => void apply('disable', srv.name) }
+        : { label: 'Enable', icon: 'play', onClick: () => void apply('enable', srv.name) },
+      { label: 'List tools…', icon: 'terminal', onClick: () => void listTools(srv.name) },
+      { label: 'Recheck', icon: 'refresh', onClick: () => void recheck() }
+    ]
+    if (!srv.builtin) {
+      items.push({ separator: true })
+      items.push({ label: 'Remove', icon: 'trash', danger: true, onClick: () => void apply('remove', srv.name) })
+    }
+    return items
+  }
+
+  // Menu position derived from the `⋯` button's rect, clamped on-screen. Rendered
+  // inside the overlay stacking context so ContextMenu (z 1500) paints above the
+  // rows and is not clipped by the dialog's scroll.
+  const menuPos = React.useMemo(() => {
+    if (!menu) return null
+    const r = menu.anchor.getBoundingClientRect()
+    return {
+      left: Math.max(8, Math.min(r.left, window.innerWidth - 248)),
+      top: Math.min(r.bottom + 4, window.innerHeight - 220)
+    }
+  }, [menu])
+
+  const tabStyle = (id: TabId): React.CSSProperties => ({ display: tab === id ? 'block' : 'none' })
 
   return (
     <Modal
@@ -198,91 +364,127 @@ export function McpEditorModal(props: {
         </>
       }
     >
-      {/* ── DETECTED CREATIVE APPS (Blender / GIMP → enable as MCP) ──
-          Surfaced at the TOP so detected apps are visible immediately (UX-1) —
-          it used to sit below the full catalog + connectivity, buried by scroll. */}
-      <CreativeAppsSection
-        agentPath={agentPath}
-        open={open}
-        onMcpChanged={() => {
-          void loadList()
-          void recheck()
-        }}
+      <SegmentedTabs
+        variant="segmented"
+        value={tab}
+        onChange={(id) => setTab(id as TabId)}
+        tabs={[
+          { id: 'servers', label: 'Servers' },
+          { id: 'connectivity', label: 'Connectivity' },
+          { id: 'raw', label: 'Raw JSON' }
+        ]}
+        style={{ marginBottom: 16 }}
       />
 
-      {/* ── CATALOG PICKER (primary) ──────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 10 }}>
-        <span style={sectionLabel}>Servers</span>
-        <InfoTip label="MCP servers" width={290}>
-          Each server is a tool your agent can call — a shared office, a memory store, the
-          filesystem, a creative app. Add or toggle them below; every change is applied through the
-          AutoDev CLI (which syncs it to every provider), not a hand-edit of <code>.mcp.json</code>.
-        </InfoTip>
-        <div style={{ marginLeft: 'auto' }}>
-          <McpCatalogPicker
-            buttonLabel="Add custom…"
-            exclude={new Set(current.map((e) => e.name))}
-            onPick={(p) => void apply('add', p.name, p.server)}
-          />
-        </div>
-      </div>
-
-      {catalog.length === 0 ? (
-        <div style={{ padding: '14px 12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', textAlign: 'center' }}>
-          Loading the MCP catalog…
-        </div>
-      ) : (
-        <McpCatalogList catalog={pickableCatalog} current={current} busyName={busyName} onApply={apply} />
-      )}
-
-      {/* ── HOSTED MEMORY (SyntheticMem remote MCP — optional, needs a key) ── */}
-      <SyntheticMemSection
-        agentPath={agentPath}
-        catalog={catalog}
-        current={current}
-        officeSlug={officeSlug}
-        agentId={agentId}
-        onMcpChanged={() => {
-          void loadList()
-          void recheck()
-        }}
-      />
-
-      {/* ── CONNECTIVITY (live status) ────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '18px 0 8px' }}>
-        <span style={sectionLabel}>Connectivity</span>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '10.5px',
-            color: counts.failing ? 'var(--st-error)' : 'var(--tx-dim)'
+      {/* ── SERVERS TAB — the add / toggle surface ─────────────────── */}
+      <div style={tabStyle('servers')}>
+        {/* DETECTED CREATIVE APPS (Blender / GIMP → enable as MCP) */}
+        <CreativeAppsSection
+          agentPath={agentPath}
+          open={open}
+          onMcpChanged={() => {
+            void loadList()
+            void recheck()
           }}
-        >
-          {summaryText}
-        </span>
-      </div>
-      {statusError ? (
-        <div style={{ padding: '10px 12px', background: 'var(--st-error-wash)', border: '1px solid var(--st-error-bd)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)' }}>
-          {statusError}
-        </div>
-      ) : servers.length === 0 ? (
-        <div style={{ padding: '12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', textAlign: 'center' }}>
-          {checking ? 'Probing servers…' : 'No MCP servers configured for this agent.'}
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {servers.map((s) => (
-            <ServerRow key={s.name} server={s} onMenu={() => void recheck()} />
-          ))}
-        </div>
-      )}
+        />
 
-      {/* ── RAW .MCP.JSON — advanced, read-only reference ─────────── */}
-      <AdvancedSection label="Raw .mcp.json" hint="Read-only view of the file the CLI maintains. Edits happen through the picker above.">
-        <div style={{ marginTop: 8 }}>
-          <JsonCodeBlock value={json} onChange={() => {}} readOnly highlightLine={highlightLine} />
+        {/* CATALOG PICKER (primary) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 18, marginBottom: 10 }}>
+          <span style={sectionLabel}>Servers</span>
+          <InfoTip label="MCP servers" width={290}>
+            Each server is a tool your agent can call — a shared office, a memory store, the
+            filesystem, a creative app. Add or toggle them below; every change is applied through the
+            AutoDev CLI (which syncs it to every provider), not a hand-edit of <code>.mcp.json</code>.
+          </InfoTip>
+          <div style={{ marginLeft: 'auto' }}>
+            <McpCatalogPicker
+              buttonLabel="Add custom…"
+              exclude={new Set(current.map((e) => e.name))}
+              onPick={(p) => void apply('add', p.name, p.server)}
+            />
+          </div>
         </div>
-      </AdvancedSection>
+
+        {catalog.length === 0 ? (
+          <div style={{ padding: '14px 12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', textAlign: 'center' }}>
+            Loading the MCP catalog…
+          </div>
+        ) : (
+          <McpCatalogList catalog={pickableCatalog} current={current} busyName={busyName} onApply={apply} />
+        )}
+
+        {/* HOSTED MEMORY (SyntheticMem remote MCP — optional, needs a key) */}
+        <SyntheticMemSection
+          agentPath={agentPath}
+          catalog={catalog}
+          current={current}
+          officeSlug={officeSlug}
+          agentId={agentId}
+          onMcpChanged={() => {
+            void loadList()
+            void recheck()
+          }}
+        />
+      </div>
+
+      {/* ── CONNECTIVITY TAB — live status + per-server menu + tools ── */}
+      <div style={tabStyle('connectivity')}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '2px 0 8px' }}>
+          <span style={sectionLabel}>Connectivity</span>
+          <span
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10.5px',
+              color: counts.failing ? 'var(--st-error)' : 'var(--tx-dim)'
+            }}
+          >
+            {summaryText}
+          </span>
+        </div>
+        {statusError ? (
+          <div style={{ padding: '10px 12px', background: 'var(--st-error-wash)', border: '1px solid var(--st-error-bd)', borderRadius: 'var(--r-card)', fontSize: 'var(--fs-desc)', color: 'var(--st-error-bright)' }}>
+            {statusError}
+          </div>
+        ) : servers.length === 0 ? (
+          <div style={{ padding: '12px', fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', textAlign: 'center' }}>
+            {checking ? 'Probing servers…' : 'No MCP servers configured for this agent.'}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {servers.map((s) => (
+              <div key={s.name}>
+                <ServerRow server={s} onMenu={(srv, anchor) => setMenu({ server: srv, anchor })} />
+                {toolsOpen[s.name] && (
+                  <ToolsPanel
+                    name={s.name}
+                    loading={!!toolsLoading[s.name]}
+                    error={toolsError[s.name]}
+                    tools={toolsByName[s.name]}
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── RAW .MCP.JSON TAB — read-only reference ─────────────────── */}
+      <div style={tabStyle('raw')}>
+        <div style={{ fontSize: 'var(--fs-desc)', color: 'var(--tx-4)', lineHeight: 1.5, marginBottom: 8 }}>
+          Read-only view of the file the CLI maintains. Edits happen through the Servers tab.
+        </div>
+        <JsonCodeBlock value={json} onChange={() => {}} readOnly highlightLine={highlightLine} />
+      </div>
+
+      {/* Per-server `⋯` menu — rendered last so it layers above the rows. */}
+      {menu && menuPos && (
+        <ContextMenu
+          header={menu.server.name}
+          items={menuItems(menu.server)}
+          onClose={() => setMenu(null)}
+          style={{ position: 'fixed', left: menuPos.left, top: menuPos.top }}
+        />
+      )}
     </Modal>
   )
 }

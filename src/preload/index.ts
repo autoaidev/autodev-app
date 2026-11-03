@@ -117,6 +117,13 @@ const api = {
   readAgentMcp: (path: string) => ipcRenderer.invoke('agent:readMcp', path),
   writeAgentMcp: (path: string, content: string) => ipcRenderer.invoke('agent:writeMcp', path, content),
   agentMcpStatus: (path: string) => ipcRenderer.invoke('agent:mcpStatus', path),
+  // Live `tools/list` for a single server — what it advertises (name + optional
+  // description). Remote: MCP initialize + tools/list; stdio: spawn + JSON-RPC.
+  mcpTools: (
+    path: string,
+    name: string
+  ): Promise<{ tools?: { name: string; description?: string }[]; error?: string }> =>
+    ipcRenderer.invoke('agent:mcpTools', path, name),
   // Detected creative apps → enable-as-MCP. Both go through the bundled CLI
   // (`autodev mcp detect`), so enabling reaches every provider — never writeMcp.
   mcpDetect: (path: string): Promise<{ apps: McpDetectApp[] } | { error: string }> =>

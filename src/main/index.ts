@@ -380,6 +380,9 @@ ipcMain.handle('attachments:save', (_e, agentPath: string, filename: string, dat
 ipcMain.handle('agent:readMcp', (_e, path: string) => manager.readMcp(path))
 ipcMain.handle('agent:writeMcp', (_e, path: string, content: string) => manager.writeMcp(path, content))
 ipcMain.handle('agent:mcpStatus', (_e, path: string) => manager.mcpStatus(path))
+// Live `tools/list` for a single configured server (remote handshake or stdio
+// spawn) — surfaces what the server ADVERTISES to the "List tools…" row menu.
+ipcMain.handle('agent:mcpTools', (_e, path: string, name: string) => manager.mcpTools(path, name))
 // Detected creative apps (Blender/GIMP) → enable-as-MCP. Both route through the
 // bundled CLI (mcpDetect / mcpEnableApp → runCli), so enabling propagates the
 // server to every provider (syncProjectMcpServers) instead of just poking
