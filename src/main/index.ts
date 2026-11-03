@@ -40,6 +40,12 @@ let isQuitting = false
 // true then, so later (warm) deliveries broadcast `app:openFolder` directly.
 let pendingOpenFolder: string | null = null
 let rendererReady = false
+// Whether the app window currently has OS focus. Drives two CPU savings: the
+// renderer gates its /proc + fs pollers on it (via `window:focus`), and the
+// main-process office-presence poll slows right down when nothing is focused
+// (no one is looking, so sub-10s presence freshness buys nothing). Starts true —
+// the window is shown+focused on launch — and the focus/blur handlers keep it true.
+let windowFocused = true
 const manager = new AgentManager()
 const sessions = new SessionManager()
 const ptys = new PtyManager()
@@ -138,6 +144,21 @@ function createWindow(): void {
   )
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // Focus/blur awareness — the single signal the renderer's pollers and the
+  // main-process office poll throttle on. `backgroundThrottling` stays at its
+  // default (true) so Chromium also throttles timers/rAF while hidden; this is the
+  // explicit signal on TOP of that, covering the blurred-but-visible case Chromium
+  // does not throttle (another window on top on this VNC box). Broadcast the state
+  // so the renderer can pause its own timers + the idle-animation signal, and nudge
+  // a fresh office-presence poll on regaining focus so nothing reads stale.
+  const onFocusChange = (focused: boolean): void => {
+    windowFocused = focused
+    broadcast('window:focus', focused)
+    if (focused) void refreshOfficePresence()
+    scheduleOfficePoll()
+  }
+  mainWindow.on('focus', () => onFocusChange(true))
+  mainWindow.on('blur', () => onFocusChange(false))
   // Closing the window must NOT SIGKILL every running agent. If loops are active,
   // hide to the tray and keep them running; the user quits explicitly from the
   // tray (or the in-app Quit) which sets isQuitting.
@@ -191,7 +212,16 @@ function broadcast(channel: string, payload: unknown): void {
 // it to the manager so those agents read as running/online instead of "Stopped".
 // Best-effort: any failure (not logged in, offline) leaves presence empty, so the
 // list falls back to purely-local truth. Only re-broadcast when it actually changed.
+// Focus-aware cadence: 8s while the window is focused (presence must feel live when
+// someone is watching), but a lazy 30s when nothing is focused — a backgrounded app
+// gains nothing from sub-10s office presence, and each tick is a network round-trip
+// plus a broadcast that re-triggers the renderer's list merge. A self-scheduling
+// setTimeout (not a fixed setInterval) lets the interval change the instant focus
+// flips; onFocusChange also fires an immediate refresh on regaining focus.
+const OFFICE_POLL_FOCUSED_MS = 8000
+const OFFICE_POLL_BLURRED_MS = 30000
 let _officePoll: NodeJS.Timeout | null = null
+let _officePollingStarted = false
 async function refreshOfficePresence(): Promise<void> {
   try {
     const ags = await office.listAgents()
@@ -199,10 +229,18 @@ async function refreshOfficePresence(): Promise<void> {
     if (changed) broadcast('agents:changed', null)
   } catch { /* not connected / offline — leave office presence empty */ }
 }
+/** (Re)arm the presence poll at the cadence matching the current focus state. */
+function scheduleOfficePoll(): void {
+  if (!_officePollingStarted) return
+  if (_officePoll) { clearTimeout(_officePoll); _officePoll = null }
+  const delay = windowFocused ? OFFICE_POLL_FOCUSED_MS : OFFICE_POLL_BLURRED_MS
+  _officePoll = setTimeout(() => { void refreshOfficePresence().finally(scheduleOfficePoll) }, delay)
+}
 function startOfficePolling(): void {
-  if (_officePoll) return
+  if (_officePollingStarted) return
+  _officePollingStarted = true
   void refreshOfficePresence()
-  _officePoll = setInterval(refreshOfficePresence, 8000)
+  scheduleOfficePoll()
 }
 manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))

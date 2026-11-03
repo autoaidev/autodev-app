@@ -26,7 +26,9 @@ import {
   type LocalLoopOwner
 } from '../components/office/officeTypes'
 import * as officeService from '../services/officeService'
+import * as localLoopsService from '../services/localLoopsService'
 import * as termRegistry from '../services/termRegistry'
+import { useAgents } from '@renderer/services/agentStore'
 import { useAppActions } from '../services/appActions'
 import { useAdvancedMode } from '../services/advancedMode'
 import { usePinnedAgents } from '../services/pinnedAgents'
@@ -204,13 +206,17 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // account can be split into its own sidebar section. A foreign loop still counts
   // as local/same-host (the Map's `.has` drives the same "is this character local?"
   // verdict as the old Set did) — the tag is purely for DISPLAY grouping.
-  const [localLoopOwners, setLocalLoopOwners] = useState<Map<string, LocalLoopOwner>>(new Map())
+  // Same-host loops this app didn't spawn + on-disk office footprint — now owned by
+  // the shared, focus-gated localLoopsService (ONE poller that pauses when the app
+  // is blurred/hidden or the Office tab is backgrounded), replacing OfficeView's old
+  // always-on 4s discoverLocalLoops interval. Keyed by office-agent slug AND id.
+  const localLoopOwners = localLoopsService.useLocalLoops()
   // Office slugs (lower-cased) with an on-disk workspace under ~/.autodev-app/offices
   // on THIS machine — the "genuinely materialized here" signal. Offices are
   // account-wide, so without this an OFFLINE account office with no local footprint
-  // would still be filed under "On this machine". Refreshed with the agent registry
-  // (spawn/remove of an office both emit onAgentsChanged → loadAll).
-  const [localOfficeSlugs, setLocalOfficeSlugs] = useState<Set<string>>(new Set())
+  // would still be filed under "On this machine". Also from localLoopsService (it
+  // refreshes on onAgentsChanged, so office spawn/remove updates it promptly).
+  const localOfficeSlugs = localLoopsService.useLocalOfficeSlugs()
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
     const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>()
@@ -242,74 +248,20 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     }
     setLocalByKey(next)
   }, [])
+  // The local fleet now comes from the SHARED agentStore (ONE visibility-gated
+  // listAgents poll + onAgentsChanged/onAgentUpdated subscription for the whole app)
+  // instead of OfficeView running its own duplicate poll + listeners — that was a
+  // second independent caller of the main process's list() (fix #3). Re-derive
+  // localByKey whenever the fleet array changes; the activity clocks (workingSince /
+  // lastActivity, in refs) are maintained inside rebuildLocal exactly as before. The
+  // /proc loop discovery + on-disk office footprint are owned by localLoopsService
+  // above (the old always-on 4s interval is gone). All three sources already pause
+  // when the app is blurred/hidden, and refresh promptly on return.
+  const agents = useAgents()
   useEffect(() => {
-    let alive = true
-    // Part A: fold in same-host loops this app didn't spawn (discovered via /proc)
-    // so a genuinely-local office character is marked LOCAL, not "on another PC".
-    // Extracted from loadAll so a steady interval can keep it FRESH on its own:
-    // office presence can flip a character 'online' (via the pixel-office WS) WITHOUT
-    // emitting onAgentsChanged, so without an independent rescan a just-spawned local
-    // loop stays unmatched and its card wrongly reads "online · not managed here"
-    // (fail-CLOSED — Stop hidden) until some unrelated refetch happens. A light /proc
-    // rescan every few seconds closes that window. Best-effort: a failure (or a
-    // non-Linux host returning []) just leaves the Part B softened copy in place.
-    const refreshLoops = async (): Promise<void> => {
-      try {
-        const loops = await window.api.discoverLocalLoops?.()
-        if (!alive) return
-        const ks = new Map<string, LocalLoopOwner>()
-        if (Array.isArray(loops)) {
-          for (const l of loops) {
-            const owner: LocalLoopOwner = {
-              ownerUid: l?.ownerUid,
-              ownerUser: l?.ownerUser,
-              // A loop whose owner was unreadable (foreign undefined) is treated as
-              // current-account — the pre-existing behavior (no foreign bucket).
-              foreign: l?.foreign === true
-            }
-            if (l?.officeAgentSlug) ks.set(l.officeAgentSlug.toLowerCase(), owner)
-            if (l?.officeAgentId) ks.set(String(l.officeAgentId).toLowerCase(), owner)
-          }
-        }
-        setLocalLoopOwners(ks)
-      } catch { /* discovery best-effort — Part B copy covers any miss */ }
-    }
-    const loadAll = async (): Promise<void> => {
-      try {
-        const list = (await window.api.listAgents()) as AgentState[]
-        if (!alive) return
-        localAgentsRef.current = Array.isArray(list) ? list : []
-        rebuildLocal()
-      } catch { /* not fatal — the card falls back to office presence */ }
-      // On-disk office footprint (which offices are actually materialized here) —
-      // best-effort; a miss just leaves the previous set and the office stays wherever
-      // its live/tracked signals place it.
-      try {
-        const slugs = await window.api.localOfficeSlugs?.()
-        if (alive && Array.isArray(slugs)) setLocalOfficeSlugs(new Set(slugs.map((s) => s.toLowerCase())))
-      } catch { /* best-effort */ }
-      await refreshLoops()
-    }
-    void loadAll()
-    // Keep same-host discovery fresh independently of registry events, so an
-    // online-but-untracked LOCAL loop stops reading "not managed here" within one
-    // cycle instead of persisting until the next onAgentsChanged (the main-process
-    // discoverLocalLoops result is itself cached ~3s, so this stays cheap).
-    const loopTimer = window.setInterval(() => { if (alive) void refreshLoops() }, 4000)
-    // A single agent transitioned (fast, ~1s): patch it in place and rebuild.
-    const offUpdated = window.api.onAgentUpdated((s: AgentState) => {
-      if (!s?.path) return
-      const arr = localAgentsRef.current.slice()
-      const i = arr.findIndex((x) => x.path === s.path)
-      if (i >= 0) arr[i] = s
-      else arr.push(s)
-      localAgentsRef.current = arr
-      rebuildLocal()
-    })
-    // The tracked set changed (added / removed / office presence merge): full refetch.
-    const offChanged = window.api.onAgentsChanged(() => void loadAll())
-    return () => { alive = false; window.clearInterval(loopTimer); offUpdated?.(); offChanged?.() }
-  }, [rebuildLocal])
+    localAgentsRef.current = agents
+    rebuildLocal()
+  }, [agents, rebuildLocal])
 
   /** Merge the office character with its immediate local signal → the card's
    *  working verdict + activity line + working-since. */
@@ -335,9 +287,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     return s
   }, [office.agents, localByKey])
 
-  // Mirror the office tab's foreground state into the service so it pauses/resumes the
-  // shared office-list poll (it only ticks while connected AND visible).
-  useEffect(() => { officeService.setVisible(visible) }, [visible])
+  // Mirror the office tab's foreground state into the services so they pause/resume:
+  // officeService (the office-list poll, ticks while connected AND visible) and
+  // localLoopsService (the /proc + fs footprint poll, ticks while active AND visible).
+  useEffect(() => {
+    officeService.setVisible(visible)
+    localLoopsService.setVisible(visible)
+  }, [visible])
 
   // Seed the login form's Server URL / Email from the resolved connection ONCE (so a
   // known-but-not-connected session pre-fills the form). Never clobbers user typing.

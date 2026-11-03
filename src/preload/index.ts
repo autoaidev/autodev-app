@@ -266,7 +266,12 @@ const api = {
   // pulls a cold-start pending path once (on first mount); `onOpenFolder` receives
   // later (warm) deliveries while the app is already running.
   consumeOpenFolder: (): Promise<string | null> => ipcRenderer.invoke('app:consumeOpenFolder'),
-  onOpenFolder: (cb: (path: string) => void) => sub('app:openFolder', cb)
+  onOpenFolder: (cb: (path: string) => void) => sub('app:openFolder', cb),
+  // Window OS focus changes (main `focus`/`blur`). The renderer combines this with
+  // document.visibilityState to decide "active" — gating its /proc + fs pollers and
+  // pausing idle animations when the window is blurred or hidden. Returns an
+  // unsubscribe, mirroring onAgentsChanged / onAgentUpdated.
+  onWindowFocus: (cb: (focused: boolean) => void) => sub('window:focus', cb)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {

@@ -599,9 +599,45 @@ export class AgentManager extends EventEmitter {
   // so the app reflects reality instead of showing a live agent as "Stopped".
   // Linux-only (no /proc elsewhere) and cached briefly so readState stays cheap.
   private _extPidCache = new Map<string, { pid: number | null; at: number }>()
-  /** Brief cache for the same-host loop discovery scan (Part A) so the renderer's
-   *  existing office poll can call it cheaply. */
-  private _discoverCache: { at: number; loops: DiscoveredLoop[] } | null = null
+  /** ONE shared, cached /proc scan that serves BOTH the per-cwd external-pid lookup
+   *  (_externalPids → readState) AND same-host loop discovery (discoverLocalLoops →
+   *  the office view). Before this, list() triggered an independent full /proc walk
+   *  per agent (external-pid) PLUS a separate walk for discovery; now a single pass
+   *  (gated by a short cache ≥ the renderer poll) feeds both, so a 5s office poll +
+   *  a burst of agents:changed list() calls coalesce onto one scan.
+   *  `extCandidates` = every `autodev … start` process with a READABLE cwd (the
+   *  loose predicate _externalPids used); `loops` = the strict `…/autodev(.js) start
+   *  <dir>` discovery set. */
+  private _scanCache: { at: number; extCandidates: Array<{ pid: number; cwd: string; cwdReal: string }>; loops: DiscoveredLoop[] } | null = null
+  /** Shared-scan + per-path external-pid cache lifetime. Kept ≥ the renderer's
+   *  local-loops poll interval (localLoopsService POLL_MS, currently 5s) so that an
+   *  on-cadence poll does not force a fresh /proc walk every tick — the poll pauses
+   *  entirely while the window is blurred/hidden, and within an active burst these
+   *  caches coalesce repeated reads. Force-fresh callers (stop / restart takeover /
+   *  wait-for-exit / dispose) pass `fresh=true` to bypass them. */
+  private static readonly PROC_SCAN_CACHE_MS = 6000
+  private static readonly EXT_PID_CACHE_MS = 6000
+  /** comm (process name, ≤15 chars) prefixes that could run an `autodev … start`
+   *  loop — a node/provider runner or a bare launcher. Used as a CHEAP pre-filter
+   *  (a ~16-byte read) to skip reading the larger cmdline of unrelated processes.
+   *  An unreadable comm is NOT skipped (fall through to the cmdline check) so a real
+   *  loop is never dropped by the optimization. */
+  private static readonly _RUNNER_COMMS: Set<string> = (() => {
+    const s = new Set([
+      'node', 'nodejs', 'autodev', 'grok', 'claude', 'bun', 'deno', 'electron',
+      'opencode', 'copilot', 'sh', 'bash'
+    ])
+    // A loop the APP itself spawned via the Electron-as-node FALLBACK runner
+    // (nodeRunner → process.execPath + ELECTRON_RUN_AS_NODE) has comm === this
+    // executable's basename (dev: "electron"; packaged: the product binary name).
+    // discoverLocalLoops must still catch such a loop that survived a restart, so
+    // add that basename (and its kernel-truncated 15-char form) to the allow-list.
+    try {
+      const b = basename(process.execPath).toLowerCase()
+      if (b) { s.add(b); s.add(b.slice(0, 15)) }
+    } catch { /* keep the static set */ }
+    return s
+  })()
   /** uid→username map parsed ONCE from /etc/passwd (never shell out per-pid). Null
    *  until first needed; an unreadable /etc/passwd caches an empty map so we don't
    *  re-read it on every poll. */
@@ -639,12 +675,14 @@ export class AgentManager extends EventEmitter {
   private _intentionalStop = new Set<string>()
   private _disposing = false
 
-  private _externalPid(path: string): number | null {
+  private _externalPid(path: string, fresh = false): number | null {
     if (process.platform !== 'linux') return null
     const now = Date.now()
-    const cached = this._extPidCache.get(path)
-    if (cached && now - cached.at < 3000) return cached.pid
-    const found = this._externalPids(path)[0] ?? null
+    if (!fresh) {
+      const cached = this._extPidCache.get(path)
+      if (cached && now - cached.at < AgentManager.EXT_PID_CACHE_MS) return cached.pid
+    }
+    const found = this._externalPids(path, fresh)[0] ?? null
     this._extPidCache.set(path, { pid: found, at: now })
     return found
   }
@@ -655,25 +693,95 @@ export class AgentManager extends EventEmitter {
    * matches — a plain string compare there would miss the loop and make Stop a
    * silent no-op. Returns all matches so Stop can clear a duplicated loop too.
    */
-  private _externalPids(path: string): number[] {
+  private _externalPids(path: string, fresh = false): number[] {
     if (process.platform !== 'linux') return []
     let target = path
     try { target = realpathSync(path) } catch { /* use raw */ }
     const pids: number[] = []
+    // Served from the ONE shared /proc scan (cwd-matched candidates), so this no
+    // longer walks /proc itself per workspace. Membership is identical to the old
+    // inline walk: a pid is returned iff it is an `autodev … start` process whose
+    // (realpath'd) cwd matches this workspace. `fresh` forces a rescan for the
+    // stop / restart-takeover / wait-for-exit paths that must see /proc live.
+    for (const c of this._scanProc(fresh).extCandidates) {
+      if (c.cwd === path || c.cwdReal === target) pids.push(c.pid)
+    }
+    return pids
+  }
+
+  /**
+   * ONE cached pass over /proc that yields everything the two consumers need:
+   *  • extCandidates — every `autodev … start` process (loose predicate) WITH a
+   *    readable cwd, carrying its raw + realpath'd cwd, so _externalPids can match
+   *    by workspace without its own walk.
+   *  • loops — the strict `…/autodev(.js) start <dir>` discovery set (Part A), with
+   *    office identity + owner, deduped by realpath'd start-dir.
+   * A cheap `/proc/<pid>/comm` pre-filter skips the (larger) cmdline read for any
+   * process whose name can't be a loop runner — an unreadable comm falls through so
+   * a real loop is never dropped. `fresh` bypasses the cache (force-fresh callers).
+   * Linux-only; callers guard the platform before relying on the result.
+   */
+  private _scanProc(fresh = false): { at: number; extCandidates: Array<{ pid: number; cwd: string; cwdReal: string }>; loops: DiscoveredLoop[] } {
+    const now = Date.now()
+    if (!fresh && this._scanCache && now - this._scanCache.at < AgentManager.PROC_SCAN_CACHE_MS) return this._scanCache
+    const extCandidates: Array<{ pid: number; cwd: string; cwdReal: string }> = []
+    const byPath = new Map<string, DiscoveredLoop>()
+    const selfUid = typeof process.getuid === 'function' ? process.getuid() : undefined
     try {
       for (const ent of readdirSync('/proc')) {
         if (!/^\d+$/.test(ent)) continue
-        let cwd: string
-        try { cwd = readlinkSync(`/proc/${ent}/cwd`) } catch { continue }
-        let rcwd = cwd
-        try { rcwd = realpathSync(cwd) } catch { /* use raw */ }
-        if (cwd !== path && rcwd !== target) continue
-        let cmd: string
-        try { cmd = readFileSync(`/proc/${ent}/cmdline`, 'utf8').replace(/\0/g, ' ') } catch { continue }
-        if (/autodev/.test(cmd) && /\bstart\b/.test(cmd)) pids.push(parseInt(ent, 10))
+        // Cheap pre-filter: skip processes whose name can't be a loop runner BEFORE
+        // reading the larger cmdline. Unreadable comm → don't skip (stay correct).
+        try {
+          const comm = readFileSync(`/proc/${ent}/comm`, 'utf8').trim().toLowerCase()
+          if (comm && !AgentManager._RUNNER_COMMS.has(comm)) continue
+        } catch { /* unreadable comm — fall through to the cmdline check */ }
+        let raw: string
+        try { raw = readFileSync(`/proc/${ent}/cmdline`, 'utf8') } catch { continue }
+        const joined = raw.replace(/\0/g, ' ')
+        const isAutodevStart = /autodev/.test(joined) && /\bstart\b/.test(joined)
+        if (!isAutodevStart) continue
+        const pid = parseInt(ent, 10)
+        // Loose (external-pid) membership: an autodev+start process with a readable
+        // cwd. The office-presence / readState path matches these by workspace cwd.
+        let cwd: string | undefined
+        try { cwd = readlinkSync(`/proc/${ent}/cwd`) } catch { /* cross-user / gone */ }
+        if (cwd) {
+          let cwdReal = cwd
+          try { cwdReal = realpathSync(cwd) } catch { /* use raw */ }
+          extCandidates.push({ pid, cwd, cwdReal })
+        }
+        // Strict (discovery) membership: `…/autodev(.js)` IMMEDIATELY followed by
+        // `start`, then the first non-flag arg is the workspace dir.
+        const args = raw.split('\0').filter(Boolean)
+        const si = args.findIndex((a, i) => a === 'start' && i > 0 && /(?:^|[\\/])autodev(?:\.js)?$/.test(args[i - 1]))
+        if (si < 0) continue
+        let dir: string | undefined
+        for (let i = si + 1; i < args.length; i++) { if (!args[i].startsWith('-')) { dir = args[i]; break } }
+        if (!dir) continue
+        let abs = dir
+        try { abs = realpathSync(dir) } catch { /* cross-user / gone — use raw */ }
+        if (byPath.has(abs)) continue
+        const settings = this._readJson(join(dir, '.autodev', 'settings.json'))
+        const slug = this._endpointSlug(settings?.wsUrl) || settings?.agentId || basename(dir)
+        const presence = slug ? this._officeOnline.get(String(slug).toLowerCase()) : undefined
+        const ownerUid = this._procUid(ent)
+        const owner: { ownerUid?: number; ownerUser?: string; foreign?: boolean } = {}
+        if (ownerUid !== undefined) {
+          owner.ownerUid = ownerUid
+          owner.foreign = selfUid !== undefined && ownerUid !== selfUid
+          owner.ownerUser = owner.foreign ? this._uidToUser(ownerUid) : userInfo().username
+        }
+        byPath.set(abs, {
+          path: abs,
+          officeAgentSlug: slug || undefined,
+          officeAgentId: presence?.agentId,
+          ...owner
+        })
       }
-    } catch { /* /proc unreadable — treat as not running externally */ }
-    return pids
+    } catch { /* /proc unreadable — degrade to an empty scan */ }
+    this._scanCache = { at: now, extCandidates, loops: [...byPath.values()] }
+    return this._scanCache
   }
 
   /**
@@ -701,58 +809,9 @@ export class AgentManager extends EventEmitter {
    */
   discoverLocalLoops(): DiscoveredLoop[] {
     if (process.platform !== 'linux') return []
-    const now = Date.now()
-    if (this._discoverCache && now - this._discoverCache.at < 3000) return this._discoverCache.loops
-    const byPath = new Map<string, DiscoveredLoop>()
-    try {
-      for (const ent of readdirSync('/proc')) {
-        if (!/^\d+$/.test(ent)) continue
-        let raw: string
-        try { raw = readFileSync(`/proc/${ent}/cmdline`, 'utf8') } catch { continue }
-        // cmdline is NUL-delimited; keep args intact so a path with spaces survives.
-        const args = raw.split('\0').filter(Boolean)
-        // Tight signature: the autodev CLI entry (`…/bin/autodev.js`, or a bare
-        // `autodev` launcher) IMMEDIATELY followed by the `start` subcommand. This
-        // rejects an unrelated process whose path merely contains "autodev" and that
-        // also happens to take a `start` verb (e.g. a tool launched from /home/autodev).
-        const si = args.findIndex((a, i) => a === 'start' && i > 0 && /(?:^|[\\/])autodev(?:\.js)?$/.test(args[i - 1]))
-        if (si < 0) continue
-        // The workspace dir is the first non-flag arg after `start`.
-        let dir: string | undefined
-        for (let i = si + 1; i < args.length; i++) { if (!args[i].startsWith('-')) { dir = args[i]; break } }
-        if (!dir) continue
-        let abs = dir
-        try { abs = realpathSync(dir) } catch { /* cross-user / gone — use the raw path */ }
-        if (byPath.has(abs)) continue
-        // Prefer the endpoint slug from a readable settings.json wsUrl; fall back to
-        // the dir basename (== the agent slug by construction) for a cross-user loop.
-        const settings = this._readJson(join(dir, '.autodev', 'settings.json'))
-        const slug = this._endpointSlug(settings?.wsUrl) || settings?.agentId || basename(dir)
-        const presence = slug ? this._officeOnline.get(String(slug).toLowerCase()) : undefined
-        // Capture the loop process owner's uid so the renderer can split offices
-        // whose only same-host loops belong to ANOTHER Linux account into their own
-        // section. uid unreadable → leave owner fields undefined (renderer treats it
-        // as current-account, i.e. the pre-existing behavior).
-        const ownerUid = this._procUid(ent)
-        const selfUid = typeof process.getuid === 'function' ? process.getuid() : undefined
-        const owner: { ownerUid?: number; ownerUser?: string; foreign?: boolean } = {}
-        if (ownerUid !== undefined) {
-          owner.ownerUid = ownerUid
-          owner.foreign = selfUid !== undefined && ownerUid !== selfUid
-          owner.ownerUser =
-            owner.foreign ? this._uidToUser(ownerUid) : userInfo().username
-        }
-        byPath.set(abs, {
-          path: abs,
-          officeAgentSlug: slug || undefined,
-          officeAgentId: presence?.agentId,
-          ...owner
-        })
-      }
-    } catch { /* /proc unreadable — degrade to [] (renderer falls back to Part B copy) */ }
-    const loops = [...byPath.values()]
-    this._discoverCache = { at: now, loops }
-    return loops
+    // Served from the ONE shared /proc scan (same cache the external-pid lookup
+    // uses) so the office poll never triggers a dedicated second walk.
+    return this._scanProc().loops
   }
 
   /**
@@ -1258,11 +1317,11 @@ export class AgentManager extends EventEmitter {
     // the lingering loop dead and wait for it to leave /proc before re-scanning, so
     // the restart reliably takes over as our own child. (A pid we did NOT just stop
     // is a genuine live external loop — leave the 'alreadyRunning' guard intact.)
-    if (this._externalPid(path) !== null && this._recentlyStopped(path)) {
+    if (this._externalPid(path, true) !== null && this._recentlyStopped(path)) {
       await this._killExternalAndWait(path)
     }
     this._extPidCache.delete(path)
-    if (this._externalPid(path) !== null) return { ok: true, alreadyRunning: true }
+    if (this._externalPid(path, true) !== null) return { ok: true, alreadyRunning: true }
     this._extStopping.delete(path)
     const cliJs = resolveCliJs()
     if (!cliJs) return { error: 'autodev CLI not found. Set AUTODEV_CLI_JS or place autodev-cli beside the app.' }
@@ -1472,7 +1531,7 @@ export class AgentManager extends EventEmitter {
     // No child of ours — stop every externally-started loop for this workspace
     // (there can be more than one after a messy restart) by pid: SIGINT for a
     // graceful provider shutdown, SIGKILL (loop + descendants) as a fallback.
-    const pids = this._externalPids(path)
+    const pids = this._externalPids(path, true)
     this._extPidCache.delete(path)
     // Mark the path so an immediately-following start() (a restart) knows this
     // external loop is being torn down and force-kills any lingering pid instead
@@ -1568,13 +1627,13 @@ export class AgentManager extends EventEmitter {
    * _externalPid cache on each check so it sees the process actually leave.
    */
   private async _killExternalAndWait(path: string): Promise<void> {
-    for (const pid of this._externalPids(path)) {
+    for (const pid of this._externalPids(path, true)) {
       try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
     }
     const deadline = Date.now() + 3000
     while (Date.now() < deadline) {
       this._extPidCache.delete(path)
-      if (this._externalPids(path).length === 0) return
+      if (this._externalPids(path, true).length === 0) return
       await new Promise((r) => setTimeout(r, 50))
     }
     this._extPidCache.delete(path)
@@ -2012,7 +2071,7 @@ export class AgentManager extends EventEmitter {
     // loop shut its provider down gracefully; it runs independently of our exit.
     for (const p of this._paths) {
       if (this._procs.has(p)) continue
-      for (const pid of this._externalPids(p)) {
+      for (const pid of this._externalPids(p, true)) {
         try { process.kill(pid, 'SIGINT') } catch { /* ignore */ }
       }
     }

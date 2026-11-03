@@ -627,6 +627,24 @@
 }
 
 /*
+ * IDLE PAUSE — when the app window is blurred or hidden, <html> gets `.app-blurred`
+ * (set by services/windowFocus.ts). Software-GPU compositing of these INFINITE
+ * animations is pure CPU on a VNC box, and an unfocused window gains nothing from
+ * them, so PAUSE them (never remove) while nobody is looking — they resume the
+ * instant focus/visibility returns. Covers the state-motion classes defined here
+ * AND the legacy pulse/blink (styles.css) + typing dots (sessions.css), since CSS
+ * is one global sheet. prefers-reduced-motion below still fully disables them.
+ */
+:root.app-blurred .ad-live-dot,
+:root.app-blurred .ad-thinking > i,
+:root.app-blurred .ad-caret,
+:root.app-blurred .dot.working,
+:root.app-blurred .dot.stalled,
+:root.app-blurred .sv-typing i {
+  animation-play-state: paused !important;
+}
+
+/*
  * REDUCED-MOTION GUARD — one place that silences ALL app motion (the new
  * state motions AND the legacy blink/pulse in styles.css / sessions.css) for
  * users who ask the OS to reduce motion. Live states then read by colour/shape
