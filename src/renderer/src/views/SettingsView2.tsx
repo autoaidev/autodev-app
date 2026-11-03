@@ -259,6 +259,15 @@ export function SettingsView2(): JSX.Element {
 
   // --- REAL app version (app:version) for the footer + About ------------------
   const [appVer, setAppVer] = useState<string>('')
+  const [checkingUpd, setCheckingUpd] = useState(false)
+  // Manual update check. The main process surfaces the actual result (up to date /
+  // downloading / ready to install) as a native dialog; here we only show a short
+  // "Checking…" state on the button so the click has immediate feedback.
+  const onCheckUpdates = useCallback(async () => {
+    setCheckingUpd(true)
+    try { await window.api.checkForUpdates?.() } catch { /* dialog/logs surface it */ }
+    window.setTimeout(() => setCheckingUpd(false), 2500)
+  }, [])
 
   // --- Per-account provider key usage (office:keyUsage; fails soft to []) ------
   // null = still loading; [] = none available (not connected / no readable keys).
@@ -750,6 +759,15 @@ export function SettingsView2(): JSX.Element {
         <div style={S.navFooter}>
           <div>AutoDev desktop{appVer ? ` v${appVer}` : ''}</div>
           {cli && <div>{cli.found ? 'AutoDev CLI ready' : 'AutoDev CLI not installed'}</div>}
+          <button
+            type="button"
+            style={{ ...S.updateBtn, opacity: checkingUpd ? 0.6 : 1, cursor: checkingUpd ? 'default' : 'pointer' }}
+            onClick={onCheckUpdates}
+            disabled={checkingUpd}
+            title="Check for a newer version of AutoDev"
+          >
+            {checkingUpd ? 'Checking…' : '↻ Check for updates'}
+          </button>
         </div>
       </nav>
 
@@ -2098,6 +2116,18 @@ const S: Record<string, React.CSSProperties> = {
     lineHeight: 1.6,
     color: 'var(--tx-ghost)',
     padding: '14px 8px 0'
+  },
+  updateBtn: {
+    marginTop: 8,
+    padding: '5px 9px',
+    fontFamily: 'inherit',
+    fontSize: 11,
+    color: 'var(--tx-2)',
+    background: 'var(--bg-input)',
+    border: '1px solid var(--bd-field)',
+    borderRadius: 'var(--r-button)',
+    width: '100%',
+    textAlign: 'center'
   },
   content: {
     flex: 1,

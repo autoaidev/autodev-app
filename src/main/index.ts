@@ -401,6 +401,10 @@ ptys.on('exit', (d) => {
 // --- IPC -------------------------------------------------------------------
 // The installed app version (electron-builder stamps package.json → app.getVersion()).
 ipcMain.handle('app:version', () => app.getVersion())
+// Manual "Check for updates" (Settings button). Reuses the same path as the tray
+// menu item; electron-updater's own events surface the result (up-to-date /
+// available / downloaded) as native dialogs.
+ipcMain.handle('update:check', () => { checkForUpdatesManually() })
 ipcMain.handle('agents:list', () => manager.list())
 // Same-host loops NOT in the registry (Part A): lets the renderer mark a locally-
 // running office loop this app didn't spawn as LOCAL, not "on another PC".

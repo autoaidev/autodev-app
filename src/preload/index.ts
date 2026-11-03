@@ -77,6 +77,9 @@ export interface DefaultMcpEntry {
 const api = {
   // The installed app version string, e.g. '0.3.1'.
   appVersion: (): Promise<string> => ipcRenderer.invoke('app:version'),
+  // Trigger a manual update check (Settings → "Check for updates"). Result is
+  // surfaced by the main process as a native dialog.
+  checkForUpdates: (): Promise<void> => ipcRenderer.invoke('update:check'),
   listAgents: () => ipcRenderer.invoke('agents:list'),
   // Same-host autodev loops NOT in the registry (Part A of the "on another PC"
   // fix) — each carries { path, officeAgentSlug?, officeAgentId? } so the office
