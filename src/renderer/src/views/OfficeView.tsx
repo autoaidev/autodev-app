@@ -205,6 +205,12 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
   // as local/same-host (the Map's `.has` drives the same "is this character local?"
   // verdict as the old Set did) — the tag is purely for DISPLAY grouping.
   const [localLoopOwners, setLocalLoopOwners] = useState<Map<string, LocalLoopOwner>>(new Map())
+  // Office slugs (lower-cased) with an on-disk workspace under ~/.autodev-app/offices
+  // on THIS machine — the "genuinely materialized here" signal. Offices are
+  // account-wide, so without this an OFFLINE account office with no local footprint
+  // would still be filed under "On this machine". Refreshed with the agent registry
+  // (spawn/remove of an office both emit onAgentsChanged → loadAll).
+  const [localOfficeSlugs, setLocalOfficeSlugs] = useState<Set<string>>(new Set())
   const rebuildLocal = useCallback(() => {
     const now = Date.now()
     const next = new Map<string, { activity: string; text?: string; since?: number; lastActivity?: number; authMessage?: string; authProvider?: string; path?: string }>()
@@ -275,6 +281,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         localAgentsRef.current = Array.isArray(list) ? list : []
         rebuildLocal()
       } catch { /* not fatal — the card falls back to office presence */ }
+      // On-disk office footprint (which offices are actually materialized here) —
+      // best-effort; a miss just leaves the previous set and the office stays wherever
+      // its live/tracked signals place it.
+      try {
+        const slugs = await window.api.localOfficeSlugs?.()
+        if (alive && Array.isArray(slugs)) setLocalOfficeSlugs(new Set(slugs.map((s) => s.toLowerCase())))
+      } catch { /* best-effort */ }
       await refreshLoops()
     }
     void loadAll()
@@ -563,6 +576,7 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     const local: OfficeGroup[] = []
     const foreignByUser = new Map<string, OfficeGroup[]>()
     const elsewhere: OfficeGroup[] = []
+    const otherOffices: OfficeGroup[] = []
     for (const g of sortedOffices) {
       const loc = classifyOfficeLocality(g, isTrackedLocal, loopOwnerFor)
       if (loc.kind === 'current') local.push(g)
@@ -571,8 +585,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
         arr.push(g)
         foreignByUser.set(loc.user, arr)
       } else if (g.onlineCount > 0) elsewhere.push(g)
-      // Offline + not foreign → your own office → "On this machine".
-      else local.push(g)
+      // Offline + not foreign: "On this machine" ONLY when it actually has a local
+      // footprint here (an on-disk ~/.autodev-app/offices/<slug> this app spawned or
+      // operated). Offices are account-wide, so an offline office with no local dir is
+      // NOT here — it's merely spawnable here — and goes under "Your other offices"
+      // instead of inflating "On this machine" with the whole account.
+      else if (localOfficeSlugs.has(g.slug.toLowerCase())) local.push(g)
+      else otherOffices.push(g)
     }
 
     const foreignUsers = [...foreignByUser.keys()].sort((a, b) => a.localeCompare(b))
@@ -587,9 +606,13 @@ export function OfficeView({ visible = true }: { visible?: boolean } = {}): Reac
     return [
       { key: 'local', label: 'On this machine', offices: local },
       ...foreignSections,
-      { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere }
+      { key: 'elsewhere', label: 'Running elsewhere', offices: elsewhere },
+      // Account offices with no footprint on this machine (offline, never spawned
+      // here). Still spawnable — Spawn materializes the workspace — just not claimed
+      // as already-present. Keeps "On this machine" honest.
+      { key: 'other', label: 'Your other offices', offices: otherOffices }
     ]
-  }, [sortedOffices, localByKey, localLoopOwners])
+  }, [sortedOffices, localByKey, localLoopOwners, localOfficeSlugs])
 
   // An auth error hit by an explicit action (operate/spawn/stop). Route it through the
   // service's list refresh so the SAME keep-alive-aware guard applies: an immediate

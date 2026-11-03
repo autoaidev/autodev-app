@@ -326,6 +326,9 @@ ipcMain.handle('agents:list', () => manager.list())
 // Same-host loops NOT in the registry (Part A): lets the renderer mark a locally-
 // running office loop this app didn't spawn as LOCAL, not "on another PC".
 ipcMain.handle('agents:discoverLocal', () => manager.discoverLocalLoops())
+// Office slugs with an on-disk workspace under ~/.autodev-app/offices — lets the
+// office rail keep "On this machine" to offices actually materialized here.
+ipcMain.handle('agents:localOfficeSlugs', () => manager.listLocalOfficeSlugs())
 ipcMain.handle('agents:add', (_e, path: string) => manager.add(path))
 ipcMain.handle('workspace:info', (_e, path: string) => manager.workspaceInfo(path))
 ipcMain.handle('agents:remove', (_e, path: string) => { manager.remove(path); return true })

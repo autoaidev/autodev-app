@@ -345,6 +345,30 @@ export class AgentManager extends EventEmitter {
    *  office character's scratch dir lives under here. */
   private _officesRoot(): string { return join(homedir(), '.autodev-app', 'offices') }
 
+  /**
+   * Office slugs that have a LOCAL workspace dir on THIS machine
+   * (`~/.autodev-app/offices/<slug>`) — i.e. an office this app has already spawned
+   * or operated here, so it has a genuine on-disk footprint. The office rail uses
+   * this to keep "On this machine" truthful: offices are account-wide, so an OFFLINE
+   * account office with no local dir (and no live/tracked loop) is NOT actually here
+   * — it's merely spawnable here — and belongs in a separate rail section, not under
+   * "On this machine". Only non-empty slug dirs count (a bare dir with no agent
+   * scratch inside is treated as absent). Best-effort: [] when the root is missing or
+   * unreadable, and non-Linux hosts that never spawn locally simply get [].
+   */
+  listLocalOfficeSlugs(): string[] {
+    const root = this._officesRoot()
+    try {
+      if (!existsSync(root)) return []
+      return readdirSync(root, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .filter((name) => {
+          try { return readdirSync(join(root, name)).length > 0 } catch { return false }
+        })
+    } catch { return [] }
+  }
+
   /** True when `path` is currently tracked as a locally-operated office character. */
   isOperating(path: string): boolean { return this._operating.has(path) }
 

@@ -93,6 +93,11 @@ const api = {
       foreign?: boolean
     }>
   > => ipcRenderer.invoke('agents:discoverLocal'),
+  // Office slugs that have a local workspace dir on THIS machine
+  // (~/.autodev-app/offices/<slug>). Lets the office rail show only genuinely-present
+  // offices under "On this machine" rather than every account-wide office. [] when
+  // none / non-Linux / unreadable.
+  localOfficeSlugs: (): Promise<string[]> => ipcRenderer.invoke('agents:localOfficeSlugs'),
   addAgent: (path: string) => ipcRenderer.invoke('agents:add', path),
   workspaceInfo: (path: string) => ipcRenderer.invoke('workspace:info', path),
   removeAgent: (path: string) => ipcRenderer.invoke('agents:remove', path),
