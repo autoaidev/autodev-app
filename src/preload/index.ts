@@ -271,7 +271,11 @@ const api = {
   // document.visibilityState to decide "active" — gating its /proc + fs pollers and
   // pausing idle animations when the window is blurred or hidden. Returns an
   // unsubscribe, mirroring onAgentsChanged / onAgentUpdated.
-  onWindowFocus: (cb: (focused: boolean) => void) => sub('window:focus', cb)
+  onWindowFocus: (cb: (focused: boolean) => void) => sub('window:focus', cb),
+  // System-idle changes (main `powerMonitor`). True once nobody has touched the
+  // machine for a while — the renderer folds it into "active" so an unattended but
+  // still-focused VNC window pauses its animations/pollers. Resets on first input.
+  onWindowIdle: (cb: (idle: boolean) => void) => sub('window:idle', cb)
 }
 
 function sub(channel: string, cb: (...a: any[]) => void): () => void {

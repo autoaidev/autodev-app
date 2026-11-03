@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, dialog, Tray, Menu, Notification, nativeImage, powerMonitor } from 'electron'
 import { join, sep } from 'path'
 import { AgentManager } from './agentManager'
 import { SessionManager } from './sessionManager'
@@ -46,6 +46,16 @@ let rendererReady = false
 // (no one is looking, so sub-10s presence freshness buys nothing). Starts true —
 // the window is shown+focused on launch — and the focus/blur handlers keep it true.
 let windowFocused = true
+// Real "is anyone actually here?" signal, derived from powerMonitor system idle
+// time. On a headless VNC box the AutoDev window is the single focused+visible
+// window on the virtual desktop forever, so `windowFocused`/backgroundThrottling
+// NEVER fire and the renderer keeps compositing its infinite animations under
+// software WebGL (40–80% CPU/instance). System idle is the honest signal: it
+// climbs while nobody touches the box and resets the instant someone moves the
+// mouse over VNC. We fold it into the renderer's `active` verdict (→ app-blurred →
+// animations paused, pollers slowed) and into the office-poll cadence. Starts
+// false (assume present at launch); the watcher corrects within one tick.
+let windowIdle = false
 const manager = new AgentManager()
 const sessions = new SessionManager()
 const ptys = new PtyManager()
@@ -233,7 +243,9 @@ async function refreshOfficePresence(): Promise<void> {
 function scheduleOfficePoll(): void {
   if (!_officePollingStarted) return
   if (_officePoll) { clearTimeout(_officePoll); _officePoll = null }
-  const delay = windowFocused ? OFFICE_POLL_FOCUSED_MS : OFFICE_POLL_BLURRED_MS
+  // Fast only when the window is focused AND someone is actually at the machine;
+  // an unattended-but-focused VNC box gains nothing from 8s presence freshness.
+  const delay = windowFocused && !windowIdle ? OFFICE_POLL_FOCUSED_MS : OFFICE_POLL_BLURRED_MS
   _officePoll = setTimeout(() => { void refreshOfficePresence().finally(scheduleOfficePoll) }, delay)
 }
 function startOfficePolling(): void {
@@ -241,6 +253,35 @@ function startOfficePolling(): void {
   _officePollingStarted = true
   void refreshOfficePresence()
   scheduleOfficePoll()
+}
+
+// --- system-idle watch (the real "is anyone here?" signal) -----------------
+// Poll powerMonitor.getSystemIdleTime() (seconds since the last input, system
+// wide) and flip `windowIdle` once nobody has touched the machine for a while.
+// On flip we broadcast `window:idle` so the renderer can pause its animations +
+// slow its pollers even though the window never loses focus on a VNC desktop,
+// and we re-arm the office poll at the matching cadence. 6s cadence keeps the
+// resume latency low (animations come back within ~6s of the first mouse move)
+// while the poll itself is negligible. getSystemIdleTime returns 0 where it is
+// unsupported (no XScreenSaver) — idle then never trips and we simply keep the
+// pre-existing behaviour, so this is a pure win with no regression.
+const IDLE_THRESHOLD_S = 45
+const IDLE_POLL_MS = 6000
+let _idleWatch: NodeJS.Timeout | null = null
+function startIdleWatch(): void {
+  if (_idleWatch) return
+  const tick = (): void => {
+    let idle = false
+    try { idle = powerMonitor.getSystemIdleTime() >= IDLE_THRESHOLD_S } catch { idle = false }
+    if (idle !== windowIdle) {
+      windowIdle = idle
+      broadcast('window:idle', idle)
+      if (!idle) void refreshOfficePresence() // someone's back — refresh now
+      scheduleOfficePoll()
+    }
+  }
+  _idleWatch = setInterval(tick, IDLE_POLL_MS)
+  tick()
 }
 manager.on('agentUpdated', (s) => broadcast('agent:updated', s))
 manager.on('changed', () => broadcast('agents:changed', null))
@@ -753,6 +794,9 @@ app.whenReady().then(() => {
   // Re-verify the stored office token, then start polling office presence so the
   // Agents list reflects which characters are live in the office from launch.
   office.autoConnect().catch(() => false).finally(() => startOfficePolling())
+  // Start the system-idle watch regardless of office connection — it governs
+  // animation/compositing cost, which is the dominant idle load on a VNC box.
+  startIdleWatch()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
 

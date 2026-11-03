@@ -21,7 +21,10 @@
  */
 import { useSyncExternalStore } from 'react'
 
-type FocusApi = { onWindowFocus?: (cb: (focused: boolean) => void) => (() => void) }
+type FocusApi = {
+  onWindowFocus?: (cb: (focused: boolean) => void) => (() => void)
+  onWindowIdle?: (cb: (idle: boolean) => void) => (() => void)
+}
 const api = (): FocusApi => ((window as unknown as { api?: FocusApi }).api ?? {})
 
 const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined'
@@ -30,13 +33,19 @@ const hasDom = typeof window !== 'undefined' && typeof document !== 'undefined'
 // arrive until the user interacts). document.hasFocus() reflects renderer focus.
 let focused = hasDom ? document.hasFocus() : true
 let docVisible = hasDom ? document.visibilityState !== 'hidden' : true
-let active = focused && docVisible
+// `systemIdle` — nobody has touched the machine for a while (main powerMonitor).
+// On a headless VNC box the window is focused+visible forever, so without this
+// the app would NEVER pause; idle is the signal that actually trips there. It is
+// ANDed into `active`: the app is "active" only when focused, visible AND someone
+// is present. Resets to false the instant input resumes (window:idle false).
+let systemIdle = false
+let active = focused && docVisible && !systemIdle
 
 const listeners = new Set<() => void>()
 
 /** Reflect the active state onto <html> (CSS idle-animation pause) + wake subs. */
 function recompute(): void {
-  const next = focused && docVisible
+  const next = focused && docVisible && !systemIdle
   if (next === active) return
   active = next
   if (hasDom) {
@@ -48,6 +57,9 @@ function recompute(): void {
 if (hasDom) {
   // Primary: the main process's authoritative BrowserWindow focus/blur.
   try { api().onWindowFocus?.((f) => { focused = f; recompute() }) } catch { /* no bridge (tests) */ }
+  // System idle (powerMonitor) — the real presence signal on an always-focused VNC
+  // window. Pauses animations/pollers after IDLE_THRESHOLD_S of no input anywhere.
+  try { api().onWindowIdle?.((idle) => { systemIdle = idle; recompute() }) } catch { /* no bridge (tests) */ }
   // Backup: the renderer's own window focus/blur (fires on webContents focus too).
   window.addEventListener('focus', () => { focused = true; recompute() })
   window.addEventListener('blur', () => { focused = false; recompute() })
