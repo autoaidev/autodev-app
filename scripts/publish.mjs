@@ -10,10 +10,19 @@
 // of it from one fresh build, so the pins can never lag the artifact.
 //
 // Usage:
-//   node scripts/publish.mjs              # build, then stage + re-pin
+//   node scripts/publish.mjs              # build Linux + Windows, then stage + re-pin
 //   node scripts/publish.mjs --skip-build # stage + re-pin from the existing dist/
+//   node scripts/publish.mjs --skip-win   # Linux-only build (explicit; see WINDOWS note)
 //   node scripts/publish.mjs --distribute # also push to PROD + the autoaidev mirror
 //   AUTODEV_DOWNLOAD_DIR=/path node scripts/publish.mjs   # override download dir
+//
+// WINDOWS: `npm run dist` builds Linux only (electron-builder defaults to the host
+// platform). The Windows target is a separate docker/wine cross-build
+// (scripts/build-win.sh). This used to be a MANUAL extra step, and forgetting it
+// silently shipped Linux-only releases — so the Windows alias drifted versions
+// behind (0.3.118 while Linux was 0.3.120). We now build Windows on EVERY release
+// by default; a Linux-only release must be opted into explicitly with --skip-win.
+// Requires docker + the electronuserland/builder:wine image on the build host.
 //
 // It does NOT git-commit or `npm publish` — it prints exactly what to run next, so
 // a human stays in the loop for the two irreversible steps.
@@ -32,6 +41,7 @@ const KEEP_RELEASES = 2;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const skipBuild = process.argv.includes('--skip-build');
+const skipWin = process.argv.includes('--skip-win');
 const runDistribute = process.argv.includes('--distribute');
 
 const say = (m) => process.stdout.write(`${m}\n`);
@@ -78,8 +88,19 @@ function findDist(suffix) {
 if (skipBuild) {
   say('• skipping build (--skip-build); staging the existing dist/');
 } else {
-  say('• building (npm run dist)…');
+  say('• building Linux (npm run dist)…');
   execFileSync('npm', ['run', 'dist'], { cwd: ROOT, stdio: 'inherit' });
+  // ALWAYS build Windows too (unless explicitly opted out). npm run dist above
+  // already produced out/, so build-win.sh just runs electron-builder --win in
+  // the docker/wine image against it — no redundant rebuild. A failure here
+  // ABORTS the release rather than silently shipping Linux-only (the exact drift
+  // this guards against); use --skip-win to make a Linux-only release deliberate.
+  if (skipWin) {
+    say('• --skip-win: SKIPPING the Windows build — this will be a Linux-only release');
+  } else {
+    say('• building Windows (scripts/build-win.sh — docker/wine cross-build)…');
+    execFileSync('bash', ['scripts/build-win.sh'], { cwd: ROOT, stdio: 'inherit' });
+  }
 }
 
 // ── 2. Stage artifacts under the download dir (built name == served name) ─────
