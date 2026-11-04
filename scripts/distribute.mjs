@@ -64,6 +64,66 @@ const MIRROR_URL = process.env.AUTODEV_MIRROR_URL || 'https://autoaidev.com/rele
 // The three auto-update feeds that travel with the artifacts.
 const YML_FEEDS = ['latest-linux.yml', 'latest.yml', 'latest-mac.yml'];
 
+// Stable download-button aliases: versioned-glob → alias name. The self-host
+// pages (pixeloffice.org + autoaidev.com) link to these STABLE names so the
+// markup never changes per release. The autoaidev MIRROR gets them via its
+// remote refresh-latest-aliases.sh; PROD (app.pixeloffice.org/download) had no
+// such step, so its /download/AutoAIDev-desktop-latest.* 404'd and the buttons
+// were dead. refreshAliases() below reconciles them locally on PROD, matching
+// autoaidev.com/scripts/refresh-latest-aliases.sh exactly (same names, cp-copy
+// so each alias is a standalone file the versioned-prune never touches — the
+// prune regex only matches AutoDev-<ver>-).
+const ALIAS_MAP = [
+  ['x86_64.AppImage',  'AutoAIDev-desktop-latest.AppImage'],
+  ['amd64.deb',        'AutoAIDev-desktop-latest.deb'],
+  ['setup.exe',        'AutoAIDev-desktop-latest-setup.exe'],
+  ['portable.exe',     'AutoAIDev-desktop-latest-portable.exe'],
+  ['arm64-mac.zip',    'AutoAIDev-desktop-latest-arm64-mac.zip'],
+  ['x64-mac.zip',      'AutoAIDev-desktop-latest-x64-mac.zip'],
+];
+
+// Highest-semver versioned file ending in `suffix` (e.g. 'x86_64.AppImage'),
+// among `AutoDev-<ver>-*` files. Returns null when none match.
+function newestVersioned(files, suffix) {
+  const re = new RegExp(`^AutoDev-(\\d+)\\.(\\d+)\\.(\\d+)-.*${suffix.replace(/[.]/g, '\\$&')}$`);
+  let best = null, bestV = [-1, -1, -1];
+  for (const f of files) {
+    const m = re.exec(f);
+    if (!m) continue;
+    const v = [+m[1], +m[2], +m[3]];
+    if (v[0] > bestV[0] || (v[0] === bestV[0] && (v[1] > bestV[1] || (v[1] === bestV[1] && v[2] > bestV[2])))) {
+      best = f; bestV = v;
+    }
+  }
+  return best;
+}
+
+// Reconcile the stable aliases in a local /download dir against its newest
+// versioned artifacts. Idempotent: copies only when the alias is missing or a
+// different size than its source; leaves an alias untouched when no versioned
+// source of that type is present (so a Linux-only release never clobbers an
+// existing Windows/mac alias). Mirrors refresh-latest-aliases.sh.
+function refreshAliases(dir) {
+  say(`\n• refreshing stable download-button aliases in ${dir}`);
+  const files = fs.readdirSync(dir);
+  for (const [suffix, alias] of ALIAS_MAP) {
+    const newest = newestVersioned(files, suffix);
+    const dst = path.join(dir, alias);
+    if (!newest) {
+      say(`  (skip) no versioned *${suffix} — leaving ${alias} ${fs.existsSync(dst) ? 'as-is' : 'absent'}`);
+      continue;
+    }
+    const src = path.join(dir, newest);
+    if (fs.existsSync(dst) && fs.statSync(dst).size === fs.statSync(src).size) {
+      say(`  current  ${alias}  ==  ${newest}`);
+      continue;
+    }
+    fs.copyFileSync(src, dst);
+    if (alias.endsWith('.AppImage')) fs.chmodSync(dst, 0o755);
+    say(`  updated  ${alias}  <-  ${newest}`);
+  }
+}
+
 const appPkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const VERSION = appPkg.version;
 const APPIMAGE = `AutoDev-${VERSION}-x86_64.AppImage`; // canonical name, HEAD-checked
@@ -126,6 +186,9 @@ function distributeProd(files) {
   execFileSync('rsync', ['-a', '--itemize-changes', ...files, `${PROD_DOWNLOAD_DIR}/`], { stdio: 'inherit' });
   say(`• pruning PROD (keep newest ${KEEP_RELEASES}, mac zips preserved)`);
   pruneDownloads(PROD_DOWNLOAD_DIR, KEEP_RELEASES, say, { preserveMacZips: true });
+  // Reconcile the stable AutoAIDev-desktop-latest.* aliases so the self-host
+  // download buttons resolve on app.pixeloffice.org/download (not just the mirror).
+  refreshAliases(PROD_DOWNLOAD_DIR);
 }
 
 // ── 2. autoaidev mirror (SSH) ─────────────────────────────────────────────────
@@ -195,6 +258,15 @@ function verify() {
 
   const prodHead = curlStatus(`${PROD_URL}/${APPIMAGE}`);
   checks.push([`prod   ${APPIMAGE} → HTTP ${prodHead}`, prodHead === '200']);
+
+  // Stable aliases the self-host download buttons actually link to. The Linux
+  // pair always exists for a Linux release; the Windows/mac aliases are only
+  // asserted when a build of that type exists in PROD (else the alias is a
+  // carried-over copy or legitimately absent — don't fail the release on it).
+  for (const alias of ['AutoAIDev-desktop-latest.AppImage', 'AutoAIDev-desktop-latest.deb']) {
+    const h = curlStatus(`${PROD_URL}/${alias}`);
+    checks.push([`prod   ${alias} → HTTP ${h}`, h === '200']);
+  }
 
   const mirrorHead = curlStatus(`${MIRROR_URL}/${APPIMAGE}`);
   checks.push([`mirror ${APPIMAGE} → HTTP ${mirrorHead}`, mirrorHead === '200']);
