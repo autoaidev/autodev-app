@@ -65,6 +65,7 @@ import {
   keyOf,
   groupOf
 } from '../components/sessions/types'
+import { isWindowActive } from './windowFocus'
 
 // Re-exported so the migrated view imports its vocabulary from one place.
 export type { SessionMeta, SessionMsg, ProviderFilter, GroupId }
@@ -156,7 +157,7 @@ function retainActivePoll(): void {
   activeCount += 1
   if (activeCount === 1) {
     void discover() // immediate refresh on (re)activation
-    if (!pollTimer) pollTimer = setInterval(() => void discover(), 5000)
+    if (!pollTimer) pollTimer = setInterval(() => { if (isWindowActive()) void discover() }, 5000)
   }
 }
 

@@ -1,5 +1,6 @@
 import React from 'react'
 import type { AgentState } from '@renderer/services/model'
+import { isWindowActive } from '@renderer/services/windowFocus'
 
 /**
  * useAgentTasks — the ONE reconciled task truth for an agent, shared by the
@@ -87,7 +88,11 @@ export function useAgentTasks(agent?: Pick<AgentState, 'path' | 'running' | 'tas
     fetchNow()
     // While the agent is actively working, TODO.md changes without any store-summary
     // delta (an item flips ~→x); poll so the checklist tracks it live.
-    const iv = running ? setInterval(fetchNow, REFRESH_MS) : null
+    // Gate the 4s refresh (which spawns a fresh `status` CLI process in main) on
+    // isWindowActive() so an open detail view for a running agent on an idle VNC
+    // box stops spawning a process every 4s; pushed agent:updated carries the task
+    // summary between refreshes, and re-activation triggers the next tick.
+    const iv = running ? setInterval(() => { if (isWindowActive()) fetchNow() }, REFRESH_MS) : null
     return () => {
       live = false
       if (iv) clearInterval(iv)

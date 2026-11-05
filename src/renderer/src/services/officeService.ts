@@ -82,6 +82,7 @@ import {
   type RawOfficeAgent
 } from '../components/office/officeTypes'
 import * as termRegistry from './termRegistry'
+import { isWindowActive } from './windowFocus'
 
 /* ------------------------------------------------------------------ config -- */
 
@@ -507,7 +508,9 @@ function startLoop(): void {
   started = true
   void ensureResolved()
   pollTimer = setInterval(() => {
-    if (state.connected && visible) void poll()
+    // isWindowActive() folds in the powerMonitor idle signal — on a headless VNC
+    // box `visible` is true forever, so this is what actually pauses the poll.
+    if (state.connected && visible && isWindowActive()) void poll()
   }, POLL_MS)
   if (typeof window !== 'undefined') window.addEventListener('focus', onFocus)
 }
@@ -859,7 +862,7 @@ async function pollEntry(e: MsgEntry, initial: boolean): Promise<void> {
 
 function ensurePolling(e: MsgEntry): void {
   if (e.activeCount > 0 && !e.timer) {
-    e.timer = setInterval(() => void pollEntry(e, false), MSG_POLL_MS)
+    e.timer = setInterval(() => { if (isWindowActive()) void pollEntry(e, false) }, MSG_POLL_MS)
   } else if (e.activeCount === 0 && e.timer) {
     clearInterval(e.timer)
     e.timer = null

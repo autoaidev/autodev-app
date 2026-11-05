@@ -43,6 +43,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { needsUserAttention, agentEqual, type AgentState } from './model'
+import { isWindowActive, subscribeWindowActive } from './windowFocus'
 
 /* ------------------------------------------------------------------ config -- */
 
@@ -86,6 +87,7 @@ const elapsedListeners = new Set<() => void>()
 let refCount = 0
 let unsubChanged: (() => void) | null = null
 let unsubUpdated: (() => void) | null = null
+let unsubActive: (() => void) | null = null
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let clockTimer: ReturnType<typeof setInterval> | null = null
 let stopTimer: ReturnType<typeof setTimeout> | null = null
@@ -218,9 +220,14 @@ function applyUpdate(s: AgentState): void {
 // still keep state fresh the moment they arrive. Pausing the fixed-cadence timers
 // while hidden stops several polls stacking in the background during a demo.
 function startTimers(): void {
-  if (pollTimer == null) pollTimer = setInterval(() => void reload(), POLL_MS)
+  // Guard every tick on isWindowActive() (focus AND visible AND not systemIdle):
+  // on a headless VNC box the doc is "visible" forever, so without the idle fold
+  // this 5s poll (per-agent file read + /proc) would run full-cadence while nobody
+  // is present. Pushed onAgentUpdated events keep state fresh meanwhile.
+  if (pollTimer == null) pollTimer = setInterval(() => { if (isWindowActive()) void reload() }, POLL_MS)
   if (clockTimer == null)
     clockTimer = setInterval(() => {
+      if (!isWindowActive()) return // no elapsed-clock re-renders while idle/hidden
       nowTs = Date.now()
       notifyElapsed()
     }, CLOCK_MS)
@@ -247,11 +254,18 @@ function startLoop(): void {
   if (started_) return
   started_ = true
   void reload() // ONE seed
-  unsubChanged = api().onAgentsChanged(() => void reload())
+  unsubChanged = api().onAgentsChanged(() => { if (isWindowActive()) void reload() })
   unsubUpdated = api().onAgentUpdated((s) => applyUpdate(s))
   document.addEventListener('visibilitychange', onVisibility)
-  // Only run the fixed-cadence timers while the window is actually visible.
-  if (document.visibilityState !== 'hidden') startTimers()
+  // visibilitychange never fires on a headless VNC box's idle→active transition
+  // (the doc stays "visible"), so also subscribe to the folded focus+visible+idle
+  // signal: stop the timers when nobody's present, and refresh the instant they return.
+  unsubActive = subscribeWindowActive(() => {
+    if (!started_) return
+    if (isWindowActive()) { void reload(); startTimers() } else { stopTimers() }
+  })
+  // Only run the fixed-cadence timers while the window is actually active.
+  if (isWindowActive()) startTimers()
 }
 
 function stopLoop(): void {
@@ -261,6 +275,8 @@ function stopLoop(): void {
   unsubUpdated?.()
   unsubChanged = null
   unsubUpdated = null
+  unsubActive?.()
+  unsubActive = null
   document.removeEventListener('visibilitychange', onVisibility)
   stopTimers()
 }
