@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { AppShell, ContextMenu, Modal, Button } from '@renderer/ui'
 import { FleetHeader } from '@renderer/components/fleet/FleetHeader'
+import { isWindowActive } from '@renderer/services/windowFocus'
 import {
   NeedsYouTile,
   ThroughputTile,
@@ -91,6 +92,7 @@ export function FleetView({ visible = true }: { visible?: boolean } = {}): React
   useEffect(() => {
     if (!visible) return
     const id = window.setInterval(() => {
+      if (!isWindowActive()) return // don't sample/re-render every 5s while idle
       const closed = getAgents().reduce((s, a) => s + (a.tasks?.done ?? 0), 0)
       setBars((prev) => [...prev.slice(1), closed])
     }, 5000)

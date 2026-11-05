@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { StatusPill, Chip, AgentAvatar, IconButton, Icon, ContextMenu } from '@renderer/ui'
 import type { StatusVariant } from '@renderer/ui'
 import { stateColor } from '@renderer/services/model'
+import { isWindowActive } from '@renderer/services/windowFocus'
 import { providerAccent } from '@renderer/services/identity'
 import { runModeLabel } from '@renderer/lib/providers'
 import { useAdvancedMode } from '@renderer/services/advancedMode'
@@ -229,7 +230,9 @@ export function CharacterCard({
   const [, setAgoTick] = useState(0)
   useEffect(() => {
     if (!showAgo) return
-    const id = setInterval(() => setAgoTick((t) => t + 1), 30000)
+    // Skip the re-render while idle/blurred (isWindowActive folds in powerMonitor
+    // idle) — a resting grid of cards shouldn't each wake every 30s on a VNC box.
+    const id = setInterval(() => { if (isWindowActive()) setAgoTick((t) => t + 1) }, 30000)
     return () => clearInterval(id)
   }, [showAgo])
   const idleAgo = showAgo ? agoLabel(lastActivity) : ''

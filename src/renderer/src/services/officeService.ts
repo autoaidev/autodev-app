@@ -827,8 +827,45 @@ interface MsgEntry {
 const entries = new Map<string, MsgEntry>()
 const keyOf = (slug: string, ref: string): string => `${slug}|${ref}`
 
+/** Content-equality for a transcript — refs differ every poll (fresh objects from
+ *  the API), so compare the fields that actually change (text grows while an agent
+ *  streams; the rest is stable per id). Short-circuits on ref-equal items. */
+function messagesEqual(a: ChatMessage[], b: ChatMessage[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]
+    const y = b[i]
+    if (x === y) continue
+    if (
+      x.id !== y.id || x.text !== y.text || x.role !== y.role ||
+      x.kind !== y.kind || x.author !== y.author || x.at !== y.at
+    ) {
+      return false
+    }
+  }
+  return true
+}
+
 function emitEntry(e: MsgEntry, patch: Partial<MessagesSnapshot>): void {
-  e.snap = { ...e.snap, ...patch }
+  const cur = e.snap
+  // Reuse the prior messages array when the new transcript is content-equal, so an
+  // unchanged 4s poll keeps a STABLE ref — useSyncExternalStore then sees no change
+  // and skips the full (unvirtualized) transcript re-render. Without this, every
+  // poll emitted a fresh [] and re-reconciled thousands of rows for nothing.
+  if (patch.messages && messagesEqual(patch.messages, cur.messages)) {
+    patch = { ...patch, messages: cur.messages }
+  }
+  const next: MessagesSnapshot = { ...cur, ...patch }
+  if (
+    next.messages === cur.messages &&
+    next.loading === cur.loading &&
+    next.error === cur.error &&
+    next.resolvedAgentId === cur.resolvedAgentId
+  ) {
+    return // nothing changed → no emit, no re-render
+  }
+  e.snap = next
   e.listeners.forEach((cb) => cb())
 }
 
