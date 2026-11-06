@@ -1,8 +1,8 @@
-version: 0.3.121
+version: 0.3.122
 files:
-  - url: AutoDev-0.3.121-setup.exe
-    sha512: X7cb9zHLi8btpSU8nCyFHLHywCMnECFV3H5mO71QN8OCg/aXF4t9/YnjV7BZez4w5C6wRe9dKmk3Lz5ETzW+5w==
-    size: 96089064
-path: AutoDev-0.3.121-setup.exe
-sha512: X7cb9zHLi8btpSU8nCyFHLHywCMnECFV3H5mO71QN8OCg/aXF4t9/YnjV7BZez4w5C6wRe9dKmk3Lz5ETzW+5w==
-releaseDate: '2026-11-05T14:23:35.787Z'
+  - url: AutoDev-0.3.122-setup.exe
+    sha512: dXLiYDxVTmN5o0YB6D/7Q2r4aAtyspQsxyCHtcYTSvO49+xzxi3QW4O50S3mZ54lxW2+ApuhuMo1RESoYZkxxQ==
+    size: 96090232
+path: AutoDev-0.3.122-setup.exe
+sha512: dXLiYDxVTmN5o0YB6D/7Q2r4aAtyspQsxyCHtcYTSvO49+xzxi3QW4O50S3mZ54lxW2+ApuhuMo1RESoYZkxxQ==
+releaseDate: '2026-11-06T12:45:10.653Z'
